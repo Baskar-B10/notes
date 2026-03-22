@@ -276,3 +276,157 @@ exceptions in overriding:
      Subclass Exception - parent throw IO (parent) and child can throw File Not found exception (child of IO)
      Broader Exception → NOT Allowed - parent throws  File Not found exception (child of IO) and child  throw IO (parent) - not possible
      New Checked Exception → NOT Allowed - parent no exception , child throws exception.
+
+  Dynamic Method Dispatch:
+  When a method call is resolved at runtime based on the object type, not reference type
+  also called runtime polymorphism or late binding
+
+  Static (early) vs Dynamic (late) Binding:
+  static:
+    used for static, private and final methods and method overloading
+    Decision made at compile time
+    Faster
+  dynamic:
+    used for method override
+    Decision at runtime
+    slower
+  class A {
+    void show() {
+        System.out.println("A");
+    }
+}
+class B extends A {
+    void show() {
+        System.out.println("B");
+    }
+}
+public class Main {
+    public static void main(String[] args) {
+        A obj = new B();
+        obj.show();
+    }
+} -> B
+
+Constructor Types:
+  Default contructor : provide by JVM . Class A = new Class() -> JVM provides the constructor
+  No Argument Constructor : Provide by Developer. class Tess { Test(){}}
+  parameterized constructor : have parameter Student(String n) {}
+  copy constructor : creates object using another objects
+    class Student {
+    String name;
+    Student(String n) {
+        name = n;
+    }
+    Student(Student s) {
+        this.name = s.name;
+    }
+}
+  overloading constructor: different parameter for each constructor
+  Private constructor - used in singleton class. cant instanstiate 
+  static constructor - cant be possible onlt static block
+  constructor chaining using this keyword
+
+  this keyword:
+    refers to current object 
+    calls current class method
+    calls constructor
+    pass current object as parameter
+    return current object
+    can't use in static method
+
+  final keyword:
+    used to restrict modification 
+    vaiable -> to make constant
+    method -> cant override the method
+    class -> cant extend the class
+    final varaiable can be initized at constructor 
+    final int x;
+    Test() {
+      x = 10;}
+
+Singleton class:
+  creates only one object / instance in the application
+  to make singleton:
+    make constructor private
+    create static instance 
+    provide public static methods to access it
+  class Singleton {
+    private static Singleton instance = new Singleton();
+    private Singleton() {}
+    public static Singleton getInstance() {
+        return instance;
+    }
+}
+Singleton s1 = Singleton.getInstance();
+Singleton s2 = Singleton.getInstance();
+System.out.println(s1 == s2); // true
+
+Thread-Safe Singleton (Important)
+✅ Lazy Initialization + synchronized
+  class Singleton {
+    private static Singleton instance;
+    private Singleton() {}
+    public static synchronized Singleton getInstance() {
+        if (instance == null) {
+            instance = new Singleton();
+        }
+        return instance;
+    }
+}
+used in Database connection, Logger and Configuration
+
+Immutable class:
+  Object whose state cannot be changed after creation
+  used in String class, Cache keys and DTOs
+To make:
+  class as final
+  make private final fields
+  no setter methods
+  initiazie via constructor
+  Return copies for mutable objects
+  final class Student {
+    private final String name;
+    private final int marks;
+    public Student(String name, int marks) {
+        this.name = name;
+        this.marks = marks;
+    }
+    public String getName() {
+        return name;
+    }
+    public int getMarks() {
+        return marks;
+    }
+}
+Mutable Object Handling:
+final class Test {
+    private final List<String> list;
+
+    Test(List<String> list) {
+        this.list = new ArrayList<>(list); // copy
+    }
+
+    public List<String> getList() {
+        return new ArrayList<>(list); // return copy
+    }
+}
+
+Command Line Arguments in Java:
+arguments passed to main method via terminal
+
+Java methods:
+toString() - provides ClassName@hashcode . if we override the method and write logic to return varaiables details , useful in readability
+hashcode() - provides interger value for identity. used in hashmap and hash set. used for hashing. if we ovveride,  Correct collection behavior (no duplicate in set )
+  If you override hashCode(), you should also override equals()
+equals() - used in object comparison , if we override we can compare the contents logically. To compare object content instead of reference
+
+Set<Student> set = new HashSet<>();
+set.add(new Student("A"));
+set.add(new Student("A"));
+👉 Without override:Duplicate objects ❌
+👉 With equals + hashCode: No duplicates ✅
+  
+String a = new String("hello");
+String b = new String("hello");
+System.out.println(a == b);        // false ❌
+System.out.println(a.equals(b));   // true ✅
