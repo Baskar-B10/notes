@@ -11,7 +11,27 @@ PC register - stores current execution
 Garbage collection:
 prevents memory leak 
 automactially removes unused objects
+Test t = new Test();
+t = null; // eligible for GC
 
+When Object is Eligible for GC?
+  Reference = null
+  Reassigned
+  Out of scope
+  Anonymous object new Test(); // eligible immediately
+
+GC Methods
+  System.gc() - Suggests JVM to run GC. Not guaranteed
+  finalize() (Deprecated concept) - Called before object is destroyed. Not reliable
+Modern Garbage Collectors:
+  1. G1 GC (Garbage First) — ⭐ Default (Java 9+) - Splits heap → small regions. Cleans regions with most garbage first
+                          -XX:+UseG1GC
+  2. ZGC (Z Garbage Collector) — 🚀 Ultra Low Latency - Real-time systems. Handles very large heaps (TB level). Mostly concurrent GC. Trading apps, high-performance APIs.
+                          -XX:+UseZGC
+  3. Shenandoah GC (Low Pause GC)- Low pause time like ZGC. Concurrent compaction. Reduces GC pause impact.Applications needing consistent response time
+                          -XX:+UseShenandoahGC
+  4.Parallel GC (Throughput GC) - Focus on high throughput. Uses multiple threads. Higher pause time. Batch processing
+    
 Class loader- loads .class files in JVM
 Bootstrap ( libraries in Java.lang) -> Extension (lib in extension path) ->Application  (java classes)
 
