@@ -151,12 +151,15 @@ Abstract -
     constructor exist
     single inheritance (extends)
     methods have any access specfier
+    example : used in different service class (AbstractServiceCompositIMPL) 
 Interface - 
     only abstract methods
     can have only static final varaiables
     no constructor
     multiple inheritance (implements)
     default and static methods (java 8)
+    example: used in Mapper and DAO class.
+                              
   
 ✅ Use Abstract Class when:
 You need common code (methods with body)
