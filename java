@@ -458,3 +458,21 @@ String a = new String("hello");
 String b = new String("hello");
 System.out.println(a == b);        // false ❌
 System.out.println(a.equals(b));   // true ✅
+
+What is a Package?
+A package is a collection of related classes and interfaces grouped together.
+👉 Think like:
+    Folder in your system 📁
+    Helps organize code
+🔥 Why Packages?
+    Avoid class name conflicts
+    Improve code organization
+    Provide access control
+    Easy maintenance
+Types of Packages
+1. Built-in Packages- mProvided by Java
+Examples:
+java.lang (default)
+java.util
+java.io
+2. User-defined Packages - Created by developer
