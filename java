@@ -344,6 +344,14 @@ Constructor Types:
     Test() {
       x = 10;}
 
+  Super keyword:
+    access parent class varaible
+    calls parent class methods
+    calls parent class constructor 
+    super() must be first statement in constructor
+    if you don’t write super()  Java automatically inserts it
+    super cant be used in static method
+
 Singleton class:
   creates only one object / instance in the application
   to make singleton:
