@@ -250,3 +250,29 @@ interface B extends A {
 }
 class C implements B {} -> B is more specific → used
 3. Must override if conflict
+
+Method overloading vs overriding :
+overload:
+  can be in same class
+  name should be same and different parameter 
+  return type should be same/different
+override:
+  can be parent-child
+  name same and same parameter and same return type.
+rules of overload:
+  1. should be same name and different parameter
+  2. can't be same parameters 
+  3. can't be only different in return type
+rules of override:
+  1. sttaic method can't be override
+  2. final method can't be override
+  3. private method can't be override
+  4. different parameters or return type
+  5. reducing access level. example: protected method in parent class. child can have public or protected acess not dafult and private method access type.
+exceptions in overriding:
+  1. unchecked exception (ARRAYoutofIndex, NPE) can be thrown in child . no need to enfore in parent.
+  2. checked exception like sqlexception, IOexception:
+     Same Exception - both parent and child throws IOexception
+     Subclass Exception - parent throw IO (parent) and child can throw File Not found exception (child of IO)
+     Broader Exception → NOT Allowed - parent throws  File Not found exception (child of IO) and child  throw IO (parent) - not possible
+     New Checked Exception → NOT Allowed - parent no exception , child throws exception.
