@@ -85,3 +85,17 @@ Common Problems in Multithreading:
   2. deadlock - thread waiting for other thread foreever
   3. thread starvation - no cpu time to execute . priority thread execute . so low priority thread never executes
 
+Daemon thread:
+  runs background thread that supports other thread.
+  low priority background threads
+  when non-daemon thread (all user thread) terminates then it will terminate daemon thread
+  mostly used for Monitoring , logs , Garbage collections, Background timers and Cleanup tasks
+  not suitable for transaction ,DB connections
+  thread.setDaemon(true); before thread.start() otherwise throws IllegalThreadStateException.
+  isDaemon() used to check whether thread is daemon or not.
+
+User Vs Daemon:
+  User thread is for main task Daemon is for background task
+  JVM wait for User thread not for daemon
+  Lifecycle is independent for User , ends with JVM for daemon
+  example : Main - User , GC - Daemon
