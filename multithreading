@@ -1,0 +1,87 @@
+Thread:
+  execute single unit of operation 
+  java atleast have one thread (main thread)
+example : file downloads and still able to scroll the web page
+
+Why Multithreading?
+Better CPU utilization
+Faster execution (parallel tasks)
+Responsive UI (especially in apps)
+Handles multiple users (server-side apps)
+
+Ways to Create Threads in Java:
+
+1. Using "extend" Thread class
+class MyThread extends Thread {
+    public void run() {
+        System.out.println("Thread running...");
+    }
+}
+public class Main {
+    public static void main(String[] args) {
+        MyThread t = new MyThread();
+        t.start(); // starts new thread
+    }
+}
+2. using "Implements" on Runnable interface
+class MyRunnable implements Runnable {
+    public void run() {
+        System.out.println("Runnable thread...");
+    }
+}
+public class Main {
+    public static void main(String[] args) {
+        Thread t = new Thread(new MyRunnable());
+        t.start();
+    }
+}
+Runnable interface is preffered since its allows multiple inheritance and better design separation
+
+Thread Life Cycle:
+    New → Thread created
+    Runnable → Ready to run
+    Running → Executing
+    Blocked/Waiting → Waiting for resource
+    Terminated → Finished execution
+
+methods in Thread:
+  start() - start the thread
+  run() - execute the code
+  sleep(ms) - pause the thread
+  join - wait for other thread
+  yield - give chances to other
+  interrupt()- stop/blocking signals
+
+Synchronization:
+When multiple threads access shared data → Race Condition so we need Synchronization 
+class Counter {
+    int count = 0;
+    synchronized void increment() {
+        count++;
+    }
+}
+
+Inter-Thread Communication - Used when threads depend on each other.
+Methods:
+  wait()
+  notify()
+  notifyAll()
+
+Thread Pool (Executor Framework) 
+Instead of creating many threads manually:
+          import java.util.concurrent.*;
+          ExecutorService executor = Executors.newFixedThreadPool(3);
+          executor.submit(() -> {
+              System.out.println("Task executed");
+          });
+          executor.shutdown();
+benefits:
+  reuse the threads
+  controls no of threads
+  better performance
+
+Common Problems in Multithreading:
+  1. race condition - multiple threads updates same data 
+  2. deadlock - thread waiting for other thread foreever
+  3. thread starvation - no cpu time to execute . priority thread execute . so low priority thread never executes
+
