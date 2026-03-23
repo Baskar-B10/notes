@@ -56,6 +56,19 @@ methods in Thread:
 
 Callable vs runnable interface and furture
 -----------------------------------------
+Thread Pool (Executor Framework) 
+Instead of creating many threads manually:
+          import java.util.concurrent.*;
+          ExecutorService executor = Executors.newFixedThreadPool(3);
+          executor.submit(() -> {
+              System.out.println("Task executed");
+          });
+          executor.shutdown();
+benefits:
+  reuse the threads
+  controls no of threads
+  better performance
+
 Runnable Interface:
   no return statement
   no checked exception will be throw
@@ -256,6 +269,12 @@ submit(): takes Callable and Runnable. Returns Future and tracks results and Exc
 Future<Integer> future = executor.submit(() -> {
     return 10;
 });
+
+Common Problems in Multithreading:
+  1. race condition - multiple threads updates same data 
+  2. deadlock - thread waiting for other thread foreever
+  3. thread starvation - no cpu time to execute . priority thread execute . so low priority thread never executes
+
 Synchronization:
 When multiple threads access shared data → Race Condition so we need Synchronization 
 class Counter {
@@ -270,24 +289,77 @@ Methods:
   wait()
   notify()
   notifyAll()
+Types of Synchronization:
+  1. Method Level - synchronized void display() {}
+  2. Block Level (Better ✅)
+          void display() {
+            synchronized(this) {
+                // critical section
+            }
+        }
+  3. Static Synchronization - Lock on class object : static synchronized void show() {} 
+    Static synchronization means using synchronized on a static method, 
+    so the lock is applied at the class level (not object level).
+    Lock is on: ClassName.class not on this ❌
+    Used when:
+        Data is shared across all objects
+        You want only one thread across entire class to access it
 
-Thread Pool (Executor Framework) 
-Instead of creating many threads manually:
-          import java.util.concurrent.*;
-          ExecutorService executor = Executors.newFixedThreadPool(3);
-          executor.submit(() -> {
-              System.out.println("Task executed");
-          });
-          executor.shutdown();
-benefits:
-  reuse the threads
-  controls no of threads
-  better performance
+Static vs Instance Synchronization 
+    Feature	          Instance Sync	        Static Sync
+    Lock	            Object (this)        	Class (.class)
+    Scope	            Per object	          Entire class
+    Threads allowed  	One per object	      One per class
+Will two threads run simultaneously? No if static , yes for Instance Synchronization
+Mixing static & instance sync - Can run simultaneously → may cause issues
+Can static and instance synchronized methods run together? YES (different locks)
 
-Common Problems in Multithreading:
-  1. race condition - multiple threads updates same data 
-  2. deadlock - thread waiting for other thread foreever
-  3. thread starvation - no cpu time to execute . priority thread execute . so low priority thread never executes
+synchronized vs volatile
+
+Synchronized:
+  Provides mutual exclusion (lock)
+  Only one thread at a time can access
+  Ensures atomicity + visibility
+Volatile:
+  no atomicity only visibility
+  no lock
+  faster
+  Guarantees:Changes made by one thread are visible to others immediately
+
+Deadlock:
+  A deadlock occurs when two or more threads are waiting forever for each other’s locks.
+Thread 1 → locks A → waits for B
+Thread 2 → locks B → waits for A
+How to Detect Deadlock: Using JDK Tool
+program:
+    ThreadMXBean bean = ManagementFactory.getThreadMXBean();
+    long[] ids = bean.findDeadlockedThreads();
+How to Fix Deadlock:
+  Lock Ordering (BEST PRACTICE)
+  Use Timeout Lock
+  Reduce Nested Locks
+
+Deadlock → threads are waiting (blocked) , CPU usage is low, due to waiting
+Livelock → threads are running but not progressing, cpu usage is high, its due to over coordination
+
+livelock:
+  A livelock occurs when threads are not blocked, but they keep changing their state in response to each other and never make progress.
+  Threads are active (running) but still stuck logically
+    Thread 1 → "You go first"
+    Thread 2 → "No, you go first"
+    Thread 1 → "Okay you go"
+    Thread 2 → "No you go"
+
+Why Livelock Happens?
+    Threads trying to be too polite
+    Continuous retries
+    Overuse of tryLock() without control
+    Excessive coordination logic
+How to Fix Livelock:
+  Add Random Delay (Backoff Strategy)
+  Reduce Coordination
+  Limit Retries
+  Use Proper Locking Strategy
 
 Daemon thread:
   runs background thread that supports other thread.
