@@ -54,6 +54,14 @@ methods in Thread:
   yield - give chances to other
   interrupt()- stop/blocking signals
 
+  Feature	            sleep()	      wait()
+  Lock release	      ❌ No	        ✅ Yes
+  Class	              Thread	       Object
+  Used in sync block	❌ No	        ✅ Yes
+
+Can we start a thread twice ? - No throws IllegalThreadStateException
+What happens if run() is called instead of start()  - Runs like normal method (no new thread)
+
 Callable vs runnable interface and furture
 -----------------------------------------
 Thread Pool (Executor Framework) 
@@ -270,6 +278,17 @@ Future<Integer> future = executor.submit(() -> {
     return 10;
 });
 
+Inter-Thread Communication - Used when threads depend on each other.
+Methods:
+  wait()
+  notify() -wakes one thread. Using notify() may cause thread starvation
+  notifyAll() -wakes all waiting threads
+
+Thread Starvation - 
+    When a thread never gets CPU time because:
+      High priority threads dominate.
+      Locks not released properly
+
 Common Problems in Multithreading:
   1. race condition - multiple threads updates same data 
   2. deadlock - thread waiting for other thread foreever
@@ -284,11 +303,7 @@ class Counter {
     }
 }
 
-Inter-Thread Communication - Used when threads depend on each other.
-Methods:
-  wait()
-  notify()
-  notifyAll()
+
 Types of Synchronization:
   1. Method Level - synchronized void display() {}
   2. Block Level (Better ✅)
@@ -315,7 +330,6 @@ Mixing static & instance sync - Can run simultaneously → may cause issues
 Can static and instance synchronized methods run together? YES (different locks)
 
 synchronized vs volatile
-
 Synchronized:
   Provides mutual exclusion (lock)
   Only one thread at a time can access
@@ -325,6 +339,61 @@ Volatile:
   no lock
   faster
   Guarantees:Changes made by one thread are visible to others immediately
+  Why is count++ not thread-safe even with volatile?  
+    Because it is not atomic. Read, write and increement. 
+    fix using synchronization or AtomicInteger.incrementAndGet()
+
+
+Problem with synchronized:
+    No timeout
+    No try mechanism
+    No fairness control
+    Automatically managed (less control)
+Lock solves:
+    Try acquiring lock without blocking
+    Timeout support
+    Interruptible lock
+    Better control
+Lock:
+  A Lock is a more flexible alternative to synchronized used to control access to shared resources.
+  Comes from: java.util.concurrent.locks
+  import java.util.concurrent.locks.*;
+  Lock lock = new ReentrantLock();
+  lock.lock(); // acquire
+  try {
+      System.out.println("Critical section");
+  } finally {
+      lock.unlock(); // must release
+  }
+
+ReentrantLock:
+  A ReentrantLock allows the same thread to acquire the lock multiple times.
+  Based on:AbstractQueuedSynchronizer (AQS)
+  Maintains: State (lock count) and Queue (waiting threads)
+  Re = again , Same thread can re-enter lock
+    ReentrantLock lock = new ReentrantLock();
+    lock.lock();
+    lock.lock(); // allowed
+    try {
+        System.out.println("Inside");
+    } finally {
+        lock.unlock();
+        lock.unlock(); // must match lock count
+    }
+    
+    tryLock() (Non-blocking) - Avoids waiting → useful for deadlock prevention 
+                              lock.tryLock()
+    tryLock with Timeout - Prevents infinite waiting 
+                            lock.tryLock(2, TimeUnit.SECONDS)
+    Fair Lock - Threads get lock in FIFO order, Slightly slower 
+                      ReentrantLock lock = new ReentrantLock(true);
+    Interruptible Lock -Thread can be interrupted while waiting
+          lock.lockInterruptibly();
+
+❌ Forgetting unlock - Causes deadlock
+❌ Unlock without lock - lock.unlock(); // IllegalMonitorStateException
+❌ Not using finally -Lock may never release
+Can multiple threads enter lock? - ❌ No (only one at a time)
 
 Deadlock:
   A deadlock occurs when two or more threads are waiting forever for each other’s locks.
@@ -375,3 +444,9 @@ User Vs Daemon:
   JVM wait for User thread not for daemon
   Lifecycle is independent for User , ends with JVM for daemon
   example : Main - User , GC - Daemon
+
+ThreadLocal:
+  Each thread gets its own copy of variable.
+  ThreadLocal<Integer> local = ThreadLocal.withInitial(() -> 0);
+  used in DB connections and user session
+
