@@ -37,8 +37,6 @@ public class Main {
 }
 Runnable interface is preffered since its allows multiple inheritance and better design separation
 
-
-
 Thread Life Cycle:
     New → Thread created
     Runnable → Ready to run
@@ -61,6 +59,12 @@ methods in Thread:
 
 Can we start a thread twice ? - No throws IllegalThreadStateException
 What happens if run() is called instead of start()  - Runs like normal method (no new thread)
+OutOfMemory in multithreading:
+      Too many threads created
+      ThreadLocal memory leaks
+      Unclosed thread pools
+
+
 
 Callable vs runnable interface and furture
 -----------------------------------------
@@ -278,6 +282,17 @@ Future<Integer> future = executor.submit(() -> {
     return 10;
 });
 
+ForkJoinPool:
+  Used for parallel tasks
+  ForkJoinPool pool = new ForkJoinPool();  
+  pool.submit(() -> {
+      System.out.println("Task");
+  });
+  Divide task → smaller tasks
+  Execute in parallel
+  Combine result
+  Example Use Case: Large array processing and Parallel streams
+
 Inter-Thread Communication - Used when threads depend on each other.
 Methods:
   wait()
@@ -294,6 +309,9 @@ Common Problems in Multithreading:
   2. deadlock - thread waiting for other thread foreever
   3. thread starvation - no cpu time to execute . priority thread execute . so low priority thread never executes
 
+Race condition → problem
+Critical section → code area causing problem
+
 Synchronization:
 When multiple threads access shared data → Race Condition so we need Synchronization 
 class Counter {
@@ -302,7 +320,6 @@ class Counter {
         count++;
     }
 }
-
 
 Types of Synchronization:
   1. Method Level - synchronized void display() {}
@@ -342,7 +359,6 @@ Volatile:
   Why is count++ not thread-safe even with volatile?  
     Because it is not atomic. Read, write and increement. 
     fix using synchronization or AtomicInteger.incrementAndGet()
-
 
 Problem with synchronized:
     No timeout
@@ -450,3 +466,12 @@ ThreadLocal:
   ThreadLocal<Integer> local = ThreadLocal.withInitial(() -> 0);
   used in DB connections and user session
 
+Happens-Before Relationship:
+  From Java Memory Model: Ensures visibility + ordering
+  start() happens-before thread execution
+  volatile write → visible to other threads
+
+not use stop() method? ❌ Deprecated because: Leaves object in inconsistent state
+false sharing? 👉 Multiple threads update variables in same CPU cache line → performance degradation
+Concurrency → multiple tasks managed
+Parallelism → tasks executed simultaneously
