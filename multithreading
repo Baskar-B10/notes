@@ -475,3 +475,90 @@ not use stop() method? ❌ Deprecated because: Leaves object in inconsistent sta
 false sharing? 👉 Multiple threads update variables in same CPU cache line → performance degradation
 Concurrency → multiple tasks managed
 Parallelism → tasks executed simultaneously
+
+Atomic Classes (CAS - Compare And Swap):
+    import java.util.concurrent.atomic.AtomicInteger;
+    AtomicInteger count = new AtomicInteger(0);
+    count.incrementAndGet();
+  Atomic classes use: CAS (Compare-And-Swap)
+  How CAS Works:
+    Step 1: Read current value
+    Step 2: Compare with expected value
+    Step 3: If same → update
+    Step 4: Else → retry
+ Example (Concept):
+  int current = count.get();
+  if (current == expected) {
+      count.set(newValue);
+  }
+   Done using CPU instruction (no lock)
+   Why Atomic is Fast:
+      No blocking
+      No context switching
+      Uses hardware-level support
+  Limitations:
+      High contention → many retries
+      Not suitable for complex operations
+   Common Atomic Classes:
+      AtomicInteger
+      AtomicLong
+      AtomicBoolean
+      AtomicReference
+  Real Use Case:
+      AtomicInteger counter = new AtomicInteger();  
+      new Thread(() -> counter.incrementAndGet()).start();
+
+Thread-Safe Singleton in Java:
+❌ Problem (Without Thread Safety)
+class Singleton {
+    private static Singleton instance;
+    private Singleton() {}
+    public static Singleton getInstance() {
+        if (instance == null) {
+            instance = new Singleton(); // ❌ race condition
+        }
+        return instance;
+    }
+}
+Multiple threads → multiple objects created
+  1. Synchronized Method (Simple but slow)
+    class Singleton {
+        private static Singleton instance;
+        private Singleton() {}
+        public static synchronized Singleton getInstance() {
+            if (instance == null) {
+                instance = new Singleton();
+            }
+            return instance;
+        }
+    }
+ Issue: Lock applied every time → performance impact
+2. Double-Checked Locking (Best Practice) 
+class Singleton {
+    private static volatile Singleton instance;
+    private Singleton() {}
+    public static Singleton getInstance() {
+        if (instance == null) {
+            synchronized (Singleton.class) {
+                if (instance == null) {
+                    instance = new Singleton();
+                }
+            }
+        }
+        return instance;
+    }
+}
+  Why volatile is needed? Without it:
+    1. Allocate memory
+    2. Assign reference
+    3. Initialize object
+Another thread may see partially created object , volatile prevents instruction reordering
+
+3. Best Solution → Enum Singleton ⭐
+enum Singleton {
+    INSTANCE;
+}
+ Advantages:
+    Thread-safe by default
+    Handles serialization
+    Prevents reflection attack
