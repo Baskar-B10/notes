@@ -37,6 +37,8 @@ public class Main {
 }
 Runnable interface is preffered since its allows multiple inheritance and better design separation
 
+
+
 Thread Life Cycle:
     New → Thread created
     Runnable → Ready to run
@@ -52,6 +54,208 @@ methods in Thread:
   yield - give chances to other
   interrupt()- stop/blocking signals
 
+Callable vs runnable interface and furture
+-----------------------------------------
+Runnable Interface:
+  no return statement
+  no checked exception will be throw
+  within thread
+  When you call thread.start(), jvm runs run() method
+
+Callable Interface:
+  return objects
+  can have checked exception 
+  used with ExecutorService
+  Callable is wrapped into FutureTask then  executed by thread pool 
+      FutureTask<Integer> ft = new FutureTask<>(task);
+
+Why Callable is better?
+    Clean result handling
+    Proper exception propagation
+    Designed for concurrency APIs
+
+Future Interface:
+  stores results asynchronous computation
+  Future<Integer> f = executor.submit(() -> 10);
+  f.get();        // waits and returns result
+  f.isDone();     // check completion
+  f.cancel(true); // cancel task
+  get() blocks until result is ready
+  Future is not fully async because it blocks
+Holds state:
+        NEW
+        RUNNING
+        COMPLETED
+        CANCELLED
+
+Flow: Callable → wrapped into FutureTask → submitted to ExecutorService → returns Future
+
+ExecutorService executor = Executors.newFixedThreadPool(2);
+Callable<Integer> task = () -> {
+    Thread.sleep(1000);
+    return 42;
+};
+Future<Integer> future = executor.submit(task);
+System.out.println("Doing other work...");
+Integer result = future.get(); // blocks
+System.out.println(result);
+executor.shutdown();
+
+FutureTask:
+  combines future and Runnable
+Why important?
+  Used internally by ExecutorService
+  Gives control over execution
+Problems with Future: 
+  Blocking - future.get();
+  No chaining - Cannot do: task1 ->task2 ->task3
+Modern Solution → CompletableFuture (Non-blocking + chaining) 
+  CompletableFuture.supplyAsync(() -> 10)
+      .thenApply(x -> x * 2)
+      .thenAccept(System.out::println);
+
+Can Runnable return value? Indirectly usinf Future Future<?> f = executor.submit(runnable);
+Can Future be reused? No 
+What happens if exception occurs in Future , future.get();  throws ExecutionException
+
+Real-world Usage
+    API calls in parallel
+    DB queries
+    Microservices aggregation
+
+Runnable with Thread (Basic Thread Execution):
+class MyRunnable implements Runnable {
+    public void run() {
+        System.out.println("Runnable running by: " + Thread.currentThread().getName());
+    }
+}
+public class Main {
+    public static void main(String[] args) {
+        Thread t1 = new Thread(new MyRunnable());
+        t1.start();
+    }
+}
+main() creates thread -> start() → new thread created -> JVM calls run() -> No result returned
+
+Runnable with ExecutorService:
+ExecutorService executor = Executors.newFixedThreadPool(2);
+Runnable task = () -> {
+    System.out.println("Runnable task executed by: " + Thread.currentThread().getName());
+};
+executor.submit(task);
+executor.shutdown();
+Task submitted to thread pool -> One thread picks it ->Executes run()
+
+Callable with Future (Real Thread Execution):
+import java.util.concurrent.*;
+public class Main {
+    public static void main(String[] args) throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        Callable<Integer> task = () -> {
+            System.out.println("Callable running by: " + Thread.currentThread().getName());
+            Thread.sleep(1000);
+            return 50;
+        };
+        Future<Integer> future = executor.submit(task);
+        System.out.println("Main thread doing other work...");
+        Integer result = future.get(); // blocks here
+        System.out.println("Result: " + result);
+        executor.shutdown();
+    }
+}
+submit(task) → wraps Callable into FutureTask
+Thread pool picks task → executes call()
+Result stored inside Future 
+future.get() → waits until result ready
+
+Runnable + Future:
+Runnable doesn’t return result, but:
+ExecutorService executor = Executors.newSingleThreadExecutor();
+Runnable task = () -> {
+    System.out.println("Runnable executed");
+};
+Future<?> future = executor.submit(task);
+future.get(); // waits for completion
+System.out.println("Done");
+executor.shutdown();
+Future<?> returns null But can track completion
+
+FutureTask (Core Internal Working):
+import java.util.concurrent.*;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        Callable<Integer> callable = () -> {
+            return 100;
+        };
+        FutureTask<Integer> futureTask = new FutureTask<>(callable);
+        Thread t = new Thread(futureTask);
+        t.start();
+        System.out.println("Result: " + futureTask.get());
+    }
+}
+Callable → wrapped into FutureTask
+Thread executes it
+Result stored internally
+get() retrieves result
+
+Multiple Callable Tasks:
+Fetch data from 3 APIs in parallel”
+ExecutorService executor = Executors.newFixedThreadPool(3);
+Callable<Integer> t1 = () -> 10;
+Callable<Integer> t2 = () -> 20;
+Callable<Integer> t3 = () -> 30;
+Future<Integer> f1 = executor.submit(t1);
+Future<Integer> f2 = executor.submit(t2);
+Future<Integer> f3 = executor.submit(t3);
+System.out.println(f1.get() + f2.get() + f3.get());
+executor.shutdown();
+
+Non-blocking Check (Future):
+Future<Integer> future = executor.submit(() -> {
+    Thread.sleep(2000);
+    return 99;
+});
+while (!future.isDone()) {
+    System.out.println("Waiting...");
+}
+System.out.println("Result: " + future.get());
+Avoids blocking immediately
+Polling approach
+
+Exception Handling in Callable:
+Future<Integer> future = executor.submit(() -> {
+    throw new RuntimeException("Error");
+});
+try {
+    future.get();
+} catch (ExecutionException e) {
+    System.out.println("Exception: " + e.getCause());
+}
+Exception wrapped in: ExecutionException
+
+ExecutorService:
+  ExecutorService is a high-level API to manage threads using a thread pool.
+  Instead of new Thread(...).start(); use ExecutorService executor = Executors.newFixedThreadPool(3);
+  Manual thread creation:
+          Expensive ❌
+          Hard to manage ❌
+          No reuse ❌
+  ExecutorService solves:
+          Thread reuse
+          Task scheduling
+          Lifecycle management
+Most implementations use: ThreadPoolExecutor
+Components: Worker threads,Task queue and Rejection policy
+
+execute():  Takes Runnable only, Returns void, no results and throws exception directly
+executor.execute(() -> {
+    System.out.println("Task executed");
+});
+submit(): takes Callable and Runnable. Returns Future and tracks results and Exceptions wrapped in ExecutionException
+Future<Integer> future = executor.submit(() -> {
+    return 10;
+});
 Synchronization:
 When multiple threads access shared data → Race Condition so we need Synchronization 
 class Counter {
