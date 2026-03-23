@@ -47,10 +47,11 @@ Thread Life Cycle:
 methods in Thread:
   start() - start the thread
   run() - execute the code
-  sleep(ms) - pause the thread
-  join - wait for other thread
+  sleep(ms) - pause the thread , Does NOT release lock
+  join - wait for other thread 
   yield - give chances to other
   interrupt()- stop/blocking signals
+  isAlive() - Check if running
 
   Feature	            sleep()	      wait()
   Lock release	      ❌ No	        ✅ Yes
@@ -59,12 +60,20 @@ methods in Thread:
 
 Can we start a thread twice ? - No throws IllegalThreadStateException
 What happens if run() is called instead of start()  - Runs like normal method (no new thread)
+    t.run(); // normal method ❌
+    t.start(); // new thread ✅
 OutOfMemory in multithreading:
       Too many threads created
       ThreadLocal memory leaks
       Unclosed thread pools
 
-
+Thread Priority:
+  Thread priority decides which thread gets CPU preference
+    Thread.MIN_PRIORITY = 1
+    Thread.NORM_PRIORITY = 5
+    Thread.MAX_PRIORITY = 10
+  Higher priority → more chance to run -> ❗ NOT guaranteed execution order , its OS dependent
+  Priority does NOT guarantee: High priority thread runs first ❌
 
 Callable vs runnable interface and furture
 -----------------------------------------
