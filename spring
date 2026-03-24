@@ -366,3 +366,59 @@ How Spring creates an object (bean) inside the IoC container:
       bd.setBeanClass(PaymentService.class);
       beanFactory.registerBeanDefinition("ps", bd);
   ✔ Used in:Framework development
+
+Bean Scope:
+  How many instances of a bean are created and how long they live.
+Why Bean Scope is Important:
+    Controls memory usage
+    Controls object sharing
+    Impacts thread safety
+    Affects lifecycle behavior
+Spring uses "scope" interface and implemennts:
+    SingletonScope
+    PrototypeScope
+    RequestScope
+    SessionScope
+Types:
+ 1. Singleton Scope (Default) - Only one instance per Spring container. 
+    @Component
+    @Scope("singleton")
+    public class UserService {}
+    
+    UserService obj1 = context.getBean(UserService.class);
+    UserService obj2 = context.getBean(UserService.class);
+    obj1 == obj2 → ✅ SAME object
+  Internal Working: stored in DefaultSingletonBeanRegistry. Created once during startup (eager by default)
+  use case: Services, DAO and Stateless classes
+  important : Must be thread-safe and Shared across application.
+2. Prototype scope - New object every time requested
+    PaymentService p1 = context.getBean(PaymentService.class);
+    PaymentService p2 = context.getBean(PaymentService.class);
+    p1 != p2 → ✅ DIFFERENT objects
+    Internal Working: spring create the bean, it return does not store it.
+    only init() method supported , Destroy() method wont call.
+    use case: stateful objects, Temporary data, per task processing
+3. Request Scope (Web) - One bean per HTTP request
+    New object for every HTTP request
+    Destroyed after request completes
+    Use Cases : Form data, API request procsseing  and request specific data.
+4. Session Scope (Web) - one bean per HTTP session
+    Same object for same user session
+    New object for new user
+    Use Case: User login data and Shopping cart
+5. Application Scope - one bean per aplication servlet
+    Shared across entire web app
+    Similar to singleton but at web level
+    Use Cases: Global configs and Shared cache
+6. WebSocket Scope (Advanced) - one bean per websocket
+    Use Cases: Real-time apps and Chat systems
+
+1.Prototype inside Singleton - 
+  Problem: only one instance created 
+  solution: Use ObjectFactory / Provider
+2. request, prototype and session are lazy initzation 
+3. Is singleton same as design pattern - NO 
+  Spring singleton: One per container
+  singleton pattern - one  per JVM
+4. No scope is thread safe by default. need to design it 
+
