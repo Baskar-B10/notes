@@ -1,0 +1,153 @@
+Spring Security:
+  Spring Security is a powerful framework used to handle:
+    Authentication (Who are you?)
+    Authorization (What can you access?)
+    Protection against attacks (CSRF, XSS, session fixation, etc.)
+
+  Points:
+      Spring Security uses filter chain pattern
+      JWT → stateless, stored in client
+      SAML → SSO with IdP
+      Always validate:
+            Token expiry
+            Signature
+      JWT + Spring Security:
+            Login API → generate token
+            Every request → validate token
+            No session storage
+      SAML + Spring Security
+            Configure IdP metadata
+            Enable saml2Login()
+            Works automatically with SSO
+            
+  Architecture Overview:
+    1. Security Filter Chain
+    Every request passes through a chain of filters.
+    Example flow: Request → FilterChain → Authentication → Authorization → Controller
+    Important filters: UsernamePasswordAuthenticationFilter, BearerTokenAuthenticationFilter (JWT) and SecurityContextPersistenceFilter
+
+    2. Core Components
+      🔹 Authentication - Represents user identity.
+             Authentication auth = new UsernamePasswordAuthenticationToken(username, password);
+      🔹 AuthenticationManager - Responsible for validating credentials.
+            authenticationManager.authenticate(auth);
+      🔹 AuthenticationProvider - Actual logic for authentication (DB, LDAP, JWT, etc.)
+      🔹 UserDetailsService -  Loads user from DB: UserDetails loadUserByUsername(String username);
+      🔹 SecurityContext - Stores authenticated user info (ThreadLocal)
+
+Basic Configuration (Spring Boot 3+):
+@Bean
+SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    http
+        .csrf(csrf -> csrf.disable())
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers("/public/**").permitAll()
+            .anyRequest().authenticated()
+        )
+        .formLogin();
+    return http.build();
+}
+
+JWT Authentication (Stateless):
+    JSON Web Token is a compact token used for stateless authentication.
+    Structure: Header.Payload.Signature
+    Example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    JWT Flow
+            Client → Login → Server validates → Generates JWT
+            Client → Sends JWT in header
+            Server → Validates JWT → Allows access
+    Header: Authorization: Bearer <token>
+    JWT Components
+      Header → Algorithm
+      Payload → User data (claims)
+      Signature → Security
+    JWT Implementation in Spring Security
+      1. Add Dependency
+          <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt</artifactId>
+          </dependency>
+      2. Create JWT Utility
+            public String generateToken(String username) {
+                return Jwts.builder()
+                    .setSubject(username)
+                    .setIssuedAt(new Date())
+                    .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60))
+                    .signWith(SignatureAlgorithm.HS256, secret)
+                    .compact();
+            }
+      3. Create JWT Filter
+            public class JwtFilter extends OncePerRequestFilter {
+                protected void doFilterInternal(HttpServletRequest request,
+                                                HttpServletResponse response,
+                                                FilterChain chain) { 
+                    String header = request.getHeader("Authorization");
+                    if (header != null && header.startsWith("Bearer ")) {
+                        String token = header.substring(7);
+                        String username = jwtUtil.extractUsername(token);
+                        if (username != null) {
+                            UsernamePasswordAuthenticationToken auth =
+                                new UsernamePasswordAuthenticationToken(username, null, List.of());
+                            SecurityContextHolder.getContext().setAuthentication(auth);
+                        }
+                    }
+                    chain.doFilter(request, response);
+                }
+            }
+      4. Register Filter
+          http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+     Key Points: Stateless (no session), Scalable (used in microservices) and Token expiry important
+
+SAML Authentication (SSO):
+    Security Assertion Markup Language (SAML) is used for Single Sign-On (SSO).
+    Used in enterprise systems.
+  
+   SAML Flow:
+    User → App (Service Provider)
+        → Redirect to Identity Provider (IdP)
+        → Login (Okta / Azure AD)
+        → IdP sends SAML response
+        → User authenticated in app
+    
+    Components:
+        Component	                    Description
+        SP (Service Provider)	        Your application
+        IdP (Identity Provider)	      Auth server (Okta, Azure AD)
+        Assertion	                    XML containing user info
+    
+    Example Providers: Okta, Azure AD and ADFS
+
+  SAML Integration in Spring Security
+      1. Add Dependency
+            <dependency>
+              <groupId>org.springframework.security</groupId>
+              <artifactId>spring-security-saml2-service-provider</artifactId>
+            </dependency>
+      2. Configure application.yml
+              spring:
+                security:
+                  saml2:
+                    relyingparty:
+                      registration:
+                        my-saml:
+                          identityprovider:
+                            metadata-uri: https://idp.com/metadata
+      3. Security Config
+            @Bean
+            SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+                http
+                    .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                    .saml2Login();
+            
+                return http.build();
+            }
+     Key Points: XML-based, Used in enterprise SSO and More secure but complex than JWT
+
+JWT vs SAML
+      Feature	      JWT	                  SAML
+      Format	      JSON	                XML
+      Use Case	    APIs, Microservices	  Enterprise SSO
+      Stateful	    Stateless	            Stateful (session-based)
+      Speed        	Fast	                Slower
+      Complexity	  Simple	              Complex
+
