@@ -422,3 +422,104 @@ Types:
   singleton pattern - one  per JVM
 4. No scope is thread safe by default. need to design it 
 
+Spring Annotations:
+  Annotations are metadata used to: Configure beans, Inject dependencies and Control behavior
+    ✔ Replace XML configuration
+    ✔ Make code cleaner and declarative
+
+1. Stereotype Annotations (Bean Creation): These mark classes as Spring-managed beans.
+  @Component (Base Annotation) - Generic bean, Base for all other class
+  @Service - Used for business logic layer, Same as @Component (semantic difference)
+  @Repository - DAO layer, add exception translation
+  @Controller - Used in Spring MVC, Returns view (JSP/HTML)
+  @RestController - combines @Controller + @ResponseBody and Returns JSON
+
+2. Dependency Injection Annotations
+  @Autowired - Injects dependency by type. Handled by: AutowiredAnnotationBeanPostProcessor
+  @Qualifier - select specific bean. 
+                @Autowired
+                @Qualifier("upiPayment")
+                private PaymentService ps;
+  @Primary - default bean if multiple bean exist
+                @Primary
+                @Component
+                class CardPayment implements PaymentService {}
+  @Value - Inject values from property and environment
+
+3. Configuration Annotations
+  @Configuration - marks config class , replace XML. @Configuration class is CGLIB proxied. Ensures singleton behavior
+  @Bean - manually defines the bean
+  @ComponentScan - scans the packages
+  @Conditional- Load beans conditionally
+
+4. Scope & Lifecycle Annotations
+  @Scope - defines scope beans
+  @Lazy - lazy initlization
+  @PostContruct - Runs after DI, Before bean is used
+  @PreDetroy - runs before destruction of beans
+
+5. Spring Boot Annotations
+  @SpringBootApplication - combination of @Configuration, @EnableAutoConfiguration and @ComponentScan
+  @EnableAutoConfiguration-  Enables auto config
+  @SpringBootTest-  Used in testing
+  @ConfigurationProperties - @ConfigurationProperties
+  @Value - Inject values from property and environment
+
+6. Web & REST Annotations
+  @Controller-  Used for MVC (view-based apps) and  Returns HTML/JSP
+  @RestController - combines @Controller + @ResponseBody and Returns JSON
+  @RequestMapping - Base mapping and supports all HTTP methods
+  @GetMapping - for get methods
+  @PostMapping- for post methods
+  @PutMapping - for put methods
+  @DeleteMapping - for delete methods
+  @PathVariable - extracts from URL  public User get(@PathVariable int id)
+  @RequestParam - Query parameter public User get(@RequestParam String name)
+  @RequestBody - Converts JSON → Java object
+  @ResponseBody- Converts return → JSON
+  @ResponseEntity - Full control over: Status , Headers and Body
+  @Valid - triggers validation public void save(@Valid @RequestBody User user)
+  @ModelAttribute - used in Form binding
+
+
+@Controller vs @RestController
+Feature	              @Controller	        @RestController
+Output	              View (HTML)	        JSON
+Use case	            MVC apps	          REST APIs
+@ResponseBody needed	Yes                	No
+
+@RequestParam vs @PathVariable
+Feature	              @RequestParam	      @PathVariable
+Source	              Query string	      URL path
+Example	              /users?name=abc    	/users/1
+
+@Component vs @Bean
+Feature	          @Component	        @Bean
+Defined on	      Class	              Method
+Control	          Less	              Full
+Use case	        Own classes	        Third-party
+
+@ConfigurationProperties vs @Value
+Feature	        @ConfigurationProperties	      @Value
+Use	            Bulk config	                    Single value
+Type-safe	      Yes                            	No
+
+@RequestBody vs @ModelAttribute
+Feature	    @RequestBody	    @ModelAttribute
+Data	      JSON	            Form data
+API type	  REST	            MVC
+
+@Autowired vs @Inject vs @Resource
+Annotation	      Source	    Injection
+@Autowired	      Spring	    By type
+@Inject	          Java	      By type
+@Resource	        JSR	        By name
+
+1. What happens if no bean found? ❌ NoSuchBeanDefinitionException
+2.What happens if multiple beans? ❌ NoUniqueBeanDefinitionException
+3. Can we use @Autowired on constructor? ✔ Yes (recommended) ✔ Even optional in Spring 4+
+4. meta-annotation?  Annotation on annotation . @Service → @Component
+5. @RestController instead of @Controller? ✔ Saves writing @ResponseBody everywhere
+6. HttpMessageConverter - converts JSON to object
+7. @RequestBody is missing? ✔ JSON won’t map → error
+8. Can @RequestParam be optional? yes ,@RequestParam(required = false)
