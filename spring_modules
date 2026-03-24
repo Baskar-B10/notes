@@ -1,0 +1,8 @@
+Modules:
+  core container  ( added in springcore_basics includes IOC, DI, Validation, SPEL, Event handler, resource , environment etc)
+  Data Access (JDBC, ORM)
+  Web (Spring MVC)
+  AOP
+  Security
+  Testing
+
