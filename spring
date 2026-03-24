@@ -23,6 +23,126 @@ Spring Core: The Spring Core is the foundation module of the Spring Framework.
                 Dependency Injection (DI)
                 Bean lifecycle management
                 Everything in Spring (MVC, Boot, Security) depends on this
-    IoC Container in Spring:
-      
-    
+
+IoC Container in Spring:
+  The Inversion of Control (IoC) container is the heart of the Spring Framework.
+  It is responsible for:
+    Creating objects (beans)
+    Injecting dependencies
+    Managing lifecycle
+    Configuring relationships
+  
+Traditional: OrderService os = new OrderService(new PaymentService());
+Spring (IoC):
+    You don’t create objects
+    Spring container creates & injects them
+    Control is inverted → given to Spring
+
+Types of IOC:
+  1. Bean Factory (Basic Container) :  Old, minimal container
+      Lazy initialization (creates bean only when needed)
+      Lightweight
+      No advanced features
+      BeanFactory factory = new XmlBeanFactory(new ClassPathResource("beans.xml"));     
+      What happens:
+                  XML loaded
+                  Bean definitions stored
+                  Bean NOT created ❌
+                  When getBean() called → bean created ✅ OrderService os = factory.getBean("orderService"); This is lazy loading
+  2. ApplicationContext: Most used in real-world
+      Eager initialization (default)
+      Supports:
+      AOP
+      Events
+      Internationalization (i18n)
+      Annotation-based config
+Types of ApplicationContext:
+      1. ClassPathXmlApplicationContext - Loads Spring configuration from XML files present in classpath
+            Uses classpath (src/main/resources) 
+            Eager initialization by default
+            Supports: Constructor injection and Setter injection    
+            Limitations: XML heavy, Hard to maintain in large apps and Not used in modern Spring Boot projects
+            usage: Legacy applications and Older enterprise systems
+          working:
+            Reads XML file
+            Parses <bean> definitions
+            Creates objects
+            Injects dependencies
+          example:
+          <beans>
+              <bean id="paymentService" class="com.app.PaymentService"/>
+              <bean id="orderService" class="com.app.OrderService">
+                  <property name="paymentService" ref="paymentService"/>
+              </bean>
+          </beans>
+
+          ApplicationContext context = new ClassPathXmlApplicationContext("beans.xml");
+          OrderService os = context.getBean("orderService", OrderService.class); 
+          👉 What happens:
+                        XML loaded
+                        Bean definitions read
+                        ALL singleton beans created immediately ✅ ✔ This is eager loading
+                        Dependencies injected
+                        Lifecycle methods executed
+      BeanFactory vs ApplicationContext:
+      BeanFactory:
+        BeanFactory factory = new XmlBeanFactory(...);
+        // No object created yet ❌
+        factory.getBean("paymentService"); // Object created here ✅
+      ApplicationContext:
+        ApplicationContext context = new ClassPathXmlApplicationContext("beans.xml"); 
+        // Object created immediately ✅
+
+      2. AnnotationConfigApplicationContext - Modern way: uses Java-based configuration + annotations
+            No XML required ✅
+            Uses: @Component, @Service and @Repository
+            Type-safe configuration
+            Easy to maintain
+         usage: Core Spring (non-Boot apps) and Microservices (before Boot)
+         Working:
+          Reads @Configuration class
+          Scans packages (@ComponentScan)
+          Creates beans using annotations
+        Internal Flow:
+          Reads @Configuration
+          Performs component scanning
+          Registers beans in container
+          Applies DI (@Autowired)
+          Initializes beans
+          @Configuration
+          @ComponentScan("com.app")
+          public class AppConfig {}
+
+          @Component
+          public class PaymentService {}
+
+          ApplicationContext context =new AnnotationConfigApplicationContext(AppConfig.class);     
+          PaymentService ps = context.getBean(PaymentService.class);
+
+      3. SpringBootApplication (internally uses this) - This is from Spring Boot. It is a combination of 3 annotations:
+          @SpringBootApplication - @Configuration, @EnableAutoConfiguration and @ComponentScan
+          No XML 
+          Auto configuration 
+          Embedded server 
+          Production-ready
+          What Container Does It Use?
+          Internally, Spring Boot uses:
+              ✔ AnnotationConfigApplicationContext (for non-web apps)
+              ✔ AnnotationConfigServletWebServerApplicationContext (for web apps)
+          @SpringBootApplication
+          public class App {
+              public static void main(String[] args) {
+                  SpringApplication.run(App.class, args);
+              }
+          }
+          When you run: SpringApplication.run(App.class, args);
+            Creates ApplicationContext
+            Detects type: for Web → Servlet context and for Non-web → Standard context
+            Starts component scanning
+            Applies auto-configuration
+            Creates all beans
+            Starts embedded server (Tomcat)
+        👉 You add dependency: Spring Data JPA
+        👉 Boot automatically configures: DataSource, EntityManager and Hibernate
+
+Dependency Injection (DI):
