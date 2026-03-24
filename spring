@@ -220,3 +220,149 @@ Eager vs Lazy Initialization:
               Or globally: spring.main.lazy-initialization=true
   ✔ Advantages: Faster startup and Saves memory
  ❌ Disadvantages: Errors occur at runtime and First call is slower
+
+Spring Bean Lifecycle:
+  A bean lifecycle is the complete internal process by which the Spring Framework: Creates → Configures → Initializes → Uses → Destroys a bean
+  Big Picture (Internal Flow):
+    Load BeanDefinition → Instantiate Bean → Populate Dependencies →
+    Aware Interfaces → BeanPostProcessor (Before) →
+    Init Methods → BeanPostProcessor (After) →
+    Ready → Destroy
+  Step-by-Step Internal Lifecycle:
+  1. Bean Definition Loading : Spring reads configuration (XML / Annotation / Java Config)
+      Internally: Creates BeanDefinition object 
+      ✔ Contains: Class name, Scope, Dependencies and Init/Destroy methods 
+      👉 Core classes: BeanDefinition and BeanDefinitionReader
+  2. Bean Instantiation: Object is created using: Constructor and Factory method
+    Internally: createBeanInstance()
+    👉 Core class: AbstractAutowireCapableBeanFactory
+    ✔ Uses: Reflection and Constructor resolution
+  3. Dependency Injection (Populate Properties) - Inject dependencies into bean
+    Internally: populateBean()
+    ✔ Handles: @Autowired, Setter injection and Field injection  
+    👉 Uses: AutowiredAnnotationBeanPostProcessor
+  4. Aware Interfaces (Container Awareness)- 
+    If bean implements:
+              BeanNameAware
+              BeanFactoryAware
+              ApplicationContextAware   
+    👉 Spring calls:
+              setBeanName()
+              setBeanFactory()
+              setApplicationContext()
+    Purpose: Gives bean access to container internals
+  5. BeanPostProcessor (Before Initialization) - Hook to modify bean before init
+      postProcessBeforeInitialization()
+      ✔ Use cases: Logging,Validation and Custom proxy creation
+    👉 Interface: BeanPostProcessor
+  6. Initialization Phase - Three ways (priority order matters 🔥):
+       1. @PostConstruct (Recommended)
+                  @PostConstruct
+                  public void init() {}
+       2. InitializingBean- afterPropertiesSet()
+       3. Custom init method - @Bean(initMethod = "init")
+     Internally handled by: invokeInitMethods()
+  7. BeanPostProcessor (After Initialization)
+        postProcessAfterInitialization()
+    VERY IMPORTANT:  This is where AOP proxy is created
+    ✔ Example: Transactional proxy and Security proxy
+  8. Bean Ready for Use : Now bean is: Fully initialized, Stored in singleton cache
+    Internally:DefaultSingletonBeanRegistry
+  9. Destruction Phase - Happens when container shuts down
+      Methods:
+      1. @PreDestroy
+          @PreDestroy
+          public void cleanup() {}
+      2. DisposableBean - destroy()
+      3. Custom destroy method -  @Bean(destroyMethod = "destroy")
+   Internally: destroyBean()
+
+Complete Internal Lifecycle Chain
+        BeanDefinition →
+        createBean() →
+        populateBean() →
+        Aware Interfaces →
+        BeanPostProcessor (before) →
+        @PostConstruct →
+        afterPropertiesSet →
+        custom init →
+        BeanPostProcessor (after) →
+        READY →
+        destroyBean()
+
+Important Internal Classes:
+ 1. DefaultListableBeanFactory-  Core container implementation
+  ✔ Responsibilities: Stores bean definitions and Manages bean creation
+ 2. AbstractAutowireCapableBeanFactory -  Handles: Instantiation  and Dependency injection
+ 3. BeanPostProcessor-  Custom lifecycle hook
+  ✔ Example: AOP - @Autowired processing
+ 4. BeanFactoryPostProcessor -  Runs BEFORE bean creation
+ ✔ Modifies: BeanDefinition metadata
+ 5. AutowiredAnnotationBeanPostProcessor -  Handles: @Autowired injection
+
+How Spring creates an object (bean) inside the IoC container:
+  There are multiple ways to instantiate a bean, and interviewers often expect you to know all of them with use cases.  
+  1. Using Default Constructor (Most Basic) - Spring calls the no-argument constructor using reflection.
+        @Component
+        public class UserService {
+            public UserService() {
+                System.out.println("Bean created");
+            }
+        }
+    ✔ Spring automatically instantiates it during startup.
+    Internal Method: createBeanInstance()
+    ✔ Uses reflection internally
+ 2. Using Parameterized Constructor (Constructor Injection) - Spring chooses a constructor and injects dependencies.
+        @Component
+        public class OrderService {
+        
+            private PaymentService ps;
+        
+            public OrderService(PaymentService ps) {
+                this.ps = ps;
+            }
+        }
+    ✔ Spring: Finds constructor, Resolves dependencies and Instantiates bean
+    If multiple constructors: Use @Autowired or primary constructor
+  3. Using Static Factory Method - Spring calls a static method to create bean.
+        public class PaymentService {
+            public static PaymentService getInstance() {
+                return new PaymentService();
+            }
+        }
+        XML: <bean id="paymentService" class="com.app.PaymentService" factory-method="getInstance"/>
+    ✔ Useful for: Legacy code and Singleton control
+ 4. Using Instance Factory Method - Spring uses another bean to create the object.
+        public class FactoryClass {
+            public PaymentService createService() {
+                return new PaymentService();
+            }
+        }
+        XML:<bean id="factory" class="com.app.FactoryClass"/>
+        <bean id="paymentService"
+              factory-bean="factory"
+              factory-method="createService"/>
+    ✔ Useful for: Complex object creation logic
+ 5. Using @Bean Annotation (Java Config) - Bean is created inside a configuration class.
+        @Configuration
+        public class AppConfig {
+            @Bean
+            public PaymentService paymentService() {
+                return new PaymentService();
+            }
+        }
+    ✔ Most common in modern Spring
+  6. Using @Component Scanning (Auto Instantiation) - Spring scans package and automatically creates bean.
+      @Component
+      public class PaymentService {}
+   ✔ Combined with: @ComponentScan("com.app")
+   ✔ This is most used in Spring Boot
+  7. Using Supplier (Advanced - Functional Style) -Register bean programmatically
+      context.registerBean(PaymentService.class,
+          () -> new PaymentService());
+   ✔ Used in: Dynamic bean creation
+ 8. Using Bean Definition Programmatically (Advanced) - Manually register bean definition
+      GenericBeanDefinition bd = new GenericBeanDefinition();
+      bd.setBeanClass(PaymentService.class);
+      beanFactory.registerBeanDefinition("ps", bd);
+  ✔ Used in:Framework development
