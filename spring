@@ -1,0 +1,28 @@
+Spring:
+  The Spring Framework is a lightweight, open-source Java framework used to build enterprise-level applications. 
+  It mainly provides infrastructure support so you can focus on business logic.
+Benefits of Spring Framework:
+  1. Loose Coupling - Classes are independent → easy to maintain
+  2. Easy Testing - Supports unit and integration testing
+  3. Lightweight - uses POJO
+  4. Flexible & Modular - uses only required modules
+  5. Reduces Boilerplate Code - replace XML's over annotations
+  6. Scalable & Enterprise Ready - Used in large-scale systems
+  7. Integration friendly - intergrates with DB, API's and messaging system.
+Limitations of Spring Framework:
+  1. learning curve - Beginners struggle with Annotations, Configurations and AOP concepts
+  2. Complexity in Large Projects - Too many annotations can confuse and Debugging becomes harder
+  3. Performance Overhead - Reflection & proxy usage adds slight overhead
+  4. Configuration Overload (without Spring Boot) - xml based config was heavy 
+  5. Hidden Magic (Auto Configuration) - hard to understand whats happening
+  
+Core Features of Spring Framework:
+Spring Core: The Spring Core is the foundation module of the Spring Framework.
+    It provides:
+                IoC (Inversion of Control) Container
+                Dependency Injection (DI)
+                Bean lifecycle management
+                Everything in Spring (MVC, Boot, Security) depends on this
+    IoC Container in Spring:
+      
+    
