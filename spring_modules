@@ -252,10 +252,134 @@ These annotations map Java objects ↔ Database tables
 8. Does Hibernate use JDBC? ✔ Yes internally
 
 
+3. Transaction Management:
+  What is Transaction? Group of DB operations that must be atomic ✔ All succeed OR all fail
+      🔧 Without Spring (Manual)
+      con.setAutoCommit(false);
+      try {
+          // operations
+          con.commit();
+      } catch(Exception e) {
+          con.rollback();
+      }
+      ✅ With Spring
+      @Transactional
+      public void transfer() {
+          debit();
+          credit();
+      }
+  How @Transactional Works
+   Uses: AOP (proxy-based) and Intercepts method
+   Flow: Method call → Proxy → Begin transaction →Execute method → Commit / Rollback
+   
+  In the Spring Framework, @Transactional mainly does:
+        👉 Transaction management
+        👉 AND also binds a Hibernate Session to that transaction
+   Key Concept: Session is tied to the transaction lifecycle
+   Internal Flow : Method call → Spring AOP Proxy → Start Transaction → Create / Fetch Session → 
+                   Bind Session to current thread →Execute method →Commit / Rollback → Close Session
+   Who manages the Session?
+  👉 Spring uses: HibernateTransactionManager (Hibernate) and JpaTransactionManager (JPA)
+                  ✔ These manage both: Transaction and Session / EntityManager
 
+    @Transactional
+    public void saveUser() {
+        repository.save(user);
+    }
+     What happens internally:
+          Transaction starts
+          Session is created (or reused)
+          Session is bound to thread (ThreadLocal)
+          Repository uses same session
+          Commit → session flushed → closed
+  
+  Important Concept: “Session per Transaction”
+    👉 Spring follows: ONE Transaction → ONE Session
+    🔥 Why this is important?
+          Ensures consistency
+          Enables: Lazy loading and Dirty checking
+    ⚠️ Without @Transactional
+    public void saveUser() {
+        repository.save(user);
+    } 
+    ❌ Problems: Session may not be properly managed, LazyInitializationException and No rollback
+
+  Why LazyInitializationException Happens- Exception thrown when lazy-loaded data is accessed without an active session
+   Root Cause-  Lazy data needs: Active Session (Persistence Context)
+  ❌ Case 1: Without @Transactional
+          public User getUser() {
+              return repo.findById(1).get();
+          }
+          Later: user.getOrders(); // ❌ Exception
+          Why? Method ends → Session closed → Lazy data accessed → Exception
+  ❌ Case 2: Even WITH @Transactional
+          @Transactional
+          public User getUser() {
+              return repo.findById(1).get();
+          }
+          Then:
+            User user = service.getUser();
+            user.getOrders(); // ❌ Exception
+           Why?  @Transactional ends → Session closed → Lazy access outside method
+     @Transactional only works inside method boundary
+  How to Fix
+  ✔ Option 1: Access inside transaction
+            @Transactional
+            public User getUser() {
+                User user = repo.findById(1).get();
+                user.getOrders().size(); // initialize
+                return user;
+            }
+  ✔ Option 2: Use JOIN FETCH - @Query("SELECT u FROM User u JOIN FETCH u.orders")
+  ✔ Option 3: DTO projection
+  ✔ Option 4: Open Session in View (OSIV) ✔ Keeps session open till view
+              👉 Even without @Transactional: ✔ Spring Boot may keep session open till view layer. Controller → Service → View
+              ⚠️ But: Not recommended for heavy apps Can cause performance issues
+  
+  Transaction Propagation -  Defines how transactions behave when methods call each other
+        Syntax
+        @Transactional(propagation = Propagation.REQUIRED)
+    Types
+  🔹 REQUIRED (Default) -If transaction exists → use it  Else → create new
+  🔹 REQUIRES_NEW - Always create new transaction  and Suspend existing one
+  🔹 SUPPORTS - Use existing if present  Else → run without transaction
+  🔹 NOT_SUPPORTED - Run without transaction  Suspend existing
+  🔹 MANDATORY- Must have transaction  Else → exception
+  🔹 NEVER - Must NOT have transaction  Else → exception
+  🔹 NESTED - Uses savepoints (partial rollback)
+  
+  Isolation Levels (Data Consistency) - Defines how transactions see data
+     Syntax
+          @Transactional(isolation = Isolation.READ_COMMITTED)
+     Levels
+  🔹 READ_UNCOMMITTED - Dirty reads allowed
+  🔹 READ_COMMITTED (Default) -No dirty reads
+  🔹 REPEATABLE_READ -Same data on repeated reads
+  🔹 SERIALIZABLE -Strictest (like single-thread)
+
+    How Rollback Works in @Transactional
+    Default Behavior: Rollback ONLY on RuntimeException
+          @Transactional
+          public void transfer() {
+              debit();
+              credit(); // throws RuntimeException
+          }
+     Entire transaction rolled back
+     
+    Checked Exception Case - throw new Exception(); 👉 ❌ NO rollback by default
+     ✅ Fix - @Transactional(rollbackFor = Exception.class)
+     Internal Working
+    Method call →Spring Proxy →Start transaction →Execute method →If exception: rollback Else: commit
 
 
   1. What triggers transaction? ✔ AOP proxy
   2. Why @Transactional not working? ✔ Self-invocation issue
   3. What is default propagation? ✔ REQUIRED
+  4. Does @Transactional create Session? ✔ Indirectly YES  Through TransactionManager
+  5. Is Session independent of transaction? ❌ No (in Spring, they are tied together)
+  6.  What pattern is used? ✔ ThreadLocal (session binding)
+  7.  What happens if no transaction? Session not properly scoped and Lazy loading fails
+  8. Does each method get new session? ✔ Depends on propagation
+  9. Only public methods ✔ @Transactional works only on public methods
+  10. Self-invocation problem -> this.method(); // ❌ no transaction
 
