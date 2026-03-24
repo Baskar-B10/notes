@@ -475,6 +475,143 @@ Limitations of SpEL:
 5. Is SpEL evaluated at compile time? ❌ No → runtime
 6.  Performance impact?✔ Slight overhead → avoid complex expressions
 
+Event Handling:
+  communicate between components inside the same application (loosely coupled)
+Why Event Handling?
+Instead of direct method calls:
+    orderService.placeOrder();
+    emailService.sendEmail();
+ Use events: OrderService → publish event → EmailService listens
+    ✔ Decoupled
+    ✔ Flexible
+    ✔ Easy to extend
+
+Core Components
+1. Event (Message) -Represents something that happened
+        public class OrderEvent extends ApplicationEvent {
+            public OrderEvent(Object source) {
+                super(source);
+            }
+        }
+ 2. Publisher -Sends the event
+      @Autowired
+      private ApplicationEventPublisher publisher;
+      public void placeOrder() {
+          publisher.publishEvent(new OrderEvent(this));
+      }
+ 3. Listener- Receives and handles event
+      Modern Way (Recommended):
+      @EventListener
+      public void handle(OrderEvent event) {
+          System.out.println("Order received");
+      }
+      ❌ Old Way
+      public class MyListener implements ApplicationListener<OrderEvent> {
+          public void onApplicationEvent(OrderEvent event) {}
+      }
+Internal Flow :
+publishEvent() → ApplicationEventMulticaster → Find all listeners → Invoke listener methods
+Internal Classes:
+    ApplicationEventPublisher
+    ApplicationEventMulticaster
+    ApplicationListener
+    SimpleApplicationEventMulticaster
+
+Synchronous vs Asynchronous Events
+Synchronous(Default) - Publisher waits until listener completes
+        ✔ Simple
+        ❌ Can slow down process
+Asynchronous
+    @Async
+    @EventListener
+    public void handle(OrderEvent event) {}
+      ✔ Runs in separate thread
+      ✔ Improves performance
+Enable Async - use @EnableAsync
+
+Advanced Features:
+ Conditional Events - @EventListener(condition = "#event.amount > 1000") ✔ Executes only if condition is true
+ Transactional Events @TransactionalEventListener public void handle(OrderEvent event) {} ✔ Trigger after transaction commit
+ Custom Events (POJO Style - Spring 4.2+) public class OrderEvent { private String name;} ✔ No need to extend ApplicationEvent
+
+Important Limitations:
+    Works only inside same application
+    Not for microservices communication ❌
+    Default is blocking (sync)
+
+1. Can multiple listeners handle same event?✔ Yes
+2. What is ApplicationEventMulticaster?✔ Component that sends event to listeners
+3. When to use @TransactionalEventListener?✔ After DB commit
+4.  Can we use POJO as event? ✔ Yes (Spring 4.2+)
+
+Resource Handling: 
+  Abstraction to access files/resources from different locations.
+Resource Types:
+    ClassPath → ClassPathResource
+    File System → FileSystemResource
+    URL → UrlResource
+
+  Resource resource = new ClassPathResource("data.txt");
+  InputStream is = resource.getInputStream();
+ Why Important: No need to worry about file location, Uniform API
+ Use Cases:  Load config files, Read static data and Templates
+
+Internationalization (i18n): Supports multiple languages in application
+ Key Component: MessageSource
+    messages.properties
+    welcome=Welcome
+    messages_fr.properties
+    welcome=Bonjour
+    Usage
+    @Autowired
+    MessageSource messageSource;
+    String msg = messageSource.getMessage("welcome", null, Locale.FRANCE);
+Internal Working: Loads based on locale and Uses ReloadableResourceBundleMessageSource
+Use Cases: Multi-language apps and Global products
+
+Environment & Property Management:  Manages external configuration
+Sources:
+      application.properties
+      Environment variables
+      System properties
+
+      @Value("${server.port}")
+      private int port;
+      Using Environment
+      @Autowired
+      Environment env;
+      String url = env.getProperty("db.url");
+ Internal Classes: Environment and PropertySources
+ Use Cases: Config per environment (dev/prod) and Externalized config
+
+Type Conversion System:
+  Automatically converts data types
+    @Value("10")
+    int number;
+    ✔ String → int conversion automatically
+  Conversion Mechanism: Converter and ConversionService
+ Example Custom Converter
+    public class StringToDateConverter implements Converter<String, Date> {
+        public Date convert(String source) {
+            return new SimpleDateFormat("yyyy-MM-dd").parse(source);
+        }
+    }
+   Use Cases: Form data binding and REST request conversion
+
+Validation Support: Validates input data using JSR-303 / Bean Validation
+Common Annotations:
+  1. @NotNull - ✔ Value must NOT be null ❌ Empty string allowed
+  2. @NotEmpty - ✔ Not null and ✔ Not empty
+  3. @NotBlank - ✔ Not null ✔ Not empty ✔ No whitespace
+  4. @Size @Size(min = 3, max = 10) private String username; ✔ Works for: String,List and Arrays
+  5. @Min / @Max- @Min(18) @Max(60) private int age;
+  6. @Email @Email private String email;
+  7. @Pattern- @Pattern(regexp = "[A-Z]{3}") private String code; ✔ Custom regex
+  8. @Positive / @Negative @Positive private int amount;
+  9. @Future / @Past - @Future private Date expiryDate;
+  10. @AssertTrue / @AssertFalse
+Interanl working : uses Validator and LocalValidatorFactoryBean
+Use Cases: API validation and Form validation
 
 Spring Annotations:
   Annotations are metadata used to: Configure beans, Inject dependencies and Control behavior
