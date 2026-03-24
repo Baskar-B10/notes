@@ -422,6 +422,60 @@ Types:
   singleton pattern - one  per JVM
 4. No scope is thread safe by default. need to design it 
 
+SpEL:
+  dynamically evaluate expressions at runtime. Part of: Core Container
+Why SpEL is Used:
+    Inject dynamic values
+    Perform calculations
+    Access properties/methods
+    Conditional logic
+    Work with collections
+Basic Syntax:@Value("#{expression}")
+  ✔ #{} → SpEL expression
+  ✔ ${} → property placeholder (different!) ✔ Reads from properties file
+Combined Use: @Value("#{${app.timeout} * 2}") ✔ Mix property + SpEL
+Core Features of SpEL:
+  1. Literal Expressions - @Value("#{10}")
+                           private int num;
+  2. Arithmetic Operations - supports: + - * / %
+        @Value("#{5 + 10}")
+        private int sum;
+  3. Relational & Logical Operators @Value("#{10 > 5}") , @Value("#{true and false}")
+  4. Conditional (Ternary) - @Value("#{10 > 5 ? 'Yes' : 'No'}")
+  5. Accessing Bean Properties - @Value("#{user.name}")
+  6. Method Invocation - @Value("#{user.getName()}")
+  7. Static Method & Field Access -@Value("#{T(java.lang.Math).random()}")
+  8. Collection Handling -@Value("#{'A,B,C'.split(',')}")
+  9. Filtering & Selection - @Value("#{list.?[value > 10]}")
+  10. Safe Navigation (Null-safe) - @Value("#{user?.name}") ✔ Avoids NullPointerException
+Internal Working:
+  SpEL is handled by: 
+          ExpressionParser
+          StandardEvaluationContext
+          SpelExpression
+  Flow:
+          1. Parse expression
+          2. Build AST (Abstract Syntax Tree)
+          3. Evaluate against context
+          4. Return result
+Where SpEL is Used in Spring:
+  1. @Value Injection - @Value("#{systemProperties['user.name']}")
+  2. Spring Security - @PreAuthorize("hasRole('ADMIN')") ✔ Uses SpEL internally
+  3. Conditional Beans - @ConditionalOnExpression("#{systemProperties['os.name'].contains('Windows')}")
+  4. XML Configuration (Old) - <property name="age" value="#{20 + 5}"/>
+Limitations of SpEL:
+    Can reduce readability
+    Hard to debug
+    Performance overhead if overused
+
+1. Can SpEL call methods? ✔ Yes
+2. Can SpEL access static methods? ✔ Yes using T(className)
+3. What is safe navigation operator? ✔ ?. → avoids null pointer
+4. Where is SpEL used internally? ✔ Security, config, @Value
+5. Is SpEL evaluated at compile time? ❌ No → runtime
+6.  Performance impact?✔ Slight overhead → avoid complex expressions
+
+
 Spring Annotations:
   Annotations are metadata used to: Configure beans, Inject dependencies and Control behavior
     ✔ Replace XML configuration
