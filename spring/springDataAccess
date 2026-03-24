@@ -498,3 +498,136 @@ These annotations map Java objects ↔ Database tables
    7.  Which supports batch operations? ✔ JpaRepository
    8.  Can we create custom methods? ✔ Yes (in all repositories)
 
+4.  Java Message Service (JMS) 
+    It is a Java API for sending messages between systems asynchronously.
+      👉 Instead of direct communication: Service A → Service B (tight coupling ❌)
+      👉 Use messaging: Service A → Message Queue → Service B (loose coupling ✅)
+
+  What does “Asynchronous” mean? Sender does NOT wait for receiver
+    Synchronous (REST style) -Service A → Service B → Response (wait)
+        ❌ Blocking
+        ❌ Slower under load
+    Asynchronous (JMS) - Service A → Queue → (continues immediately)
+                        ↓
+                     Service B processes later
+    
+        ✔ Non-blocking
+        ✔ Faster
+        ✔ Decoupled
+    jmsTemplate.convertAndSend("orderQueue", order);
+    System.out.println("Order sent"); // runs immediately👉 No waiting for consumer
+
+  Why JMS?
+        Decouples systems
+        Enables async processing
+        Improves scalability
+        Handles high load
+ 
+  JMS Architecture
+    Producer → Message Broker → Consumer
+    🔹 1. Producer -Sends message
+    🔹 2. Consumer - Receives message
+    🔹 3. Message - Data being sent
+    🔹 4. Destination -Where message goes Queue/Topic
+    🔹 5. Message Broker -  Manages messages like ActiveMQ/RabbitMQ
+
+   Message Types:
+      🔹 TextMessage -"Hello World"
+      🔹 ObjectMessage-Serializable object
+      🔹 MapMessage - Key-value pairs
+      🔹 BytesMessage -Binary data
+  
+  Messaging Models
+      🔹 1. Queue (Point-to-Point) :Producer → Queue → ONE Consumer   
+                          ✔ One consumer gets message
+                          ✔ Load balancing
+      🔹 2. Topic (Publish-Subscribe) : Producer → Topic → MANY Consumers
+                          ✔ All subscribers receive message
+  JMS with Spring:
+    In the Spring Framework, JMS is simplified using: JmsTemplate  Like JdbcTemplate (for DB)
+      🔹 Sending Message
+            @Autowired
+            private JmsTemplate jmsTemplate;
+      
+            jmsTemplate.convertAndSend("queue", "Hello JMS");
+      🔹 Receiving Message
+            @JmsListener(destination = "queue")
+            public void receive(String message) {
+                System.out.println(message);
+            }
+      Internal Working: convertAndSend → MessageConverter → Broker → Listener → Method execution
+      Message ConversionL Spring converts Java object ↔ JMS message
+            jmsTemplate.convertAndSend("queue", user);  ✔ Automatically serialized
+
+    Transactions in JMS👉 Ensure message reliability
+        @Transactional
+        public void send() {
+            jmsTemplate.convertAndSend("queue", "msg");
+        }
+        ✔ If transaction fails → message not sent
+    
+    Handling Timeouts in JMS
+      Timeouts can happen when: Waiting for message, Broker delay and Consumer slow
+      🔹 A. Receive Timeout - jmsTemplate.setReceiveTimeout(5000); // 5 seconds 👉 If no message → returns null
+      🔹 B. Request-Reply Timeout - If using request-response pattern: jmsTemplate.setReceiveTimeout(3000);
+      🔹 C. Connection Timeout - Configured in broker/client: ActiveMQ connection URL/ ConnectionFactory config
+      Best Practices :Set proper timeout values, Avoid infinite waits and  Use retry mechanism
+
+    What if Queue / Broker is NOT UP?
+    ❌ Problem :App → JMS → Broker DOWN → Exception
+     Handling Strategies
+        ✔ 1. Retry Mechanism
+              try {
+                  jmsTemplate.convertAndSend("queue", msg);
+              } catch (Exception e) {
+                  // retry logic
+              }
+        Use: RetryTemplate (Spring),  Custom retry loop
+        ✔ 2. Circuit Breaker (Advanced) 👉 Stop sending temporarily Tools: Resilience4j
+        ✔ 3. Message Persistence👉 If broker is up but consumer down: ✔ Messages stored in broker ✔ Delivered later 
+        ✔ 4. Failover Configuration: For brokers like ActiveMQ: failover:(tcp://host1:61616,tcp://host2:61616) ✔ Switches to backup broker
+        ✔ 5. Dead Letter Queue (DLQ): 👉 Failed messages go here : queue → failure → DLQ ✔ Prevents data loss    
+        ✔ 6. Logging & Alerting ✔ Monitor broker health ✔ Send alerts
+    
+     Acknowledgement Modes👉 Defines when message is considered successfully consumed
+      🔹 1. AUTO_ACKNOWLEDGE- Session.AUTO_ACKNOWLEDGE 
+                  ✔ Automatically acknowledged after processing
+                  Receive → Process → Auto ACK
+                  ⚠️ Risk If failure during processing → message lost
+      🔹 2. CLIENT_ACKNOWLEDGE - Session.CLIENT_ACKNOWLEDGE
+                  ✔ Manual acknowledgment
+                  message.acknowledge();
+                  Receive → Process → ACK manually
+                  ✔ Advantage- Better control, Retry possible
+      🔹 3. DUPS_OK_ACKNOWLEDGE -Session.DUPS_OK_ACKNOWLEDGE
+                  ✔ Lazy acknowledgment
+                  May deliver duplicates
+                  Faster performance
+                  ⚠️ Requirement👉 Consumer must handle duplicates
+      🔹 4. TRANSACTED SESSION 
+                  session.commit();
+                  session.rollback();
+                  Receive →Process →Commit → ACK
+                  Rollback → message redelivered
+                  ✔ Best for reliability
+                  Ensures no data loss
+                  Supports rollback
+  Delivery Modes:
+  🔹 Persistent - ✔ Saved to disk✔ Reliable
+  🔹 Non-Persistent -✔ Faster ❌ Risk of loss
+  
+  🔥 Real-Time Example
+  Order System: Order Service → Queue → Email Service
+      ✔ Decoupled
+      ✔ Async
+  
+  ⚠️ Common Problems
+  ❗ Duplicate messages👉 Need idempotent handling
+  ❗ Message loss 👉 Use persistent mode
+  ❗ Ordering issues 👉 Depends on queue
+  
+  1. Is JMS synchronous? ❌ No → async
+  2. Queue vs Topic?✔ Queue → one consumer✔ Topic → multiple
+  3. What is JmsTemplate? ✔ Helper class
+  4. What is broker? ✔ Message manager
+  5. Does JMS guarantee delivery? ✔ Yes (with persistent mode)
