@@ -19,7 +19,19 @@ Spring Security:
             Configure IdP metadata
             Enable saml2Login()
             Works automatically with SSO
-            
+      AuthenticationManager → delegates
+      AuthenticationProvider → validates
+      JWT → stateless, scalable
+      Session → stateful, server memory
+      Stateless → no storage, scalable
+      API Gateway + JWT → best for microservices
+      OAuth2 → login via Google/Okta
+      API Gateway → central security
+      JWT → stateless → scalable
+      Refresh Token → session replacement
+      OAuth2 + JWT → hybrid modern approach
+      Gateway validates token → services trust
+                  
   Architecture Overview:
     1. Security Filter Chain
     Every request passes through a chain of filters.
@@ -151,3 +163,317 @@ JWT vs SAML
       Speed        	Fast	                Slower
       Complexity	  Simple	              Complex
 
+real-world Spring Boot JWT project:
+  1. POST /auth/login
+     → Validate username/password
+     → Return JWT
+  2. Client sends:
+     Authorization: Bearer <token>
+  3. JwtFilter:
+     → Extract token
+     → Validate user
+     → Set SecurityContext 
+  4. Controller accessed ✅
+
+Why Stateless?
+    No session in server
+    Scalable (microservices)
+Where JWT is stored? Frontend (LocalStorage / Cookie)
+⚠️ Common Issues
+1. Token Expired → Handle using exception filter
+2. Invalid Signature → Happens if secret mismatch
+3. LazyInitializationException → Happens when session closed (unrelated but often asked with security)
+
+Add Role-Based Access Example
+@GetMapping("/admin")
+@PreAuthorize("hasRole('ADMIN')")
+public String admin() {
+    return "Admin Access";
+}
+👉 Enable it: @EnableMethodSecurity
+
+
+AuthenticationManager vs AuthenticationProvider:
+AuthenticationManager:
+      Main entry point for authentication
+      Delegates authentication to providers
+      authenticationManager.authenticate(auth);
+      👉 Think of it as a controller/dispatcher
+AuthenticationProvider:
+      Contains actual authentication logic
+      Validates credentials
+      public class CustomAuthProvider implements AuthenticationProvider {
+          public Authentication authenticate(Authentication auth) {
+              // validate user
+          }
+      }
+    Feature	        AuthenticationManager	        AuthenticationProvider
+    Role	          Delegates	                    Executes logic
+    Responsibility	Orchestration	                Validation
+    Multiple?	      Uses multiple providers	      You can define many
+    Flow: Request → AuthenticationManager → AuthenticationProvider → DB → Result
+
+JWT vs Session:
+JWT (Token-based):
+    Stored in client (browser/mobile)
+    Sent in every request
+    Authorization: Bearer <token>
+Session-based: 
+      Stored in server memory
+      Client sends session ID (cookie)
+
+      Feature	                  JWT	                      Session
+      Storage	                  Client	                  Server
+      Scalability	              High                  	  Low
+      State	                    Stateless            	    Stateful
+      Performance              	Faster (no DB lookup)    	Slower
+      Security	                Needs care (token leak)	  Safer (server control)
+      Real-world usage          Microservices, APIs       Traditional web apps
+
+Stateless vs Stateful:
+Stateless: Server stores nothing. Each request is independent
+  Example:
+      Request1 → complete  
+      Request2 → independent  
+      👉 Used with JWT
+Stateful: Server stores session data  
+  Example: Login → Session created → reused
+      👉 Used with sessions
+      Feature	      Stateless	          Stateful
+      Memory	      No server storage	  Uses server memory
+      Scaling      	Easy	              Hard
+      Performance  	Better	            Limited
+      Example	      JWT	                Session
+
+Microservices Security (API Gateway + JWT):
+  Problem - In microservices: Multiple services Need centralized security
+  Solution: API Gateway + JWT
+  Flow : Client → API Gateway → Auth Service → JWT issued
+         Client → API Gateway (with JWT)
+                → Validate JWT
+                → Forward to microservice
+Components
+    1. API Gateway - Entry point (Spring Cloud Gateway)
+    2. Auth Service - Generates JWT
+    3. Microservices - Trust JWT (no DB call)
+Example Flow:
+    1. Login → Auth Service → JWT
+    2. Call API → Gateway validates token
+    3. Forward request → Service
+Benefits: Centralized security, No session sharing needed and Scalable
+Important: Validate JWT at gateway, Use HTTPS and Token expiry + refresh token
+
+OAuth2 Login (Google / Okta):
+What is OAuth2? Authorization framework
+Allows login via: Google, Facebook and Okta
+Flow: User → Click Login with Google
+          → Redirect to Google
+          → User logs in
+          → Google returns token
+          → App authenticates user
+Roles:
+      Role	                  Description
+      Resource Owner	        User
+      Client	                Your app
+      Authorization Server	  Google/Okta
+      Resource Server	        Your backend
+
+Spring Security OAuth2 Setup:
+    1. Dependency
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+          </dependency>
+    2. application.yml
+        spring:
+          security:
+            oauth2:
+              client:
+                registration:
+                  google:
+                    client-id: YOUR_CLIENT_ID
+                    client-secret: YOUR_SECRET
+    3. Security Config
+          http
+              .authorizeHttpRequests(auth -> auth
+                  .anyRequest().authenticated()
+              )
+              .oauth2Login();
+    🔐 With Okta, Use: Okta (enterprise SSO provider)
+
+OAuth2 vs JWT
+Feature	          OAuth2	        JWT
+Purpose	          Authorization	  Authentication
+Token	Access      Token	          Self-contained
+Use	              Social login	  API security
+
+Real-world Architecture:
+          Frontend
+             ↓
+          API Gateway
+             ↓
+          Auth Service (OAuth2 / JWT)
+             ↓
+          Microservices
+
+API Gateway (Deep Dive):
+  A single entry point for all client requests in a microservices architecture.
+  👉 Instead of:
+        Client → Service A
+        Client → Service B
+        Client → Service C
+  👉 You use: Client → API Gateway → Services
+  Responsibilities:
+        🔐 Authentication & Authorization (JWT validation)
+        🚦 Routing requests to services
+        📊 Rate limiting
+        🧾 Logging & monitoring
+        🔄 Load balancing
+
+Flow with JWT:
+    1. Client → /login → Auth Service → JWT
+    2. Client → API Gateway (JWT in header)
+    3. Gateway:
+       → Validate JWT
+       → Extract user info
+       → Forward request
+    4. Microservice:
+       → Trust request (no re-authentication)
+
+Validate JWT where?
+      ✅ At Gateway (best practice)
+      ❌ Not in every service (duplicate logic)
+
+Popular Gateway Options:
+      Spring Cloud Gateway (Reactive)
+      Netflix Zuul (old)
+    👉 Use: Spring Cloud Gateway (modern choice)
+
+Spring Cloud Gateway – Full Configuration
+    Dependency
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+    📄 application.yml
+            spring:
+              cloud:
+                gateway:
+                  routes:
+                    - id: user-service
+                      uri: http://localhost:8081
+                      predicates:
+                        - Path=/users/**
+                    
+                    - id: order-service
+                      uri: http://localhost:8082
+                      predicates:
+                        - Path=/orders/**
+      🔐 Add JWT Filter in Gateway
+            @Component
+            public class JwtGatewayFilter implements GatewayFilter { 
+                @Override
+                public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+            
+                    String authHeader = exchange.getRequest()
+                            .getHeaders()
+                            .getFirst("Authorization");
+            
+                    if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                        throw new RuntimeException("Missing token");
+                    }
+            
+                    String token = authHeader.substring(7);
+            
+                    // validate token (signature, expiry)
+            
+                    return chain.filter(exchange);
+                }
+            }
+    🔗 Attach Filter to Route
+            filters:
+              - name: JwtGatewayFilter
+   Advanced Features:
+          Circuit breaker (Resilience4j)
+          Rate limiter (Redis)
+          Global filters
+          Load balancing (Eureka)
+
+
+Refresh Token Flow (VERY IMPORTANT)
+🧩 Problem - JWT expires quickly (security)
+👉 What happens after expiry?
+    ✅ Solution: Refresh Token
+      You issue 2 tokens:
+      Token	            Purpose      	Expiry
+      Access Token	    API access	  Short (15 min)
+      Refresh Token	    Get new token	Long (7 days)
+
+1. Login: → Access Token + Refresh Token
+2. API calls: → Use Access Token
+3. If expired:→ Send Refresh Token
+4. Server:→ Validate Refresh Token  → Issue new Access Token
+
+    @PostMapping("/refresh")
+    public String refresh(@RequestBody String refreshToken) {
+        if (isValid(refreshToken)) {
+            return generateNewAccessToken();
+        }
+        throw new RuntimeException("Invalid refresh token");
+    }
+
+Best Practices:
+      Store refresh token in DB
+      Use HttpOnly cookies
+      Rotate refresh tokens (important 🔥)
+⚠️ Common Mistakes:
+      ❌ Storing refresh token in localStorage
+      ❌ Not expiring refresh tokens
+      ❌ No rotation → security risk
+
+
+OAuth2 + JWT Combined Architecture:
+🧩 Why Combine? OAuth2 → Login (Google, Okta) and JWT → Internal API security
+ Flow:
+    1. User → Login with Google
+    2. Google → returns user info
+    3. Backend: → Generate JWT (own token)
+    4. Client:  → Use JWT for API calls
+    👉 OAuth2 is external authentication
+    👉 JWT is internal authorization
+
+Spring Boot Flow:
+    Step 1: OAuth2 Login http.oauth2Login();
+    Step 2: Success Handler
+        @Component
+        public class OAuthSuccessHandler implements AuthenticationSuccessHandler {
+
+            @Override
+            public void onAuthenticationSuccess(HttpServletRequest request,
+                                                HttpServletResponse response,
+                                                Authentication authentication) {
+                String username = authentication.getName();
+                String jwt = generateToken(username);
+                response.getWriter().write(jwt);
+            }
+        }
+    Step 3: Use JWT for APIs
+            Frontend → sends JWT → Gateway → Services
+
+With Okta Flow: User → Okta login → Backend → JWT → Microservices
+                ┌───────────────┐
+                │   Frontend    │
+                └──────┬────────┘
+                       ↓
+                ┌───────────────┐
+                │ API Gateway   │
+                │ (JWT Validate)│
+                └──────┬────────┘
+                       ↓
+        ┌──────────────┼──────────────┐
+        ↓              ↓              ↓
+   User Service   Order Service   Payment Service
+
+
+1. Why use filter instead of interceptor? 👉 Because Spring Security works before controller layer
+2. Why OncePerRequestFilter? 👉 Ensures filter runs once per request
