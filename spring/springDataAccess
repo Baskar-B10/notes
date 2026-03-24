@@ -494,4 +494,7 @@ These annotations map Java objects ↔ Database tables
    3.  How query methods work? ✔ Method name parsing
    4.  What is JpaRepository? ✔ Interface with CRUD + pagination
    5. Can we write custom implementation? ✔ Yes
+   6. Why JpaRepository returns List? ✔ Easier to use than Iterable
+   7.  Which supports batch operations? ✔ JpaRepository
+   8.  Can we create custom methods? ✔ Yes (in all repositories)
 
