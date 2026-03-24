@@ -498,7 +498,7 @@ These annotations map Java objects ↔ Database tables
    7.  Which supports batch operations? ✔ JpaRepository
    8.  Can we create custom methods? ✔ Yes (in all repositories)
 
-4.  Java Message Service (JMS) 
+5.  Java Message Service (JMS) 
     It is a Java API for sending messages between systems asynchronously.
       👉 Instead of direct communication: Service A → Service B (tight coupling ❌)
       👉 Use messaging: Service A → Message Queue → Service B (loose coupling ✅)
@@ -631,3 +631,63 @@ These annotations map Java objects ↔ Database tables
   3. What is JmsTemplate? ✔ Helper class
   4. What is broker? ✔ Message manager
   5. Does JMS guarantee delivery? ✔ Yes (with persistent mode)
+
+
+6. OXM Module (Object XML Mapping)
+    👉 OXM = Object ↔ XML mapping
+    ✔ Converts Java objects → XML
+    ✔ Converts XML → Java objects
+
+    🧠 Why Needed? 
+    Before OXM ❌:
+      Manual XML parsing (DOM/SAX)
+      Complex and error-prone
+    ✅ With OXM
+    ✔ Simplifies XML handling
+    ✔ Provides abstraction over multiple frameworks
+
+    Supported Technologies: JAXB (most common), XStream and Castor
+
+    Jaxb2Marshaller marshaller = new Jaxb2Marshaller();
+    marshaller.setClassesToBeBound(User.class);
+    marshaller.marshal(user, new StreamResult(System.out));
+
+    Java Object → Marshaller → XML
+    Use Cases: SOAP web services, XML-based integrations and Legacy systems
+
+7 . DAO Support Module
+    👉 Provides base/helper classes to simplify DAO layer
+     Purpose: Reduce boilerplate, Provide templates and Simplify integration
+    Key Classes: JdbcDaoSupport,  HibernateDaoSupport and JpaDaoSupport
+    public class UserDao extends JdbcDaoSupport {
+        public List<User> getUsers() {
+            return getJdbcTemplate().query("SELECT * FROM users", ...);
+        }
+    }
+    ✔ Benefits :Easy access to templates and Cleaner DAO code
+    ⚠️ Current Trend 👉 Mostly replaced by: Spring Data repositories
+
+ 8. Exception Translation Module ⭐
+    Converts database-specific exceptions → unified Spring exceptions
+    ❌ Problem Without Spring - Different DBs throw different exceptions:SQL Exception and Hibernate Exception
+    ✅ Spring Solution 👉 Unified exception hierarchy:  DataAccessException
+    @Repository
+    public class UserRepo {}
+    ✔ Enables automatic translation
+
+    try {
+        repo.save(user);
+    } catch (DataAccessException e) {
+        // handle all DB errors here
+    }
+    Internal Working: DB Exception → Exception Translator → DataAccessException
+   
+    Common Exceptions:
+    Exception	                            Meaning
+    DuplicateKeyException	                Unique constraint
+    DataIntegrityViolationException	      Constraint issue
+    EmptyResultDataAccessException	      No data
+
+    Why Important? ✔ DB-independent error handling ✔ Clean architecture
+
+    What enables exception translation? ✔ @Repository
