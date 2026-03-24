@@ -6,3 +6,256 @@ Modules:
   Security
   Testing
 
+Spring Data Access:
+  Data Access layer provides a consistent way to interact with databases.
+
+Why Spring Data Access?
+Before Spring :
+      JDBC → too much boilerplate
+      Hibernate → complex setup
+      Different APIs for each technology
+Spring solves this by:
+      Providing uniform abstraction
+      Reducing boilerplate code
+      Handling exceptions consistently
+Internal Architecture:
+      Controller → Service (@Transactional) → DAO / Repository → Spring Data / ORM → JDBC → Database
+Modules in Spring Data Access:
+  1. JDBC Module - Simplifies JDBC operations
+     Key Class :JdbcTemplate
+    jdbcTemplate.query("SELECT * FROM user", (rs, rowNum) -> new User(rs.getString("name")));
+    ✔ Features: Removes boilerplate, Handles connection closing and Exception handling
+    Use Case: Simple queries and Performance-critical apps
+  2.ORM Module - Integrates ORM frameworks like: JPA, Hiberante and myBatis
+    Purpose :Object ↔ Table mapping and Reduce SQL usage
+    Features : Session management, Lazy loading and Caching
+    Use Case: Complex domain models and Enterprise applications
+    JPA:
+        JPA (Java Persistence API) is a specification (set of rules/interfaces) for ORM.
+        Key Idea : ✔ JPA defines what should be done and ❌ It does NOT provide implementation
+        @Entity
+        public class User {
+            @Id
+            private Long id;
+            private String name;
+        }
+        EntityManager em = ...;
+        User user = em.find(User.class, 1L);
+        Key Components : EntityManager , @Entity , @Id and JPQL (query language)
+        ✔ Advantage :Decouples your code from ORM tool
+     Hibernate:
+        Hibernate is an ORM framework (implementation).
+        Key Idea: ✔ Hibernate implements JPA and ✔ Also provides extra features
+        Session session = sessionFactory.openSession();
+        User user = session.get(User.class, 1);
+        Key Components :Session and SessionFactory and HQL (Hibernate Query Language)
+        ✔ Features: Automatic SQL generation , Caching (1st & 2nd level) , Lazy loading  and Dirty checking
+    
+    Hibernate vs JPA 
+      Feature	          JPA	            Hibernate
+      Type	            Specification	  Implementation
+      Dependency	      Interface	      Framework
+      Portability	      High	          Low
+      Extra Features   	No	            Yes
+      Query	            JPQL	          HQL + JPQL
+  Relationship (Core Concept):
+        JPA → Specification
+        Hibernate → Implementation of JPA
+   Real Flow
+            Your Code →JPA (EntityManager) → Hibernate → JDBC → Database
+  Important Concepts in Hibernate & JPA
+  1. ORM (Object Relational Mapping)
+    Java Object ↔ Database Table
+            Java    	DB
+            Class	    Table
+            Object	  Row
+            Field    	Column
+  2. Entity Lifecycle
+          State	        Meaning
+          Transient	    New object
+          Persistent	  Managed by session
+          Detached	    Not managed
+          Removed	      Deleted
+ 3. Fetch Types
+    @OneToMany(fetch = FetchType.LAZY)
+      Type	Meaning
+      Lazy	Load when needed
+      Eager	Load immediately
+  4. Caching
+      First-Level Cache - ✔ Session-level ✔ Always enabled
+      Second-Level Cache - ✔ Shared across sessions ✔ Optional
+  5. Dirty Checking - Hibernate automatically detects changes: user.setName("New"); ✔ No need for update query
+  6. Query Types: 
+    JPQL (JPA) -SELECT u FROM User u WHERE u.name = :name
+    HQL (Hibernate) - ✔ Similar to JPQL ✔ Hibernate-specific extensions
+    Native SQL -SELECT * FROM users
+  
+   Common Problems:
+  ❗ N+1 Problem- Multiple queries due to lazy loading
+  ❗ LazyInitializationException- Access lazy data outside session
+  
+  What is “Criteria” in ORM?
+    Criteria = a programmatic way to build queries dynamically (instead of writing SQL/JPQL strings)
+  Why use Criteria?
+      Dynamic queries (conditions at runtime)
+      Avoid string-based queries
+      Type-safe (in modern API)
+  Types of Criteria:
+         Old: Hibernate Criteria (Deprecated)
+        Criteria c = session.createCriteria(User.class);
+        c.add(Restrictions.eq("name", "Baskar"));👉 Deprecated ❌
+        Modern: JPA Criteria API
+        From JPA
+        
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        CriteriaQuery<User> cq = cb.createQuery(User.class);
+        
+        Root<User> root = cq.from(User.class);
+        cq.select(root).where(cb.equal(root.get("name"), "Baskar"));
+        
+        List<User> users = em.createQuery(cq).getResultList();
+  
+  Key Idea (Important):
+   Criteria is part of ORM querying mechanism
+   Used for dynamic and complex queries
+
+  What is SessionFactory?
+   Factory that creates Session objects
+   Key Characteristics: Heavy-weight object ⚠️, Created once per application and Thread-safe ✅
+   Holds: DB configuration ,Mapping metadata and 2nd level cache
+        SessionFactory factory = new Configuration()
+            .configure()
+            .buildSessionFactory();
+  ✔ Responsibilities: Create sessions, Maintain cache and Store ORM mappings
+
+  What is Session?
+    Connection between application and database
+    Key Characteristics: Light-weight object, Created per request/transaction and NOT thread-safe ❌ and Represents persistence context
+    Session session = factory.openSession();
+    
+    User user = session.get(User.class, 1);
+    ✔ Responsibilities: CRUD operations, Manage entity lifecycle, First-level cache and Dirty checking
+    What happens if Session not closed? ❌ Memory leak
+    Session Lifecycle: OpenSession() → perform operations → flush() → close()
+
+   Session Management -  Managing session lifecycle automatically
+
+    ❌ Without Spring
+    Session session = factory.openSession();
+    Transaction tx = session.beginTransaction();
+    
+    session.save(user);
+    
+    tx.commit();
+    session.close();
+
+    ✅ With Spring (Best Practice)
+    @Transactional
+    public void saveUser() {
+        repository.save(user);
+    }
+   How Spring Manages Session
+      Uses ThreadLocal
+      Binds session to transaction
+      Auto open/close session
+   Open Session in View (OSIV)-  Keeps session open till view rendering
+    ✔ Avoids LazyInitializationException
+    ❌ Can cause performance issues
+
+    What replaces these in JPA?
+    Hibernate          	JPA
+    SessionFactory	    EntityManagerFactory
+    Session            	EntityManager
+
+    EntityManager: main interface to interact with persistence context
+                  @PersistenceContext
+                  private EntityManager em;
+    ✔ Responsibilities: CRUD operations, Manage entity lifecycle and Execute queries and Handle persistence context
+      Common Methods
+                    em.persist(user);     // insert
+                    em.find(User.class, 1); // select
+                    em.merge(user);       // update
+                    em.remove(user);      // delete
+    
+    EntityManagerFactory: Factory that creates EntityManager
+     Key Points: Heavy object ⚠️, Created once per application and Thread-safe ✅
+              EntityManagerFactory emf =
+                  Persistence.createEntityManagerFactory("myUnit");
+      Relationship : EntityManagerFactory → creates → EntityManager → interacts with DB
+    
+    Persistence Context (Important 🔥) - Managed by EntityManager ✔ Stores managed entities ✔ Acts like cache
+
+   flush() Method - Synchronizes persistence context → database
+            em.persist(user);
+            em.flush();
+  Behavior:Executes SQL immediately, Does NOT commit transaction
+  When flush happens automatically? Before query execution and Before transaction commit
+  Important: flush != commit ✔ Flush → send SQL ✔ Commit → save permanently
+
+   clear() Method- Removes all entities from persistence context
+            em.clear();
+    Effect:
+          All entities become detached
+          No tracking (no dirty checking)
+
+        User user = em.find(User.class, 1);
+        em.clear();
+        user.setName("New"); // NOT updated in DB
+  flush() vs clear()
+  Feature	      flush()    	clear()
+  Purpose	      Sync DB	    Clear cache
+  SQL execution	Yes	        No
+  Entity state	Managed	    Detached
+  
+  Full Flow (Important) : EntityManagerFactory → EntityManager → Persistence Context →flush() →DB
+
+  Entity Class Annotations (Mapping)
+
+These annotations map Java objects ↔ Database tables
+   @Entity - ✔ Marks class as a persistent entity ✔ Must have a primary key
+   @Table - ✔ Maps class to specific table ✔ Optional (default = class name)
+   @Id -✔ Primary key
+   @GeneratedValue - @GeneratedValue(strategy = GenerationType.IDENTITY) ✔ Auto-generates ID
+     Strategies:
+      IDENTITY (DB auto increment)
+      SEQUENCE
+      TABLE
+      AUTO
+   @Column -@Column(name = "user_name", nullable = false) ✔ Maps field → column ✔ Controls: name, nullable,length
+   @Transient - ✔ Not persisted in DB
+   @Lob - ✔ Large objects (BLOB/CLOB)
+ Relationship Annotations
+🔹 @OneToOne
+        @OneToOne
+        @JoinColumn(name = "profile_id")
+🔹 @OneToMany
+        @OneToMany(mappedBy = "user")
+🔹 @ManyToOne
+        @ManyToOne
+        @JoinColumn(name = "user_id")
+🔹 @ManyToMany
+        @ManyToMany
+        @JoinTable(name = "user_role")
+🔹 Fetch Types
+        fetch = FetchType.LAZY
+        Type	Meaning
+        LAZY	Load when needed
+        EAGER	Load immediately
+
+1.What is persistence context? ✔ First-level cache
+2. Does flush commit data? ❌ No
+3. What does clear() do? ✔ Detaches all entities
+4  What happens after clear?✔ No automatic updates
+5. Default fetch type? ManyToOne → EAGER, OneToMany → LAZY
+6. Why use JPA over Hibernate? ✔ Decoupling
+7. Can we use JPA without Hibernate? ✔ Yes (EclipseLink, etc.)
+8. Does Hibernate use JDBC? ✔ Yes internally
+
+
+
+
+
+  1. What triggers transaction? ✔ AOP proxy
+  2. Why @Transactional not working? ✔ Self-invocation issue
+  3. What is default propagation? ✔ REQUIRED
+
