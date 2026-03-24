@@ -375,3 +375,123 @@ These annotations map Java objects ↔ Database tables
   9. Only public methods ✔ @Transactional works only on public methods
   10. Self-invocation problem -> this.method(); // ❌ no transaction
 
+4. Spring Data:
+  It is an extension layer built on top of the data access features of the Spring Framework.
+  👉 Instead of writing DAO classes manually ❌
+  👉 You just define interfaces ✅
+  ✔ Spring generates implementation at runtime
+
+  Before Spring Data:
+    public class UserDAO {
+        public User findById(Long id) {
+            // boilerplate code
+        }
+    }
+  After Spring Data:
+    public interface UserRepository extends JpaRepository<User, Long> {} ✔ No implementation needed
+
+   Architecture of Spring Data
+    Controller → Service → Repository (interface) → Spring Data → JPA → Hibernate → JDBC → Database
+    Internally:  Repository Interface → Proxy Object → Query Generation → Execution via EntityManager
+  
+  Modules in Spring Data: Spring Data supports multiple databases:
+    🔹 Relational DB
+          Spring Data JPA
+          Spring Data JDBC
+    🔹 NoSQL
+          MongoDB
+          Redis
+          Cassandra
+    🔹 Others
+          Elasticsearch
+          Neo4j
+  Core Components
+    🔹 1. Repository Interface- Each level adds more features.
+            Repository
+               ↓
+            CrudRepository
+               ↓
+            PagingAndSortingRepository
+               ↓
+            JpaRepository
+         1. Repository (Marker Interface) -public interface UserRepo extends Repository<User, Long> {}
+                  Marker interface (empty)
+                  Used by Spring to detect repositories
+                  No methods provided ❌
+                ⚠️ Use Case 👉 Rarely used directly
+         2. CrudRepository - public interface UserRepo extends CrudRepository<User, Long> {}
+                  ✔ Provides Basic CRUD
+                  save()
+                  findById()
+                  findAll()
+                  delete()
+              Return Types - Iterable<T> (not List)
+              Limitation - No pagination ❌ No sorting ❌
+         3. PagingAndSortingRepository - public interface UserRepo extends PagingAndSortingRepository<User, Long> {}
+                  ✔ Adds Features
+                  findAll(Pageable pageable)
+                  findAll(Sort sort)
+                 Use Case: Pagination &Sorting
+         4. JpaRepository ⭐ (Most Used) -public interface UserRepo extends JpaRepository<User, Long> {}
+                ✔ Includes Everything + More
+                CRUD
+                Pagination
+                Sorting
+                Extra Methods: flush(), saveAndFlush(), deleteInBatch() and findAll(Pageable pageable)
+                Return Types: List<T> (better than Iterable)
+                ✔ Advanced Features: Batch operations and JPA-specific optimizations
+    🔹 2. Query Methods (Magic Feature 🔥)
+     👉 Method name = Query 
+          List<User> findByName(String name);
+          Advanced
+          findByAgeGreaterThan(int age)
+          findByEmailContaining(String email)
+          findByNameAndAge(String name, int age)
+     How It Works: Method name parsing →  Generate JPQL → Execute
+    🔹 3. Custom Queries - Using @Query
+          @Query("SELECT u FROM User u WHERE u.name = :name")
+          List<User> findUsers(@Param("name") String name);
+          Native Query
+          @Query(value = "SELECT * FROM users", nativeQuery = true)
+    🔹 4. Pagination & Sorting - 
+          Pagination Page<User> findAll(Pageable pageable);
+          Sorting - findAll(Sort.by("name"));
+    🔹 5. Projections 👉 Fetch only required fields
+          Interface Projection
+          public interface UserView {
+              String getName();
+          }
+    🔹 6. Specifications (Dynamic Queries) 👉 Uses Criteria API internally
+          Specification<User> spec = (root, query, cb) ->
+              cb.equal(root.get("name"), "Baskar");
+    🔹 7. Auditing - ✔ Automatically tracks timestamps
+            @CreatedDate
+            @LastModifiedDate
+   🔹 8. Transactions
+            @Transactional
+            
+            ✔ Integrated with Spring
+    
+   Key Features Summary:
+        Feature	                    Benefit
+        Repository abstraction	    No DAO code
+        Query generation	          Less SQL
+        Pagination	                Easy data handling
+        Auditing	                  Auto tracking
+        Multi-DB support	          Flexible
+  
+    Key Classes
+          RepositoryFactory
+          SimpleJpaRepository
+          Proxy (AOP)
+    ⚠️ Limitations
+          Complex queries → difficult
+          Method naming can become long
+          Performance issues if misused
+ 
+   1. Is Spring Data part of Spring Core? ❌ No → Separate project
+   2. Does Spring Data replace Hibernate? ❌ No → Uses JPA/Hibernate
+   3.  How query methods work? ✔ Method name parsing
+   4.  What is JpaRepository? ✔ Interface with CRUD + pagination
+   5. Can we write custom implementation? ✔ Yes
+
