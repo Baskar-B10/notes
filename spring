@@ -146,3 +146,77 @@ Types of ApplicationContext:
         👉 Boot automatically configures: DataSource, EntityManager and Hibernate
 
 Dependency Injection (DI):
+      Objects depend on each other via injection.
+      Instead of creating dependencies manually (PaymentService ps = new PaymentService();) , Spring injects them.
+      Types of Dependency Injection:
+        1. Constructor Injection ✅ (Best Practice)
+        @Component
+        public class OrderService {
+            private final PaymentService ps;
+            public OrderService(PaymentService ps) {
+                this.ps = ps;
+            }
+        }
+        ✔ Advantages: Immutable, Thread-safe and Mandatory dependencies enforced
+      2. Setter Injection
+          public void setPaymentService(PaymentService ps) {
+              this.ps = ps;
+          }
+        ✔ Used when: Dependency is optional
+      3. Field Injection ❌ (Avoid)
+        @Autowired
+        private PaymentService ps;
+        ❌ Problems: Hard to test and Breaks encapsulation
+
+Autowiring in Spring:
+  Autowiring = Automatic dependency injection by Spring
+  Types of Autowiring:
+    1. By type - Matches by class type
+    2. By name - Matches variable name with bean name
+    3. Constructor - public OrderService(PaymentService ps) {} (Spring automatically injects)
+  Problem: Multiple Beans: If 2 implementations exist → error
+                      @Autowired
+                      PaymentService ps;
+  Solution: use @Qualifier or @Primary 
+
+Bean Wiring: How Spring connects beans together
+`1. Manual Wiring (XML) 🧓 Old Way
+        <bean id="paymentService" class="com.app.PaymentService"/>
+        <bean id="orderService" class="com.app.OrderService">
+            <property name="paymentService" ref="paymentService"/>
+        </bean>
+  2. Annotation-Based Wiring ✅ (Modern)
+        @Component
+        public class OrderService {
+            @Autowired
+            private PaymentService ps;
+        }
+  3. Java Config Wiring
+        @Configuration
+        public class AppConfig {        
+            @Bean
+            public PaymentService paymentService() {
+                return new PaymentService();
+            }   
+            @Bean
+            public OrderService orderService() {
+                return new OrderService(paymentService());
+            }
+        }
+
+Eager vs Lazy Initialization:
+  Eager Initialization (Default in ApplicationContext) : Beans are created at startup
+  Flow:
+    Application starts
+    All singleton beans created immediately
+   ✔ Advantages: Errors detected early and Application ready faster at runtime
+  ❌ Disadvantages: Slow startup if many beans
+ Lazy Initialization: Beans created only when needed
+    To Enable Lazy:
+              using Annotation:
+              @Lazy
+              @Component
+              class PaymentService {}
+              Or globally: spring.main.lazy-initialization=true
+  ✔ Advantages: Faster startup and Saves memory
+ ❌ Disadvantages: Errors occur at runtime and First call is slower
