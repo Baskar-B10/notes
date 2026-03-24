@@ -1,0 +1,26 @@
+Azure
+
+search container regristries
+select feidtifacr001
+
+
+search repositories
+select project repo, we can see image as verion or snapshots. latest version docker image will get deployed
+
+search kubernetees services
+select feidtifaks001 select insight, nods and containers will be there
+
+
+search service bus or
+
+search subcription FEI-AZ-DEVELOPMENT-1
+and search resource group and select vdi one feideu2-feintegrationsvdi-rg-155
+open service bus feid-feintegrationsvdi-sb-155
+search shared access policies have  RootManageSharedAccessKey for global access to queue and topics have token 
+
+search queue for queue creatcion and hcheck 
+saerch topic
+
+max size  for topic= sum of num of message of all subcription  
+
+camci ansible -dev have all.yaml for service bus config 
