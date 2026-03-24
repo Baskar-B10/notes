@@ -1,0 +1,157 @@
+AkS
+---
+About VM and containers:
+
+Before we have VM (its physical infrastructure inlude memory and process) -its not portable and scalable.different OS for each instances of VM
+container run OS. OS can be shared between different containers. 
+Run multiple containers in single OS with the help of docker abstraction
+Container is single portable artifract /image to run the in a runnable environment. containers bundles all that app needs includes properties, libraies, App, dependncies.
+containers is light weight and Vm is heavy weight
+
+Docker and image:
+Build container image /docker image. using docker engine , bring up the containers
+In a container you you bundle everything that your application needs, so it is a single portable.build into an image is docker image.
+
+Kuberneetes:
+even if we run multiple containers and scaling , need certain orchestation (communation between containers)
+we need kuberneetes to do the orchestation
+Microsoft developed kuberneetes (abstract layer ). 
+containers/docker image runs on pod. pods resides on node.Node is like server or VM. 
+setup kuberneetes cluster , allocate certain vm for cluster.each vm , run the pods. pods distribution manged by azure.Master also a node (abstracted by azure user cant have access to it).
+
+project
+1.build a project using springboot setup
+2.setup developement environment (env.txt)
+3. devloping 
+
+redhat:
+redhat - support for developing the code and infrastruture support from microsoft 
+redhat fuse 7.7 supports spring boot,apache kararf, camel, undertow(modified version of tomcat) for webcontainer
+
+Pom file:
+under dependency hirechy in pom.xml , we can see redhat supported libraries 
+exclude tomcat so use undertow
+using openapi (upgraded version of swagger) in maven plugin
+build docker image- dockerfile-maven-plugin will do that 
+playbook will get the docker image and deploy it
+
+deploy:
+keep properties app/fei-props
+playbook will deploy the services (k8-vb-env.txt)
+sandbox will gerneate the api properties
+
+login to azure 
+acr - azure container registry - we need to subcribe. its docker repo /deocker repo contains our repos/service
+in azure, search container registries, under services, we have repositories ,that willl have all services as docker image.
+open any project ans we can see version https://portal.azure.com/#view/Microsoft_Azure_ContainerRegistries/RepositoryBlade/id/%2Fsubscriptions%2Fb54f955a-67c4-4680-888e-17bf609fe9c2%2FresourceGroups%2Ffeideu2-tif-rg-001%2Fproviders%2FMicrosoft.ContainerRegistry%2Fregistries%2Ffeidtifacr001/repository/pmtool-customer-job-bulk-loader-v1
+search kubenetes services, we have diffrent subcription based on envs cluster. inside cluster under monitoring , we have insights
+under insights we have nodes, cluster , controller and deployments details
+we have logs under monitoring eg: ContainerLog where LogEntry contains "k8svc-product-ppq"
+each container have dedicated resources in fuse we have shared resources.
+
+local development :minikube which stimulates aks cluster in local.
+kubectl - command line for minikube.
+sudo kubectl get deployments - get deployments 
+sudo kubectl get pods- avaiable and running pods and it has own file system we can open it sudo kubectl exec -it <pod name> -- /bin/sh
+sudo kubectl logs <pod name>- gives logs
+
+etdc: 
+distribued directory for properties (we need to externlize the properties file)
+configmaps and secret
+sudo kubectl get secrets
+kubectl get secrets <name> -o yaml to open 
+sudo kubectl get configmaps
+kubectl get configmaps <name> -o yaml to open 
+kubectl describe ing mw-ingress <not work in local, use kubectl describe ing>
+properties in secret and log4j in configmaps
+
+sudo kubectl config --help 
+sudo kubectl config current-context --> minikube
+sudo kubectl config use-context feidtifaks001 --> switching to dev cluster)
+sudo kubectl config get-contexts --> show all context includes active one
+sudo kubectl -n tif-developers-devtrunk get pods (will list down services from dev trunk after switching to dev cluster)
+tif-developes-devtrunk is namespace here , we can give other name space too
+also we can see dev logs 
+
+IT:
+run it locally : mvn clean verify -Pit-local , properties from c/dev/fei-props
+playbook to geenrate report as well.
+
+why artifract  in centos like linux ,dev and other?
+we configure context path in properties
+ingress controller- load balancer that maps endpoint internally into service endpoints.  it identify the service by artifract id.
+centos local : http:K8.localdomain/artifract-id/svc/endpoint or minikube:80/default instead of K8.localdomain
+windows local: http:localhost:port/svc/endpoint
+check endpoint detailsin k8mvn-pom :https://github.com/FergMain/tif-k8mvn-pom/blob/master/pom.xml
+url format : env/namespace/svc/path
+
+tool to monitor services :DataDog like app dynamics
+
+k8-ansible-dev - for dev properties
+version: trunk:snapshots , branch - br-snapshots
+replicas: denotes the no of containers (ours max is 2 )
+release docker image to ace using release-to-acr in aks jenkisn like taking cut version 
+similarly for fuse its release-to-nexsus
+
+all negative cases, error code and message will be in response body
+
+Service bus:
+
+Jboss mq for fuse, aks  service azure service bus.
+transfer message from one queue to other 
+queue partioning /topic partioning - load balancing 
+handles multiple message in single jms session
+DLQ- supports message that we dint  process (dead letter queue)
+scheduled delivery - deliver message at specific time
+batching - history of message at specific time
+geo-diaster recovery - based on geogphical disaster , we can process other regions like ec/mw
+it have integration with other azure services like event grip, logic app and fucntions
+whenever new files comes in it creates new event and we can list to the event using logic app and function  
+jboss - anycast address (one sender with multiple reciever , sender publishes message to it, only one recevier will get it  and multicast address sender publishes message to it, multiple reciever/each receriver will get copy of message
+services bus, anycast replace by queues (we have virtual queues) and multi replace by topics (receiver listens to particular topic subscriptions)
+
+jboss queues and topic creation: console, xml config, ansible playbook
+aks queues and topc creation: azure portal , anisble playbook, ansible cli, arm template, powershel and rest api
+
+create queues or topic in azure portal:
+search the subscription FEI-AZ-Development-1
+under settings, resource group slect the vdi machine (feideu2-feintegrationsvdi-rg-155)
+go inside service bus namespace (feid-feintegrationsvdi-sb-155)
+under settings , shared access policies. select RootManageSharedAccessKey get the key and connection strings
+under entity, select queues, create queue,give name and max queue size message to live and lock duartion. for topic max memory - sum of mssage memory accros all subcription
+each queue have dead letter queue, if time to live expires, message move to dead letter queues
+open queue and under settings , shared access policies we can tune publisher (send) or subcriber (listen) 
+same way to create topic
+open topic and subcription act as queue
+
+anisble playbook will create services bus and topic using properties:
+service_bus: provide subcription, resource_group, namespace and location
+queue: entity , event and version
+topic: entity , event , version and max_size and subs
+concat entity and event name in queue and topic
+in az-servicebus properties, we have shared propeties as subcriber/publisher
+
+from deploy file, open as json format using notpad++ js tool, we can configure detnails
+login to azure, provide the command with subscription
+
+messaging operations:
+jboss send/reecieve/peek : console, activemq artemitis, level3 utils
+aks queues and topc creation: azure portal - service bus explorer, amqp, rest api (using some document send connection string in header and key in the url , copy the token and execute endpoit with token ), service bus explorer - desktop cilent (its an app)
+
+through azure potal:
+under any topic under enetiy in our namespace , open service bus exporer, we can send message or receive message
+
+amqp: read and write with same same user
+amqp componet , get queue details from properties for service bus config in code
+if we use camel using rest endpoint use jmsmessageType=Bytes (optional)
+client_acknowlede = automcatilly ackonwlede once done the process
+any process failure, no redelivery
+
+monitoring: under alerts /logs in montoring for namespace
+
+local buil deploy commands:
+mvn clean package
+java -jar target\<jar name> (keep the properties in application.properties)
+java -jar target\<jar name> --spring.config.location=file:c:\dev\properties file name.properties
+java Dlogging.config=c:\app\dev\log4j2.xml -jar target\<jar name> --spring.config.location=file:c:\dev\properties file name.properties
+in k8-ansible/roles/deploy/tempates/deploy.xml will have similar config of deploy commands

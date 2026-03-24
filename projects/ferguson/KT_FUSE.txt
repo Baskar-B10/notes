@@ -1,0 +1,46 @@
+Maven Archetype- used to generate the maven project
+ It has some options that allow the user to specify the capabilities or to add the necessary libraries to the pom.XML.
+ IncludeJPA- JPA entity  , includeTX - transaction management , PersitanceUnit - PU in JPA, AMQ - for messaging
+
+Swager API- mainly for REST 
+JSON or YAML format
+main purpose: document the rest API
+it have http type, status, producer/consuming req/res type , parameters (path or query), Object definiton (req/response)
+create using swagger editor
+targe/ generated will have the swagger specified details. it will works for runtime
+
+SPLUNK Logging 
+info logs using logging routte policy
+log the service id ( each service have id)
+progate the yransaction id (transId)
+log major events and ids, start time /end time
+
+camel components:
+activeMQ:
+for queue connection (send and receive message)
+a20071:8161 showing amqMq (machine name:port(8161)
+multicast and singlecast
+activeMq:{queue:|topic:}destinationname[?option]
+
+MongoDB:
+collection - its a entity name , it have document (records)
+connection bean (mongoDBcilent), dataBasaName, collection name and opeartion (save, remove, findByOne, FindAll, findByID)
+use DBObject for Basic DB object to execute the query (inside Body of excahnge)
+
+HttPcomponent: 
+call exteranl http services (rest service)
+http4:hostName:[port]/resourceUri?options
+set header, http type send to .toD
+
+FTP component
+FTP for getting a file from an FTP folder. You can use the FTP component  for calling the SQL that database, new to read from any AWS is good SQL or a rabbit.
+
+SQL component:
+query from DB using SQL 
+
+PostMan:
+http types, header (content-type and accept)
+send as file or html one by selecting file
+
+ArquailianSuiteDeployment - for deployment in IT 
+war file will get triggered when we trigger the class and webarchive will deploy the war file for IT 
