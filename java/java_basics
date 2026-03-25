@@ -271,6 +271,92 @@ interface B extends A {
 class C implements B {} -> B is more specific → used
 3. Must override if conflict
 
+Marker Interface:
+  A marker interface is an empty interface — it has no methods. Its main purpose is to mark a class so that the JVM or frameworks can handle it in a special way.
+a) Serializable
+    Package: java.io.Serializable
+    Marks a class as serializable, i.e., its objects can be converted to a byte stream (for saving to file or sending over network).
+    No methods in Serializable — JVM handles serialization based on the marker.
+    
+    import java.io.*;
+    class Person implements Serializable {
+        private String name;
+        private int age;  
+        Person(String name, int age) {
+            this.name = name;
+            this.age = age;
+        }
+           public String toString() {
+            return name + " : " + age;
+        }
+    }
+    public class TestSerialization {
+        public static void main(String[] args) throws Exception {
+            Person p = new Person("Alice", 25);
+            // Serialization
+            FileOutputStream fos = new FileOutputStream("person.ser");
+            ObjectOutputStream oos = new ObjectOutputStream(fos);
+            oos.writeObject(p); // JVM checks if Person implements Serializable
+            oos.close();  
+            // Deserialization
+            FileInputStream fis = new FileInputStream("person.ser");
+            ObjectInputStream ois = new ObjectInputStream(fis);
+            Person p2 = (Person) ois.readObject();
+            ois.close();
+            System.out.println(p2); // Alice : 25
+        }
+    }
+    Usage:  Without implementing Serializable, ObjectOutputStream will throw NotSerializableException.
+
+  b) Cloneable
+      Package: java.lang.Cloneable
+      Marks a class as allowing its objects to be cloned using Object.clone().
+      No methods — the JVM checks the interface.
+      class Person implements Cloneable {
+          String name;
+          Person(String name) {
+              this.name = name;
+          }
+          protected Object clone() throws CloneNotSupportedException {
+              return super.clone();
+          }
+      }
+      public class TestClone {
+          public static void main(String[] args) throws CloneNotSupportedException {
+              Person p1 = new Person("Bob");
+              Person p2 = (Person) p1.clone(); // JVM allows because implements Cloneable
+              System.out.println(p2.name); // Bob
+          }
+      }
+      Usage: If a class doesn’t implement Cloneable, calling clone() throws CloneNotSupportedException.
+
+  c) Remote
+      Package: java.rmi.Remote
+      Marks a class as remote object for Java RMI (Remote Method Invocation).
+      Used by the RMI system to allow method calls across JVMs.
+  d) Custom Marker Interface
+      You can create your own marker interface to flag classes for some framework logic.
+      interface Auditable { } // Marker interface    
+      class Employee implements Auditable {
+          String name;
+          Employee(String name) { this.name = name; }
+      }      
+      class AuditService {
+          void audit(Object obj) {
+              if (obj instanceof Auditable) {
+                  System.out.println("Auditing object: " + obj);
+              } else {
+                  System.out.println("Not auditable");
+              }
+          }
+      }     
+      public class TestMarker {
+          public static void main(String[] args) {
+              Employee e = new Employee("Alice");
+              new AuditService().audit(e); // Auditing object
+          }
+      }
+
 Method overloading vs overriding :
 overload:
   can be in same class
