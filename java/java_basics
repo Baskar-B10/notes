@@ -562,3 +562,12 @@ java.lang (default)
 java.util
 java.io
 2. User-defined Packages - Created by developer
+
+Serialization / Deserialization:
+  Convert object → byte stream → store/send
+  Reverse → reconstruct object
+Key concepts: 
+  Serializable (marker interface)
+  transient → skip fields
+  serialVersionUID → version control
+👉 Used in: Caching (Redis, files) and Microservices communication
