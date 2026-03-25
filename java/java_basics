@@ -545,6 +545,103 @@ String b = new String("hello");
 System.out.println(a == b);        // false ❌
 System.out.println(a.equals(b));   // true ✅
 
+Shallow Copy vs Deep Copy in Java (Cloning):
+ 1. Shallow Copy:
+    Copies object structure only
+    References are shared (not duplicated)
+  👉 Means: New object is created .But inner objects (references) point to the same memory
+    class Address {
+        String city;
+        Address(String city) { this.city = city; }
+    }
+    
+    class Person implements Cloneable {
+        String name;
+        Address address;
+    
+        Person(String name, Address address) {
+            this.name = name;
+            this.address = address;
+        }
+    
+        protected Object clone() throws CloneNotSupportedException {
+            return super.clone(); // shallow copy
+        }
+    }
+
+    public class Test {
+        public static void main(String[] args) throws Exception {
+            Address addr = new Address("Chennai");
+            Person p1 = new Person("John", addr);
+    
+            Person p2 = (Person) p1.clone();
+    
+            p2.address.city = "Mumbai";
+    
+            System.out.println(p1.address.city); // ❌ Mumbai (changed!)
+        }
+    }
+⚠️ Problem: Both objects share the same Address. Changing one → affects the other
+🔥 Real-Time Use Case: DTO mapping (fast copy), When objects are immutable
+
+2. Deep Copy
+    Copies everything
+    Creates new objects for all references
+    👉 Means: Completely independent object. No shared references
+    real-Time Use Case: Banking systems (avoid shared data) and Multithreading (avoid race conditions)
+      class Address {
+          String city;
+          Address(String city) { this.city = city; }
+      }
+      
+      class Person implements Cloneable {
+          String name;
+          Address address;
+      
+          Person(String name, Address address) {
+              this.name = name;
+              this.address = address;
+          }
+      
+          protected Object clone() throws CloneNotSupportedException {
+              Person cloned = (Person) super.clone();
+              cloned.address = new Address(this.address.city); // deep copy
+              return cloned;
+          }
+      }
+      ✅ Output Behavior
+      p2.address.city = "Mumbai";
+      System.out.println(p1.address.city); // ✅ Chennai (unchanged)
+
+    Feature        	    Shallow Copy	          Deep Copy
+    Object creation    	New object	            New object
+    References	        Shared	                New copies
+    Performance	        Fast	                  Slower
+    Safety	            Risky (side effects)	  Safe
+    Default clone()	    Yes	                    No (manual needed)
+
+1. super.clone() → Always shallow- Java default cloning does NOT do deep copy
+2. Deep copy must be done manually - You must explicitly clone each reference object
+3. Alternative ways for Deep Copy
+
+
+Instead of clone() (recommended in real projects):
+    ✅ Copy Constructor
+    Person(Person other) {
+        this.name = other.name;
+        this.address = new Address(other.address.city);
+    }
+    ✅ Serialization-based deep copy
+    Convert object → byte → object (creates full copy)
+
+1. Why is cloning considered bad practice? 
+      Cloneable is a marker interface (no method)
+      clone() is protected in Object
+      Doesn’t handle deep copy automatically
+      Breaks encapsulation
+      👉 Preferred: Copy constructor and Builder pattern
+
+
 What is a Package?
 A package is a collection of related classes and interfaces grouped together.
 👉 Think like:
