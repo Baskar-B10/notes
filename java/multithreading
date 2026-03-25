@@ -480,6 +480,23 @@ Happens-Before Relationship:
   start() happens-before thread execution
   volatile write → visible to other threads
 
+  If A happens-before B, then: All changes made in A are visible to B And A is executed before B (in a guaranteed order)
+  Why Do We Need It?
+  Threads have their own CPU cache. Changes made by one thread may not be visible immediately to another
+  
+  👉 Happens-before ensures:
+      ✅ Visibility
+      ✅ Ordering
+      ✅ Consistency
+Happens-Before Rules:
+  Program Order Rule- Within a thread → execution is in order
+  Monitor Lock Rule (synchronized)- Unlock happens-before next lock
+  Volatile Rule - Write to volatile → happens-before read
+  Thread Start Rule- start() happens-before thread execution
+  Thread Join Rule - Thread completion happens-before join()
+  Final Field Rule - Final fields are safely published after constructor
+  Transitivity Rule (Very Important) - If: A → B and B → C Then: 👉 A → C
+
 not use stop() method? ❌ Deprecated because: Leaves object in inconsistent state
 false sharing? 👉 Multiple threads update variables in same CPU cache line → performance degradation
 Concurrency → multiple tasks managed
