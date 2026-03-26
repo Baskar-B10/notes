@@ -338,5 +338,53 @@ sorted() with Comparator:
     Instance Method Reference (Class) - ClassName::instanceMethod , list.stream().map(String::toUpperCase);
     Constructor Reference -  Class::new, Supplier<List<String>> s = ArrayList::new;
 
+7. Optional Class - Avoids NullPointerException
+              Avoid get() without check ,  Use map() + orElse() 
+              Don’t use Optional in fields (bad practice)
+    Optional<String> opt = Optional.of("Hello");
+    Optional<String> opt2 = Optional.ofNullable(null);
+    Optional<String> opt3 = Optional.empty();
+
+✔ isPresent() -opt.isPresent();
+✔ ifPresent() - opt.ifPresent(x -> System.out.println(x));
+✔ get() ⚠️ risky - opt.get();
+✔ orElse() -opt.orElse("Default");
+✔ orElseGet() - opt.orElseGet(() -> "Generated");
+✔ orElseThrow() - opt.orElseThrow(() -> new RuntimeException());
+✔ map() - opt.map(String::length);
+
+Optional<User> user = repo.findById(id);
+  String name = user
+      .map(User::getName)
+      .orElse("Unknown");
+    
+8. Date & Time API (java.time) - Replaces old Date and Calendar
+ Important Classes:
+          Class	          Purpose
+          LocalDate	      Date only
+          LocalTime	      Time only
+          LocalDateTime	  Date + Time
+          ZonedDateTime	  Timezone
+          Period	        Date difference
+          Duration	      Time difference
+
+    ✔ Current Date -LocalDate date = LocalDate.now();
+    ✔ Current Time - LocalTime time = LocalTime.now();
+    ✔ Date + Time - LocalDateTime dt = LocalDateTime.now();
+    ✔ Add/Subtract - date.plusDays(5); date.minusMonths(1);
+    ✔ Formatting -DateTimeFormatter f = DateTimeFormatter.ofPattern("dd-MM-yyyy");  String formatted = date.format(f);
+    ✔ Parse - LocalDate d = LocalDate.parse("2025-03-25");
+    ✔ Difference - Period p = Period.between(d1, d2);
+
+9. Nashorn JavaScript Engine - Allows running JavaScript inside Java
+    ScriptEngine engine =
+        new ScriptEngineManager().getEngineByName("nashorn");
+    engine.eval("print('Hello from JS')");
+  Use Cases
+      Script execution
+      Rule engines
+      Dynamic logic
+Important- Deprecated/removed in newer Java versions (Java 15+)
+
 
   
