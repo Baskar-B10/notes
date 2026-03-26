@@ -92,6 +92,63 @@ Java (JDK) Versions & Key Features
       Continuous improvements
       Foreign Function & Memory API (preview → stable soon)
 
+Java 7 Features:
+  1. Try-With-Resources (Java 7)-  Automatically closes resources (like files, DB connections)  
+      ❌ Old Way:
+          BufferedReader br = new BufferedReader(new FileReader("file.txt"));
+          try {
+              br.readLine();
+          } finally {
+              br.close();
+          }
+      ✅ New Way:
+          try (BufferedReader br = new BufferedReader(new FileReader("file.txt"))) {
+              br.readLine();
+          }
+      Why needed:
+          Avoid memory leaks
+          Automatic resource management
+          Cleaner code
+      Important Rule :Resource must implement: AutoCloseable
+
+ 2.Multiple Catch - Handle multiple exceptions in one catch block
+   ❌ Before
+          try {
+              // code
+          } catch (IOException e) {
+          } catch (SQLException e) {
+          }
+  ✅ After
+        try {
+            // code
+        } catch (IOException | SQLException e) {
+            e.printStackTrace();
+        }
+    Why needed?
+        Reduce duplication
+        Cleaner exception handling
+  Important Rules-  Exceptions must NOT have parent-child relation
+  ❌ Invalid:  
+      catch (Exception | IOException e) // ❌
+      Variable is implicitly final
+      e = new Exception(); // ❌ not allowed
+
+3.Diamond Operator-  Used for type inference in generics
+    ❌ Old Way (Java 6)
+        List<String> list = new ArrayList<String>(); Type repeated twice 
+    ✅ New Way (Java 7+)
+        List<String> list = new ArrayList<>(); -> Compiler automatically infers type
+   How it Works:  Compiler reads left-hand side (LHS)
+             List<String> list = new ArrayList<>(); Infers: ArrayList<String>
+    ✔ Advantages:
+        Removes redundancy
+        Cleaner code
+        Less error-prone
+     Limitations:
+        ❌ Cannot use without type context- new ArrayList<>(); // ❌ error (no LHS)
+        ❌ Not allowed in method parameters (Java 7)- void test(ArrayList<> list) {} // ❌
+        ❌ With anonymous class (Java 7)- new ArrayList<>() { }; // ❌ (Java 7)
+
 Java 8 features:
 
 1. Lambda Expressions: Anonymous functions (no name, no class)
@@ -940,6 +997,13 @@ Java 10 Features:
         var x; // ❌ error
         method parameters 
         class fields  class A {  var x = 10; // ❌ not allowed}
+
+   Diamond vs var 
+    Diamond - Type comes from left side.  Needs LHS. RHS uses LHS
+    List<String> list = new ArrayList<>();
+    var- Type comes from right side. Need RHS.LHS uses RHS
+    var list = new ArrayList<String>();
+
 
 Java 11 (LTS) Features
   1. Stream Enhancements:
