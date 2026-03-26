@@ -189,8 +189,29 @@ list.stream()
                 It works on collections (List, Set, etc.)
                 It processes data lazily
     why: Cleaner + faster (parallel processing)
+    Interanlly:
+    Collection → Spliterator → Pipeline → Terminal Operation → Result
+          Spliterator: Special iterator used by streams for: Traversal and Splitting (for parallel processing)
+              Key Methods: 
+                    boolean tryAdvance(Consumer action); - Processes one element at a time
+                    Spliterator trySplit(); - Splits data into parts for parallel processing
+                    long estimateSize(); - Returns approximate size
+                    int characteristics(); - Describes properties: ORDERED/DISTINCT/SORTED/SIZED
+          Pipeline = chain of operations 
+                      Collection → Stream → Intermediate Ops → Terminal Op → Result
+              Stages: 
+                  Source Stage-  Creates stream from: Collection / Array /IO
+                  Intermediate Operations (Lazy) -stored as pipeline steps, NOT executed
+                  Terminal Operation - Triggers execution
+  Why Streams are Efficient?
+        ✔ Lazy execution
+        ✔ Single pass (fusion)
+        ✔ Parallel support
+        ✔ No intermediate collections
 
-    Collection → Stream → Intermediate Ops → Terminal Op → Result
+          Type	        Example	            Behavior
+          Stateless	    filter, map	        independent
+          Stateful	    sorted, distinct	  needs full data
 
     Types of Operations:
      1. Intermediate Operations
@@ -224,6 +245,45 @@ list.stream()
         ✔ reduce - int sum = list.stream().reduce(0, (a, b) -> a + b);
             ✔ reduce → immutable result
             ✔ collect → mutable container
+
+Short-Circuiting Operations:
+      list.stream()
+          .filter(x -> x > 2)
+          .findFirst();  Stops early once result found
+       Short-circuit methods
+              findFirst()
+              findAny()
+              anyMatch()
+
+
+Fusion Optimization -  Multiple operations combined into one pass
+                      filter → map → reduce  Executed in single traversal
+
+Lazy Evaluation:
+        list.stream()
+            .filter(x -> {
+                System.out.println("Filter: " + x);
+                return x > 2;
+            })
+            .map(x -> {
+                System.out.println("Map: " + x);
+                return x * 2;
+            })
+            .forEach(System.out::println);
+👉 Output Behavior
+        Filter: 1
+        Filter: 2
+        Filter: 3
+        Map: 3
+        6
+        Filter: 4
+        Map: 4
+        8
+       Processing happens element-by-element, not step-by-step 
+          1 → filter → discard  
+          2 → filter → discard  
+          3 → filter → map → print  
+          4 → filter → map → print    
 
 Collectors Methods - stream.collect(...)
 ✔ toList() - stream.collect(Collectors.toList()); 
@@ -595,6 +655,8 @@ Usage:  list.stream()
     Stream.iterate(1, x -> x + 1)
         .forEach(System.out::println); ❌ Infinite loop
     ✔ Fix:.limit(10)
+9.  Why sorted() is slow?  Because it’s stateful . Needs all elements first
+10. Why limit() is fast? Short-circuiting → stops early
 
   Parallel Stream:
       Processes stream using multiple threads (ForkJoinPool)
@@ -604,10 +666,18 @@ Usage:  list.stream()
           .forEach(System.out::println);
 
   Internal Working:
-          Uses ForkJoinPool.commonPool()
-          Splits data into chunks
-          Processes in parallel
-          Merges results
+        Spliterator splits data
+        Tasks assigned to ForkJoinPool
+        Each thread processes chunk
+        Results combined
+      Data → Split → Process → Merge
+
+    ForkJoinPool -  
+         Default thread pool: 
+              ForkJoinPool.commonPool()
+         Work-Stealing Algorithm : 
+              Threads take tasks
+              Idle threads steal work from others
 
    Parallel vs Sequential Stream:
         Feature	            Sequential	          Parallel
