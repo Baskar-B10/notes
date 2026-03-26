@@ -220,7 +220,11 @@ Collectors Methods - stream.collect(...)
 ✔ toSet() - stream.collect(Collectors.toSet());
 ✔ toMap() - stream.collect(Collectors.toMap( x -> x, x -> x.length());
 ✔ groupingBy() -Collectors.groupingBy(Function.identity())
+              Map<String, List<Employee>> map = employees.stream()
+                          .collect(Collectors.groupingBy(Employee::getDept));
 ✔ partitioningBy() -Collectors.partitioningBy(x -> x > 10);
+                  Map<Boolean, List<Integer>> map = list.stream()
+                          .collect(Collectors.partitioningBy(x -> x > 3));
 ✔ counting()-Collectors.counting();
 ✔ joining() - Collectors.joining(", ");
 
@@ -280,8 +284,9 @@ sorted() with Comparator:
         .filter(e -> e.getValue() > 1)   // only duplicates
         .forEach(e -> System.out.println(e.getKey() + " -> " + e.getValue()));
 
-  Parallel Stream
+  Parallel Stream:
       Processes stream using multiple threads (ForkJoinPool)
+      Multi-core processing
       list.parallelStream() OR list.stream().parallel()
       list.parallelStream()
           .forEach(System.out::println);
@@ -292,18 +297,46 @@ sorted() with Comparator:
           Processes in parallel
           Merges results
 
-   Parallel vs Sequential Stream
+   Parallel vs Sequential Stream:
         Feature	            Sequential	          Parallel
         Threads	            Single	              Multiple
         Order	              Maintained          	Not guaranteed
         Performance	        Slower	              Faster (large data)
         Debugging          	Easy	                Hard
   
-  Important Rules
+  Important Rules:
         ❌ Avoid Parallel Stream when: Small dataset,  Shared mutable data and Order is important
         ✔ Use Parallel when: Large dataset, Independent operations and CPU intensive
-    Dangerous Example
+    Dangerous Example:
           List<Integer> result = new ArrayList<>();          
           list.parallelStream().forEach(result::add); // ❌ NOT SAFE 👉 Causes: Race conditions and Data inconsistency
-  
+
+4. forEach Method - Internal iteration
+     list.forEach(x -> System.out.println(x));
+  Important:
+    Cannot break or continue
+    Best for read-only operations
+
+5. Default and static Methods (Interface Enhancement) - Interfaces can have method body
+     Why : Backward compatibility and Enable functional programming support
+      If you add a method to interface → all classes break so Java 8 introduced:
+      ✅ default methods - ✔ Allows adding new methods without breaking existing code
+      ✅ static methods - ✔ Called using: MyInterface.display();
+      interface MyInterface {
+          default void show() {
+              System.out.println("Default method");
+          }
+      }
+      interface MyInterface {
+          static void display() {
+              System.out.println("Static method");
+          }
+ 6. Method References - Shortcut for lambda
+   Types:
+    Static Method Reference - Class::staticMethod, list.stream().map(Math::sqrt);
+    Instance Method Reference (Object)-  object::instanceMethod , System.out::println
+    Instance Method Reference (Class) - ClassName::instanceMethod , list.stream().map(String::toUpperCase);
+    Constructor Reference -  Class::new, Supplier<List<String>> s = ArrayList::new;
+
+
   
