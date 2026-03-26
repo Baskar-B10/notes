@@ -856,4 +856,308 @@ Optional<User> user = repo.findById(id);
 Important- Deprecated/removed in newer Java versions (Java 15+)
 
 
+
+
+Java 9 Features:
+  1. Module System (Project Jigsaw) - Split application into modules with controlled access.
+  Why:
+      Avoid classpath hell
+      Strong encapsulation
+      Faster startup
+    module my.app {
+        requires java.sql;
+        exports com.myapp.service;
+    }
+  Usage:
+    Large enterprise apps
+    Microservices with strict boundaries
+ 
+  2. Stream Enhancements:
+    Why Needed?
+          Earlier: filter + break not possible ❌
+          Now:
+              ✔ Short-circuiting streams
+              ✔ Efficient for ordered data
+          Limitations:
+                Works best with ordered streams
+                Not useful for random/unordered data
+    takeWhile()-  Output stops when condition fails (break)
+                  list.stream()
+                      .takeWhile(x -> x < 5)
+                      .forEach(System.out::println);
+    dropWhile() - Skips until condition fails (continue)
+                list.stream()
+                    .dropWhile(x -> x < 5)
+                    .forEach(System.out::println);
+    iterate(seed, predicate, next)
+       why: Java 8 iterate() (Infinite):
+             Stream.iterate(1, x -> x + 1)
+            .limit(5)  ❌ Without limit() → infinite loop
+            .forEach(System.out::println);
   
+            Stream.iterate(1, x -> x + 1)
+                  .forEach(System.out::println); // ❌ dangerous
+    Java 9 (Fix):
+         Stream.iterate(1, x -> x < 10, x -> x + 2)
+                        .forEach(System.out::println); Output: 1 2 3 4 5
+        Start from 1
+        Continue while x <= 10
+        Increment by +2
+   Advantage over Java 8
+      ✔ No need for limit()
+      ✔ Safer
+      ✔ More readable
+
+   3. Optional Enhancements:
+      ifPresentOrElse():
+            opt.ifPresentOrElse(
+            v -> System.out.println(v),
+            () -> System.out.println("Empty") );
+    or()- opt.or(() -> Optional.of("default"));  
+   
+   4. Factory Methods: 
+        List.of(1,2,3);
+        Set.of("a","b");
+        Map.of("a",1,"b",2);
+     Why:
+        Immutable collections
+        Cleaner syntax
+        Less boilerplate
+        Safer (no accidental modification)
+    Limitations:
+        ❌ Cannot modify-  list.add(4); // Exception
+        ❌ No null allowed - List.of(1, null); // NullPointerException
+
+
+Java 10 Features:
+  1. var (Local Variable Type Inference):
+      var is NOT a datatype. It tells compiler: “You decide the type from the right-hand side”
+      var list = new ArrayList<String>();
+      Why:
+        Reduce verbosity
+        Improve readability
+     Not allowed:
+        var x; // ❌ error
+        method parameters 
+        class fields  class A {  var x = 10; // ❌ not allowed}
+
+Java 11 (LTS) Features
+  1. Stream Enhancements:
+          isEmpty() opt.isEmpty();
+  2. String API
+      ✔ isBlank() - "   ".isBlank(); // true
+      ✔ strip() / stripLeading() / stripTrailing() - "  hi  ".strip(); // "hi"
+      ✔ lines() - "hello\nworld".lines().forEach(System.out::println);
+      ✔ repeat() - "a".repeat(3); // "aaa"
+      Why Needed?
+          Replace old methods (trim, manual split)
+          Better Unicode handling
+
+  3. HttpClient API:
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://example.com"))
+                .build();
+        client.send(request, HttpResponse.BodyHandlers.ofString());
+        Why:
+            Replaces old HttpURLConnection
+            Supports async + HTTP/2
+
+  4. Files API
+          Files.readString(path);
+          Files.writeString(path, data);
+ 
+  5. Lambda Local Variable Syntax (var in lambda)
+            (var x, var y) -> x + y;
+
+
+Java 12–14 Features:
+  1. Switch Expressions (Java 14)
+        int result = switch(day) {
+            case MONDAY -> 1;
+            case TUESDAY -> 2;
+            default -> 0;
+        };
+     Why:
+        No fall-through
+        Returns value
+  2. Text Blocks (Java 13)
+            String json = """
+            {
+              "name": "Java"
+            }
+            """;
+     Why :Cleaner multi-line strings
+
+
+Java 15 Features
+    Text Blocks finalized:  A multi-line string literal using """ (triple quotes)
+    ❌ Before (Old Way)
+      String json = "{\n" +
+                    "  \"name\": \"John\",\n" +
+                    "  \"age\": 30\n" +
+                    "}";  Hard to read 
+  ✅ With Text Blocks
+      String json = """
+      {
+        "name": "John",
+        "age": 30
+      }
+      """;  Clean & readable ✅
+  Syntax Rules:
+      ✔ Basic Structure
+            String text = """
+                multi-line
+                string
+            """;
+      ✔ Important Rules
+            Starts with """
+            Ends with """
+            Preserves formatting (spaces, new lines)
+   Key Features:
+      1. Multi-line support
+      2. No need for \n - Automatically handles line breaks
+      3. Better indentation handling-  Java removes common indentation
+      4. No need to escape quotes
+      
+  Real-World Usage:
+       1. JSON Handling   
+       2. SQL Queries 
+       3. HTML/XML Templates
+       4. Logs / Messages
+     
+
+Java 16 Features:
+    1.Records 
+        record Person(String name, int age) {}
+       Automatically provides:
+            constructor
+            getters
+            equals/hashCode
+            toString
+       Why -Reduce boilerplate (DTOs)
+       Usage:
+          API responses
+          immutable objects
+      Limitations:
+          ❌ Cannot extend class
+          ❌ Fields are final
+          ❌ Not suitable for mutable objects
+
+Java 17 (LTS) Features:
+   1. Sealed Classes
+      sealed class Shape permits Circle, Square {}
+      final class Circle extends Shape {}
+     Why:
+        Restrict inheritance
+        Better design control
+    Limitations:
+      ❌ Must define permitted classes
+      ❌ All subclasses must be:
+      final / sealed / non-sealed
+   
+  2. Pattern Matching (instanceof)
+        if (obj instanceof String s) {
+            System.out.println(s.length());
+        }
+     Why :No casting required
+
+
+Java 18–19 features:
+    Virtual Threads (Preview) -  Lightweight threads (millions possible)
+    
+
+Java 21 (LTS 🔥) features:
+   1. Virtual Threads (FINAL) - Lightweight threads managed by JVM (not OS)
+      ❌ Problem Before:
+        Platform threads = expensive
+        1 thread ≈ 1 OS thread
+      ✅ Solution
+            Thread.startVirtualThread(() -> {
+                System.out.println("Hello");
+            });
+      Why:
+        Millions of threads possible
+        Less memory
+        Better scalability
+        Best for microservices
+      Real Usage:
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();     
+        executor.submit(() -> {
+            // DB call
+        });
+      Limitations:
+        Avoid CPU-heavy tasks
+        Not for synchronization-heavy logic
+   
+  2. Pattern Matching for Switch - Use switch with types
+        ❌ Before
+            if (obj instanceof String) {
+                String s = (String) obj;
+            }
+        ✅ Now
+            switch (obj) {
+                case String s -> System.out.println(s);
+                case Integer i -> System.out.println(i);
+                default -> {}
+            }
+        Why:
+            Cleaner code
+            No casting
+            Safer
+       Limitation - Needs proper type coverage
+
+  3. Record Patterns - Deconstruct objects easily
+          if (obj instanceof Person(String name, int age)) {
+              System.out.println(name);
+          }
+          Why:
+            Extract fields directly
+            Cleaner pattern matching
+          Real Use:
+            API parsing
+            DTO handling
+   4. Sequenced Collections (NEW 🔥)-  Maintains order in collections
+      SequencedCollection<Integer> list = new ArrayList<>();
+      list.addFirst(1);
+      list.addLast(2);   
+      list.getFirst();
+      list.getLast();
+     Why: to get Now unified API
+      Earlier inconsistency:
+          List → ordered
+          Set → not consistent
+     Limitation: Works only with supported collections
+
+  5. String Templates (Preview ⚠️) - Safer string interpolation
+      String name = "Baskar";
+      String msg = STR."Hello \{name}";
+     Why:
+        Avoid SQL injection
+        Better formatting
+     Limitation: Preview feature (not stable)
+   
+6. Scoped Values (Preview) -Thread-safe alternative to ThreadLocal
+      ScopedValue<String> key = ScopedValue.newInstance();      
+      ScopedValue.where(key, "value").run(() -> {
+          System.out.println(key.get());
+      });
+       Why:
+          Safer than ThreadLocal
+          Works well with virtual threads
+
+7. Structured Concurrency (Preview)- Manage multiple tasks as a unit
+      try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+          scope.fork(() -> task1());
+          scope.fork(() -> task2());
+          scope.join();
+      }
+       Why:
+          Better error handling
+          Clean parallel execution
+
+8. Foreign Function & Memory API (Preview) -Call native code without JNI
+     Why:
+          Replace JNI complexity
+          Better performance
+      
