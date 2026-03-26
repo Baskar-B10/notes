@@ -1,15 +1,15 @@
 Java:
-  Java Basics
+  Java Basics (includes solid principles, Serizilation)
   Multithreading 
-  Java 8 features , latest version features
+  Java 8 features and other JDK versions features
   Arrays and Strings
-  Collections includes compartor and collectors
-  different interfaces like  serlization 
+  Collections
+  compartor and comparable
   DSA
   
 Spring:
   spring Core
-  spring Data access
+  spring Data access (ORM, Hiberate , JPA)
   Web (Spring MVC)
   AOP
   Security
@@ -17,12 +17,12 @@ Spring:
   spring boot
 
 FrameworkS/tech:
-  ORM
+  Apache camel
   Caching
   orcika
   CI/CD 
   AKS
-  design patterns like microservices , adapter
+  design patterns like microservices , adapter, factory, saga , circuit breaker , reliance4j, single and multiple DB
 
 
 
