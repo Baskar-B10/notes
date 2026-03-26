@@ -15,20 +15,85 @@
           Access	    Fast (O(1))
           Memory	    Contiguous
      
-  Types of Arrays
+  Types of Arrays:
       1. Single Dimensional -int[] arr = new int[5];
       2. Multi-Dimensional -int[][] matrix = new int[3][3];
       3. Jagged Array (Different column sizes) - int[][] jagged = new int[3][];
                   jagged[0] = new int[2];
                   jagged[1] = new int[4];
- 
+
+Array Initialization:
+   1. Declaration Only - int[] arr;
+   2. Declaration + Memory Allocation - int[] arr = new int[5];
+      Default values:
+         Type      	Default
+         int       	0
+         boolean	   false
+         object	    null
+   3. Direct Initialization -int[] arr = {1, 2, 3};
+   4. Using new- int[] arr = new int[]{1, 2, 3}; ->Useful when passing to methods
+
+  int[] arr;
+  arr = {1,2,3}; // ❌ compile error
+ ✔ Correct: arr = new int[]{1,2,3};
+
+Fixed Size:
+  int[] arr = new int[5]; Size = 5 (cannot change later)
+  Get Size:  arr.length
+  Important:
+      length is a property, not method
+      No parentheses
+      arr.length   // ✅
+      arr.length() // ❌
+  Why fixed size?
+      Stored in contiguous memory
+      JVM allocates memory once → cannot resize
+
+Default values trap:
+      int[] arr = new int[3];
+      System.out.println(arr[0]); // 0
+ Memory behavior:
+      Stack → reference
+      Heap → actual array
+
   Important Methods (from Arrays class):
-        import java.util.Arrays;
-        Arrays.sort(arr);        // Sorting
-        Arrays.toString(arr);    // Convert to String
+        Arrays.sort(arr);        
+             Arrays.sort(arr);   // Sorting
+        Arrays.toString(arr);   
+            int[] arr = {1, 2, 3};
+            System.out.println(Arrays.toString(arr));  // Convert to String
+            // [1, 2, 3]
         Arrays.binarySearch(arr, 20);
         Arrays.copyOf(arr, 10);
-        Arrays.fill(arr, 5);
+            int[] newArr = Arrays.copyOf(arr, 5);
+        Arrays.fill(arr, 5); Fills the entire array (or part of it) with a specific value
+          Arrays.fill(array, value);
+          Arrays.fill(array, fromIndex, toIndex, value);
+          🔸 Fill entire array
+                int[] arr = new int[5];
+                Arrays.fill(arr, 10);     
+                System.out.println(Arrays.toString(arr)); // [10, 10, 10, 10, 10]
+          🔸 Fill partial array
+               int[] arr = {1, 2, 3, 4, 5};
+               Arrays.fill(arr, 1, 4, 9); 
+               System.out.println(Arrays.toString(arr));// [1, 9, 9, 9, 5]
+               👉 fromIndex = inclusive
+               👉 toIndex = exclusive
+          🔥 Internal Behavior:
+                 Iterates and assigns value → O(n)
+                 No new array created → modifies existing array
+             Works for:
+                  primitives (int, char, etc.)
+                  objects
+                  String[] arr = new String[3];
+                  Arrays.fill(arr, "java");
+        Arrays.equals()
+            Arrays.equals(arr1, arr2);
+        Arrays.stream()
+             int[] arr = {1, 2, 3};
+        Arrays.deepToString() (for 2D arrays)
+             int[][] arr = {{1,2},{3,4}};
+             System.out.println(Arrays.deepToString(arr));
     
   ✅ Advantages:
         ✔ Fast access
@@ -44,6 +109,11 @@
     for (int num : arr) {
         System.out.println(num);
     }
+
+   Feature	     Array	     ArrayList
+   Size	        Fixed	     Dynamic
+   Performance	 Faster	    Slight overhead
+   Methods	     Limited	   Rich API
 
 2. Strings:
     A String is a sequence of characters.
@@ -105,6 +175,81 @@
         String str = "a,b,c,d";
         String[] arr = str.split(",", 2);
         System.out.println(Arrays.toString(arr));// [a, b,c,d]
+
+  String.valueOf() - Converts different data types → String
+ 🔹 Syntax
+    String valueOf(int i)
+    String valueOf(double d)
+    String valueOf(boolean b)
+    String valueOf(char[] data)
+    String valueOf(Object obj)
+  🔸 Convert int → String
+      int num = 100;
+      String str = String.valueOf(num);
+      System.out.println(str);  // "100"
+  🔸 Convert boolean → String
+     boolean flag = true;
+     String str = String.valueOf(flag);
+     System.out.println(str);  // "true"
+  🔸 Convert char array → String
+     char[] arr = {'h', 'i'};
+     String str = String.valueOf(arr);     
+     System.out.println(str);  // "hi"
+
+  Why use valueOf()?
+     ✔ Null-safe
+     ✔ Works for all types
+     ✔ Better than concatenation (+ "" trick)
+  
+  Important Difference:
+    String.valueOf(null);   // returns "null"
+    ((String) null).toString(); // ❌ NullPointerException
+
+   valueOf() vs toString()
+   Feature      	valueOf()	   toString()
+   Null-safe	    ✅	          ❌
+   Static	       ✅          	❌
+   Usage	        Conversion	   Representation
+  
+ chars() method (Java 8+)
+    Returns a stream of characters (as int values) from a String
+  🔹 Syntax -IntStream chars()
+  🔹 Example - String str = "abc";
+      str.chars().forEach(System.out::println);
+      Output:
+      97
+      98
+      99 These are ASCII / Unicode values
+ Convert back to characters
+  String str = "abc";
+  str.chars()
+     .mapToObj(c -> (char) c)
+     .forEach(System.out::println);
+  Output:abc
+
+  Count vowels
+    String str = "hello"; 
+    long count = str.chars()
+        .mapToObj(c -> (char) c)
+        .filter(c -> "aeiou".indexOf(c) != -1)
+        .count();
+    System.out.println(count);  // 2
+ 
+Important Points:
+  Returns IntStream, not Stream<Character>
+  Needs conversion: (char) c
+
+ Other Important String Methods
+  🔹 toCharArray()
+        String str = "java";
+        char[] arr = str.toCharArray();
+        ✔ Converts string → char array
+        ✔ Useful in algorithms
+  🔹 charAt()- str.charAt(1);  // 'a'
+  🔹 contains() - str.contains("va");  // true
+  🔹 indexOf() -str.indexOf("a");  // 1
+  🔹 join() (Java 8) - String result = String.join("-", "a", "b", "c"); System.out.println(result);  // a-b-c
+  🔹 format() - String str = String.format("Hello %s", "Java");
       
 String vs StringBuilder vs StringBuffer:
         Feature	    String	        StringBuilder    StringBuffer
@@ -145,3 +290,4 @@ Array vs String (Key Differences)
   2. Why String is immutable?-> Security + caching + thread safety
   3. Why use StringBuilder? -> For heavy string modification (performance)
   4. How String pool improves performance?-> Reuses objects → reduces memory usage
+  5. Why chars() returns int? -> Because Java uses Unicode (UTF-16) → char internally represented as int
