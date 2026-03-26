@@ -3,8 +3,9 @@ Java:
   Multithreading 
   Java 8 features and other JDK versions features
   Arrays and Strings
-  Collections
   compartor and comparable
+  Exception Handling
+  Collections
   DSA
   
 Spring:
