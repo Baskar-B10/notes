@@ -1,0 +1,93 @@
+Java (JDK) Versions & Key Features
+  ✅ JDK 1.0 (1996)
+      Initial release
+      Basic OOP, JVM, AWT
+  
+  ✅ JDK 1.2 – “Collections Framework” (1998)
+      Introduced Collections API
+      ArrayList, HashMap, HashSet
+  
+  ✅ JDK 1.3
+      JVM improvements
+      No major language changes
+  
+  ✅ JDK 1.4 (2002)
+      assert keyword
+      Exception chaining
+      NIO (Non-blocking IO)
+  
+  🚀 JDK 5 (1.5) – BIG RELEASE 👉 Most important version
+       Generics (List<String>)
+      Annotations
+      Autoboxing/Unboxing
+      Enhanced for-loop
+      Enum
+      Varargs
+  
+  🚀 JDK 6
+      Performance improvements
+      JDBC enhancements
+  
+  🚀 JDK 7
+      Try-with-resources
+      Diamond operator <>
+      Multi-catch
+      NIO.2 (Files API)
+  
+  🔥 JDK 8 (MOST IMPORTANT) 👉 Used everywhere
+      Lambda expressions
+      Streams API
+      Functional interfaces
+      Default & static methods in interfaces
+      Optional class
+      Date & Time API (java.time
+                      
+  🚀 JDK 9
+      Module system (Project Jigsaw)
+      JShell (REPL)
+      Private methods in interfaces 
+      Deprecated/Removed: Java EE modules deprecated
+  
+  🚀 JDK 10
+      var (local variable type inference)
+  
+  🚀 JDK 11 (LTS) 👉 Very important production version
+      New HTTP Client API
+      String methods (isBlank, lines)
+      Lambda improvements
+      Removed: Java EE & CORBA modules ❌
+  
+  🚀 JDK 12–13
+      Switch expression (preview)
+                     
+  🚀 JDK 14
+      Switch expressions (stable)
+      Records (preview)
+      Helpful NullPointerExceptions
+  
+  🚀 JDK 15
+      Text blocks (""")
+      Sealed classes (preview)
+  
+  🚀 JDK 16
+      Records (stable)
+  
+  🚀 JDK 17 (LTS) 👉 Current enterprise standard (very important)
+      Sealed classes (stable)
+      Pattern matching (instanceof)
+      Strong encapsulation      
+      Removed:  Security manager deprecated
+  
+  🚀 JDK 18–20
+      Performance improvements
+      Virtual threads (preview starts)
+  
+  🔥 JDK 21 (LTS – VERY IMPORTANT NOW) 👉 Latest major LTS 
+      Virtual Threads (Project Loom) ✅
+      Pattern Matching for switch
+      Record patterns
+      Sequenced collections
+  
+  🚀 JDK 22+ (Latest ongoing)
+      Continuous improvements
+      Foreign Function & Memory API (preview → stable soon)
