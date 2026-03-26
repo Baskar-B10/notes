@@ -91,3 +91,219 @@ Java (JDK) Versions & Key Features
   🚀 JDK 22+ (Latest ongoing)
       Continuous improvements
       Foreign Function & Memory API (preview → stable soon)
+
+Java 8 features:
+
+1. Lambda Expressions: Anonymous functions (no name, no class)
+    Why: Reduce boilerplate code (especially in collections, threads)
+    Syntax: (parameter) -> expression
+    // Before Java 8
+      Runnable r = new Runnable() {
+          public void run() {
+              System.out.println("Hello");
+          }
+      };
+    // Java 8
+    Runnable r = () -> System.out.println("Hello");
+    Real Usage: Sorting, Iteration and Thread execution
+
+2. Functional Interfaces: Interface with only one abstract method
+    @FunctionalInterface
+    interface MyFunc {
+        void execute();   // only one abstract method
+    }
+    ✔ Can have: multiple default methods , multiple static methods
+   ❌ Cannot have: more than one abstract method
+    Why: They enable: ✅ Lambda expressions ✅ Method references ✅ Clean, readable code
+    Common Examples: Runnable, Callable and Comparator
+   
+Built-in Functional Interfaces:
+  1. Predicate<T> :Represents a condition (boolean check)
+      Method: boolean test(T t);
+      Predicate<Integer> isEven = x -> x % 2 == 0;
+      System.out.println(isEven.test(4)); // true
+ 
+BiPredicate<T, U> - Takes 2 inputs
+      BiPredicate<Integer, Integer> p = (a, b) -> a > b;
+      p.test(5, 3); // true
+      Default Methods (VERY IMPORTANT 🔥)
+          p.and(p2)     // both true
+          p.or(p2)      // any one true
+          p.negate()    // reverse
+use case: list.stream() .filter(x -> x > 10);
+
+2. Function<T, R> - Transform input → output
+    Method : R apply(T t);
+    Types / Variants
+        ✔ BiFunction<T, U, R> : BiFunction<Integer, Integer, Integer> add = (a, b) -> a + b;
+        ✔ UnaryOperator<T> (Same input & output type) - UnaryOperator<Integer> square = x -> x * x;
+        ✔ BinaryOperator<T> - BinaryOperator<Integer> sum = (a, b) -> a + b;
+       Default Methods
+          f.andThen(g)   // first f, then g
+          f.compose(g)   // first g, then f
+
+          Function<Integer, Integer> f1 = x -> x * 2;
+          Function<Integer, Integer> f2 = x -> x + 3;
+          System.out.println(f1.andThen(f2).apply(5)); // 13
+          System.out.println(f1.compose(f2).apply(5)); // 16
+         Real Use: list.stream().map(x -> x * 2);
+
+        Function is a functional interface, and identity() is a static method inside it.
+        static <T> Function<T, T> identity()
+        When you want: element itself as key or value and  No transformation needed
+
+3. Consumer<T> - Consumes input → no return
+     Method: void accept(T t);
+      Consumer<String> c = x -> System.out.println(x);
+      c.accept("Hello");
+    ✔ BiConsumer<T, U> -BiConsumer<String, Integer> c = (name, age) -> System.out.println(name + " " + age);
+      Default Method - c.andThen(c2)
+      Consumer<String> c1 = x -> System.out.println("Hello " + x);
+      Consumer<String> c2 = x -> System.out.println("Bye " + x);
+      c1.andThen(c2).accept("Java");
+       Real Use :list.forEach(System.out::println);
+
+4. Supplier<T> - No input → returns value
+     Method - T get();
+      Supplier<Double> s = () -> Math.random();
+      System.out.println(s.get());
+      Real Use: Supplier<List<String>> listSupplier = ArrayList::new;
+
+Real Combined Example:
+List<Integer> list = Arrays.asList(1,2,3,4,5);
+list.stream()
+    .filter(x -> x % 2 == 0)        // Predicate
+    .map(x -> x * 2)                // Function
+    .forEach(System.out::println);  // Consumer
+
+3. Stream API : A Stream is a sequence of data used to perform operations (like filter, map, sort) in a functional style.
+                It does NOT store data
+                It works on collections (List, Set, etc.)
+                It processes data lazily
+    why: Cleaner + faster (parallel processing)
+
+    Collection → Stream → Intermediate Ops → Terminal Op → Result
+
+    Types of Operations:
+     1. Intermediate Operations
+           Return a new stream
+           Lazy (executed only when terminal op runs)
+        Common Methods:
+        ✔ filter (Predicate) - stream.filter(x -> x > 10);
+        ✔ map (Function) -stream.map(x -> x * 2);
+        ✔ sorted -  stream.sorted();  stream.sorted((a,b) -> b - a);
+        ✔ distinct - stream.distinct();
+        ✔ limit / skip - stream.limit(3); and stream.skip(2);
+        ✔ flatMap:
+                List<List<Integer>> list = Arrays.asList(
+                    Arrays.asList(1,2),
+                    Arrays.asList(3,4));
+                list.stream()
+                    .flatMap(x -> x.stream())
+                    .forEach(System.out::println);
+         peek()- for debugging
+
+   2. Terminal Operations - Produce result / end stream
+        ✔ forEach (Consumer)- stream.forEach(System.out::println);
+        ✔ collect - stream.collect(Collectors.toList());
+        ✔ count - long c = stream.count();
+        ✔ findFirst -  stream.findFirst(); Returns first element (order matters)
+           findAny-Returns any element (optimized for parallel)                
+        ✔ anyMatch / allMatch / noneMatch - stream.anyMatch(x -> x > 10);
+              anyMatch()- Returns true if ANY element matches
+              allMatch()- Returns true if ALL elements match
+              noneMatch()- Returns true if NO element matches
+        ✔ reduce - int sum = list.stream().reduce(0, (a, b) -> a + b);
+
+Collectors Methods - stream.collect(...)
+✔ toList() - stream.collect(Collectors.toList());
+✔ toSet() - stream.collect(Collectors.toSet());
+✔ toMap() - stream.collect(Collectors.toMap( x -> x, x -> x.length());
+✔ groupingBy() -Collectors.groupingBy(Function.identity())
+✔ partitioningBy() -Collectors.partitioningBy(x -> x > 10);
+✔ counting()-Collectors.counting();
+✔ joining() - Collectors.joining(", ");
+
+sorted() with Comparator:
+   Natural Sorting : 
+      list.stream().sorted().forEach(System.out::println);
+   Custom Sorting:
+      ✔ Ascending- list.stream().sorted((a, b) -> a - b);
+      ✔ Descending- list.stream().sorted((a, b) -> b - a);
+  Using Comparator:
+        list.stream()
+            .sorted(Comparator.comparing(String::length))
+            .forEach(System.out::println);
+   Reverse
+        .sorted(Comparator.comparing(String::length).reversed())
+  Multiple Fields 
+      employees.stream()
+          .sorted(Comparator.comparing(Employee::getSalary)
+                  .thenComparing(Employee::getName))
+
+    ✔ Find duplicates with count
+    List<String> list = Arrays.asList("a","b","a","c","b","a");
+    Map<String, Long> map = list.stream()
+        .collect(Collectors.groupingBy(
+            Function.identity(),
+            Collectors.counting()
+        ));    
+    map.forEach((k,v) -> System.out.println(k + " -> " + v));
+
+    ✔ Find max salary
+    employees.stream()
+        .max(Comparator.comparing(Employee::getSalary));
+
+    ✔ Convert list to map
+    Map<Integer, String> map = list.stream()
+        .collect(Collectors.toMap(
+            x -> x,
+            x -> "Value " + x
+        ));
+  ✔ Max value
+    list.stream().max(Integer::compare);
+  ✔ Convert list to map
+    list.stream()
+        .collect(Collectors.toMap(
+            Function.identity(),
+            x -> x * 2
+        ));
+ ✔ Find only duplicates with count
+  List<String> list = Arrays.asList("a","b","a","c","b","a");
+    Map<String, Long> map =
+        list.stream()
+            .collect(Collectors.groupingBy(
+                Function.identity(),
+                Collectors.counting()
+            ));    
+    map.entrySet().stream()
+        .filter(e -> e.getValue() > 1)   // only duplicates
+        .forEach(e -> System.out.println(e.getKey() + " -> " + e.getValue()));
+
+  Parallel Stream
+      Processes stream using multiple threads (ForkJoinPool)
+      list.parallelStream() OR list.stream().parallel()
+      list.parallelStream()
+          .forEach(System.out::println);
+
+  Internal Working:
+          Uses ForkJoinPool.commonPool()
+          Splits data into chunks
+          Processes in parallel
+          Merges results
+
+   Parallel vs Sequential Stream
+        Feature	            Sequential	          Parallel
+        Threads	            Single	              Multiple
+        Order	              Maintained          	Not guaranteed
+        Performance	        Slower	              Faster (large data)
+        Debugging          	Easy	                Hard
+  
+  Important Rules
+        ❌ Avoid Parallel Stream when: Small dataset,  Shared mutable data and Order is important
+        ✔ Use Parallel when: Large dataset, Independent operations and CPU intensive
+    Dangerous Example
+          List<Integer> result = new ArrayList<>();          
+          list.parallelStream().forEach(result::add); // ❌ NOT SAFE 👉 Causes: Race conditions and Data inconsistency
+  
+  
