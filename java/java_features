@@ -284,6 +284,80 @@ sorted() with Comparator:
         .filter(e -> e.getValue() > 1)   // only duplicates
         .forEach(e -> System.out.println(e.getKey() + " -> " + e.getValue()));
 
+1. Can we throw exceptions in Streams? ✔ Unchecked Exceptions (RuntimeException)
+    list.stream()
+        .map(x -> {
+            if (x == 0) throw new RuntimeException("Zero not allowed");
+            return 10 / x;
+        })
+        .forEach(System.out::println);
+        ✔ Works fine
+        ✔ No compiler error
+
+    ❌ Checked Exceptions 👉 NOT directly allowed ❌
+    Example
+    list.stream()
+        .map(x -> {
+            return someMethod(x); // throws IOException
+        });👉 Compiler error:Unhandled exception type IOException
+ 2. Why Checked Exceptions Don’t Work?
+      Because functional interfaces like: Function<T,R>, Predicate<T> and Consumer<T> 👉 DO NOT declare throws Exception
+      Example: R apply(T t);   // no throws
+
+ 3. Ways to Handle Checked Exceptions in Streams
+  1. Try-Catch inside Lambda (Most Common)
+      list.stream()
+          .map(x -> {
+              try {
+                  return someMethod(x);
+              } catch (IOException e) {
+                  throw new RuntimeException(e); // wrap
+              }
+          })
+          .forEach(System.out::println);
+  2. Wrap into Runtime Exception
+        public String safeMethod(int x) {
+            try {
+                return someMethod(x);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    Usage:  list.stream()
+        .map(this::safeMethod)
+        .forEach(System.out::println);
+ 3. Custom Functional Interface (Advanced 🔥)
+        @FunctionalInterface
+        interface ThrowingFunction<T, R> {
+            R apply(T t) throws Exception;
+        }
+    Wrapper:
+      static <T, R> Function<T, R> wrap(ThrowingFunction<T, R> f) {
+          return x -> {
+              try {
+                  return f.apply(x);
+              } catch (Exception e) {
+                  throw new RuntimeException(e);
+              }
+          };
+      }
+
+Usage:  list.stream()
+        .map(wrap(x -> someMethod(x)))
+        .forEach(System.out::println);
+ 4. Using Optional (Clean Approach)
+      list.stream()
+          .map(x -> {
+              try {
+                  return Optional.of(someMethod(x));
+              } catch (Exception e) {
+                  return Optional.empty();
+              }
+          })
+          .filter(Optional::isPresent)
+          .map(Optional::get)
+          .forEach(System.out::println);
+
   Parallel Stream:
       Processes stream using multiple threads (ForkJoinPool)
       Multi-core processing
@@ -310,6 +384,12 @@ sorted() with Comparator:
     Dangerous Example:
           List<Integer> result = new ArrayList<>();          
           list.parallelStream().forEach(result::add); // ❌ NOT SAFE 👉 Causes: Race conditions and Data inconsistency
+
+Parallel Stream Exception Behavior 👉 If exception occurs: Stream terminates and Exception is propagated
+      list.parallelStream()
+          .forEach(x -> {
+              if (x == 5) throw new RuntimeException("Error");
+          });
 
 4. forEach Method - Internal iteration
      list.forEach(x -> System.out.println(x));
