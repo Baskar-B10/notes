@@ -107,6 +107,14 @@ Java 8 features:
     Runnable r = () -> System.out.println("Hello");
     Real Usage: Sorting, Iteration and Thread execution
 
+    int x = 10;
+    list.forEach(i -> {
+        x++; // 👉 ❌ Compile error
+    });
+    ✔ Variable must be: effectively final
+
+   NO Checked Exception in Lambda? Because functional interfaces: R apply(T t);  No throws
+
 2. Functional Interfaces: Interface with only one abstract method
     @FunctionalInterface
     interface MyFunc {
@@ -214,20 +222,88 @@ list.stream()
               allMatch()- Returns true if ALL elements match
               noneMatch()- Returns true if NO element matches
         ✔ reduce - int sum = list.stream().reduce(0, (a, b) -> a + b);
+            ✔ reduce → immutable result
+            ✔ collect → mutable container
 
 Collectors Methods - stream.collect(...)
-✔ toList() - stream.collect(Collectors.toList());
-✔ toSet() - stream.collect(Collectors.toSet());
+✔ toList() - stream.collect(Collectors.toList()); 
+             Signature:  public static <T> Collector<T, ?, List<T>> toList()
+✔ toSet() - stream.collect(Collectors.toSet()); 
+             Signature:  public static <T> Collector<T, ?, Set<T>> toSet()
 ✔ toMap() - stream.collect(Collectors.toMap( x -> x, x -> x.length());
-✔ groupingBy() -Collectors.groupingBy(Function.identity())
-              Map<String, List<Employee>> map = employees.stream()
-                          .collect(Collectors.groupingBy(Employee::getDept));
-✔ partitioningBy() -Collectors.partitioningBy(x -> x > 10);
+             Signature: toMap(Function<? super T, ? extends K> keyMapper,
+                  Function<? super T, ? extends U> valueMapper)
+            With Merge Function:
+             Signature:toMap(
+                    keyMapper,
+                    valueMapper,
+                    mergeFunction)
+                  Map<String, Integer> map =
+                      list.stream()
+                          .collect(Collectors.toMap(
+                              Function.identity(),
+                              String::length,
+                              (v1, v2) -> v1));
+
+✔ partitioningBy()  - only 2 groups (true/false)
+                Collectors.partitioningBy(x -> x > 10);
                   Map<Boolean, List<Integer>> map = list.stream()
                           .collect(Collectors.partitioningBy(x -> x > 3));
-✔ counting()-Collectors.counting();
+             Signature:  
+              partitioningBy(Predicate predicate)
+              partitioningBy(Predicate predicate, Collector downstream)
+✔ counting() - Collectors.counting();
+              Signature:  public static <T> Collector<T, ?, Long> counting()
 ✔ joining() - Collectors.joining(", ");
+            Signature: 
+                  joining()
+                  joining(CharSequence delimiter)
+                  joining(CharSequence delimiter, CharSequence prefix, CharSequence suffix)
+✔  mapping()  - mapping(Function mapper, Collector downstream)
+            Collectors.groupingBy(
+                Employee::getDept,
+                Collectors.mapping(Employee::getName, Collectors.toList())
+            );
+✔  collectingAndThen() - collectingAndThen(Collector downstream, Function finisher)
+            Collectors.collectingAndThen(
+                Collectors.toList(),
+                list -> Collections.unmodifiableList(list)
+            );
+✔ reducing()
+          reducing(BinaryOperator<T>)
+          reducing(identity, BinaryOperator<T>)mapping(Function mapper, Collector downstream)
+✔ groupingBy() - multiple groups
+              Collectors.groupingBy(Function.identity())
+              Map<String, List<Employee>> map = employees.stream()
+                          .collect(Collectors.groupingBy(Employee::getDept));      
+      ✔ Basic Grouping - groupingBy(classifier)
+            Map<String, List<Employee>> map =
+                employees.stream()
+                    .collect(Collectors.groupingBy(Employee::getDept));
+      ✔ With Counting -  groupingBy(classifier, downstream)
+            Map<String, Long> map =
+                list.stream()
+                    .collect(Collectors.groupingBy(
+                        Function.identity(),
+                        Collectors.counting()
+                    ));
+      ✔ With Custom Map - groupingBy(classifier, mapFactory, downstream)
+            Collectors.groupingBy(
+                Function.identity(),
+                LinkedHashMap::new,
+                Collectors.counting()
+            );
+      ✔ Nested Grouping
+            Map<String, Map<String, List<Employee>>> map =
+                employees.stream()
+                    .collect(Collectors.groupingBy(
+                        Employee::getDept,
+                        Collectors.groupingBy(Employee::getCity)
+                    ));
 
+Sorted:
+       Stream<T> sorted()
+       Stream<T> sorted(Comparator<? super T> comparator)
 sorted() with Comparator:
    Natural Sorting : 
       list.stream().sorted().forEach(System.out::println);
@@ -244,6 +320,34 @@ sorted() with Comparator:
       employees.stream()
           .sorted(Comparator.comparing(Employee::getSalary)
                   .thenComparing(Employee::getName))
+  Comparator:
+        ✔ comparing() - public static <T, U extends Comparable<? super U>>
+                Comparator<T> comparing(Function<? super T, ? extends U> keyExtractor)
+                employees.stream()
+                    .sorted(Comparator.comparing(Employee::getSalary));
+        ✔ comparingInt() - Comparator.comparingInt(ToIntFunction<? super T>)
+                           Comparator.comparingInt(Employee::getAge);
+        ✔ reversed() -  Comparator<T> reversed()
+                        Comparator.comparing(Employee::getSalary).reversed();
+        ✔ thenComparing() -  Comparator<T> thenComparing(Comparator<? super T>)
+                      employees.stream()
+                          .sorted(
+                              Comparator.comparing(Employee::getDept)
+                                  .thenComparing(Employee::getSalary)
+                          );
+        ✔ naturalOrder() - Comparator.naturalOrder();
+        ✔ reverseOrder() - Comparator.reverseOrder();
+        ✔ nullsFirst() / nullsLast() - Comparator.nullsFirst(comparator); 
+                                       Comparator.nullsLast(comparator);  Comparator.nullsLast(Comparator.naturalOrder());
+       Real Combined Example
+                Map<String, List<String>> result =
+                    employees.stream()
+                        .sorted(Comparator.comparing(Employee::getDept)
+                            .thenComparing(Employee::getSalary))
+                        .collect(Collectors.groupingBy(
+                            Employee::getDept,
+                            Collectors.mapping(Employee::getName, Collectors.toList())
+                        ));
 
     ✔ Find duplicates with count
     List<String> list = Arrays.asList("a","b","a","c","b","a");
@@ -283,6 +387,128 @@ sorted() with Comparator:
     map.entrySet().stream()
         .filter(e -> e.getValue() > 1)   // only duplicates
         .forEach(e -> System.out.println(e.getKey() + " -> " + e.getValue()));
+ ✔ Find First Non-Repeated Character
+    input - Stress , Output - t
+    String input = "stress";
+    Character result = input.chars()
+                      .mapToObj(c -> (char) c)
+                      .collect(Collectors.groupingBy(
+                                  Function.identity(),LinkedHashMap::new
+                                  Collectors.counting()))
+                      .entrySet().stream()
+                      .filter( e -> e.getValue()>1)
+                      findFirst().orElse(null);
+            ✔ Use LinkedHashMap → preserves order
+            ✔ Function.identity() → key = char
+  ✔ Find Duplicate Elements in List
+        List<Integer> list = Arrays.asList(1,2,3,2,4,1,5);
+        Set<Integer> duplicates =
+            list.stream()
+                .filter(x -> Collections.frequency(list, x) > 1)
+                .collect(Collectors.toSet());
+        System.out.println(duplicates);
+ ✔ Highest Salary per Department
+      Map<String, Optional<Employee>> map =
+          employees.stream()
+              .collect(Collectors.groupingBy(
+                  Employee::getDept,
+                  Collectors.maxBy(Comparator.comparing(Employee::getSalary))
+              ));
+ ✔ Flatten Nested List of Objects
+      List<Order> orders;
+      List<Item> items =
+          orders.stream()
+              .flatMap(o -> o.getItems().stream())
+              .collect(Collectors.toList());
+
+ ✔ Find Top N Elements
+        List<Integer> top3 =
+            list.stream()
+                .sorted(Comparator.reverseOrder())
+                .limit(3)
+                .collect(Collectors.toList());
+ ✔ Group Employees by Dept + Count
+        Map<String, Long> map =
+            employees.stream()
+                .collect(Collectors.groupingBy(
+                    Employee::getDept,
+                    Collectors.counting()
+                ));
+✔  Longest String in List
+        String longest =
+            list.stream()
+                .max(Comparator.comparing(String::length))
+                .orElse("");
+✔  Convert List to Map (Handle Duplicate Keys)
+      Map<String, Integer> map =
+          list.stream()
+              .collect(Collectors.toMap(
+                  Function.identity(),
+                  String::length,
+                  (oldVal, newVal) -> oldVal   // merge function
+              ));
+      Trick✔ Always handle duplicate keys
+✔ . Partition Even/Odd
+      Map<Boolean, List<Integer>> map =
+          list.stream()
+              .collect(Collectors.partitioningBy(x -> x % 2 == 0));
+✔  Find Second Highest Number
+        int second =
+            list.stream()
+                .distinct()
+                .sorted(Comparator.reverseOrder())
+                .skip(1)
+                .findFirst()
+                .orElseThrow();
+✔ Frequency of Characters
+Map<Character, Long> map =
+    str.chars()
+        .mapToObj(c -> (char) c)
+        .collect(Collectors.groupingBy(
+            Function.identity(),
+            Collectors.counting()
+        ));
+✔  Merge Two Lists Without Duplicates
+    List<Integer> merged =
+        Stream.concat(list1.stream(), list2.stream())
+            .distinct()
+            .collect(Collectors.toList());
+✔ Check Anagram
+      boolean isAnagram =
+          s1.chars().sorted().boxed().collect(Collectors.toList())
+              .equals(
+                  s2.chars().sorted().boxed().collect(Collectors.toList())
+              );
+✔ Find Missing Number (1–N)
+      int n = 5; 
+      int expected = IntStream.rangeClosed(1, n).sum();
+      int actual = list.stream().mapToInt(Integer::intValue).sum();
+      
+      System.out.println(expected - actual);
+✔ Find First Duplicate
+      Set<Integer> set = new HashSet<>();  
+      Integer firstDup =
+          list.stream()
+              .filter(x -> !set.add(x))
+              .findFirst()
+              .orElse(null);
+✔  Sum of Digits in List
+      int sum =
+          list.stream()
+              .flatMap(x -> String.valueOf(x).chars().mapToObj(c -> c - '0'))
+              .mapToInt(Integer::intValue)
+              .sum();
+✔ Custom Sorting (Multiple Fields)
+      employees.stream()
+          .sorted(Comparator.comparing(Employee::getDept)
+              .thenComparing(Employee::getSalary).reversed())
+          .collect(Collectors.toList());
+
+✔ Find Common Elements Between Two Lists
+    List<Integer> common =
+        list1.stream()
+            .filter(list2::contains)
+            .collect(Collectors.toList());
 
 1. Can we throw exceptions in Streams? ✔ Unchecked Exceptions (RuntimeException)
     list.stream()
@@ -341,7 +567,6 @@ sorted() with Comparator:
               }
           };
       }
-
 Usage:  list.stream()
         .map(wrap(x -> someMethod(x)))
         .forEach(System.out::println);
@@ -357,6 +582,19 @@ Usage:  list.stream()
           .filter(Optional::isPresent)
           .map(Optional::get)
           .forEach(System.out::println);
+
+ 4. Can a Stream be reused? ❌ Throws Exception IllegalStateException: stream has already been operated upon or closed
+      ✔ Stream is one-time use only
+ 5. What happens if no terminal operation?  ❌ Nothing prints ✔ Streams are lazy
+ 6. Can we modify collection inside stream? list.stream().forEach(x -> list.add(x)); //  ❌ Throws: ConcurrentModificationException
+ 7. Can Stream handle null values? 
+    list = Arrays.asList("a", null, "b");
+    list.stream().map(String::length); //  ❌ NullPointerException
+    ✔ Fix: .filter(Objects::nonNull)
+ 8. Infinite Stream
+    Stream.iterate(1, x -> x + 1)
+        .forEach(System.out::println); ❌ Infinite loop
+    ✔ Fix:.limit(10)
 
   Parallel Stream:
       Processes stream using multiple threads (ForkJoinPool)
@@ -391,11 +629,92 @@ Parallel Stream Exception Behavior 👉 If exception occurs: Stream terminates a
               if (x == 5) throw new RuntimeException("Error");
           });
 
+Primitive Streams:
+        Feature	      Stream<T>	                  IntStream / LongStream / DoubleStream
+        Data Type	    Objects (Integer, Long)    	primitives (int, long, double)
+        Performance	  slower	                    faster
+        Boxing	      required	                  no boxing
+        Memory	      more	                      less
+        Numeric ops	  limited	                    rich
+Why Primitive Streams Exist?  To avoid boxing/unboxing overhead
+    Problem :Stream<Integer> → Integer → int (boxing/unboxing)
+    Solution :IntStream → direct int processing
+
+1. IntStream (MOST USED)
+  🔹 Creation Methods
+          IntStream.of(1,2,3);
+          IntStream.range(1, 5);        // 1 to 4
+          IntStream.rangeClosed(1, 5);  // 1 to 5
+           Arrays.stream(array);
+  🔹 Intermediate Methods
+        ✔ filter() -  IntStream.range(1,10).filter(x -> x % 2 == 0);
+        ✔ map() -   IntStream.range(1,5).map(x -> x * 2);
+        ✔ mapToObj() - IntStream.range(1,5).mapToObj(x -> "Val " + x);
+        ✔ flatMap() - IntStream.of(1,2).flatMap(x -> IntStream.range(0, x));
+        ✔ distinct() - IntStream.of(1,2,2,3).distinct();
+        ✔ sorted() -IntStream.of(5,1,3).sorted();
+        ✔ limit() / skip()
+                IntStream.range(1,10).limit(3);
+                IntStream.range(1,10).skip(3);
+  🔹 Terminal Methods
+        ✔ sum()-IntStream.range(1,5).sum();
+        ✔ average() -IntStream.range(1,5).average();
+        ✔ max() / min() -IntStream.range(1,5).max();
+        ✔ count()-IntStream.range(1,5).count();
+        ✔ forEach()- IntStream.range(1,5).forEach(System.out::println);
+        ✔ reduce() -IntStream.range(1,5).reduce(0, Integer::sum);
+        ✔ anyMatch / allMatch / noneMatch -IntStream.range(1,5).anyMatch(x -> x > 3);
+        ✔ findFirst / findAny -IntStream.range(1,5).findFirst();
+  🔹 Special Methods
+        ✔ boxed()  - Convert to Stream<Integer>
+        IntStream.range(1,5)
+            .boxed()
+            .collect(Collectors.toList());
+
+    chars() - This comes from String 
+              IntStream of ASCII values
+              Not a separate stream type
+      "abc".chars(); Returns:  IntStream
+      "abc".chars()
+          .mapToObj(c -> (char) c)
+          .forEach(System.out::println);
+  
+ 2. LongStream -  Same methods as IntStream
+                LongStream.range(1,5).sum();
+ 3. DoubleStream - Floating-point precision issues possible
+              DoubleStream.of(1.1, 2.2, 3.3)
+                  .average();
+  Extra Methods
+          ✔ sum() - DoubleStream.of(1.1,2.2).sum();
+ 
+  CONVERSION METHODS
+      🔹 Object → Primitive
+            list.stream().mapToInt(Integer::intValue);
+      🔹 Primitive → Object
+            intStream.boxed();
+
+ ✔ Sum of Even Numbers
+      int sum =
+          list.stream()
+              .filter(x -> x % 2 == 0)
+              .mapToInt(x -> x)
+              .sum();
+ ✔ Average Salary
+      double avg =
+          employees.stream()
+              .mapToDouble(Employee::getSalary)
+              .average()
+              .orElse(0);
+
 4. forEach Method - Internal iteration
      list.forEach(x -> System.out.println(x));
   Important:
     Cannot break or continue
     Best for read-only operations
+
+  forEach() vs forEachOrdered():
+      list.parallelStream().forEach(System.out::println); 👉 Order NOT guaranteed ❌
+      list.parallelStream().forEachOrdered(System.out::println);👉 Order guaranteed ✅
 
 5. Default and static Methods (Interface Enhancement) - Interfaces can have method body
      Why : Backward compatibility and Enable functional programming support
@@ -427,9 +746,9 @@ Parallel Stream Exception Behavior 👉 If exception occurs: Stream terminates a
 
 ✔ isPresent() -opt.isPresent();
 ✔ ifPresent() - opt.ifPresent(x -> System.out.println(x));
-✔ get() ⚠️ risky - opt.get();
-✔ orElse() -opt.orElse("Default");
-✔ orElseGet() - opt.orElseGet(() -> "Generated");
+✔ get() ⚠️ risky - opt.get(); Optional.get() without check ❌ Throws: NoSuchElementException
+✔ orElse() -opt.orElse("Default");  → ALWAYS executes method ❌
+✔ orElseGet() - opt.orElseGet(() -> "Generated"); executes only if empty ✅
 ✔ orElseThrow() - opt.orElseThrow(() -> new RuntimeException());
 ✔ map() - opt.map(String::length);
 
