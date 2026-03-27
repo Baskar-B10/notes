@@ -955,3 +955,256 @@ SynchronizedSet      	✅	            Slow	            Global lock
       synchronized → single lock (slow)
 8. When to use CopyOnWriteArraySet? ->When reads >> writes
 9. Why EnumSet is fastest? -> Bit-level operations
+
+Map:
+ Map stores key–value pairs. Map<K, V>
+      Keys are unique
+      Values can be duplicate
+      Some allow null (depends on implementation)
+Map Hierarchy:
+      Map (Interface)
+       ├── HashMap
+       ├── LinkedHashMap
+       ├── TreeMap
+       ├── Hashtable (legacy)
+       ├── ConcurrentHashMap
+       └── WeakHashMap / IdentityHashMap / EnumMap
+
+Core Methods:
+      put(K key, V value)
+      get(Object key)
+      remove(Object key)
+      containsKey(Object key)
+      containsValue(Object value)
+      keySet()
+      values()
+      entrySet()
+      getOrDefault()
+      putIfAbsent()
+
+1.HashMap:
+      No order
+      1 null key allowed
+      Fast (O(1))
+      Map<Integer, String> map = new HashMap<>();
+      Internal Working:
+      🔹 Structure: Array (bucket) → LinkedList → Red-Black Tree (Java 8+)
+      🔹 Step-by-Step:
+            put() -> map.put("A", 1);
+            Internally: 
+                  Compute hash:hash("A")
+            Find bucket: 
+                  index = hash % capacity
+            If empty → insert
+            If collision:
+                  Compare using equals()
+                  Add to list or tree
+      🔹 Collision Handling:
+            Bucket:[A=1] → [B=2] → [C=3] -> If large → convert to tree
+      🔹 Resize:
+            Default capacity = 16
+            Load factor = 0.75
+            Resize when: size > capacity * loadFactor
+             New capacity = 2x
+      🔹 Time Complexity:
+            Operation	Time
+            put()	      O(1)
+            get()	      O(1)
+            worst	      O(log n)
+
+2. LinkedHashMap:
+      Maintains insertion order
+      Slightly slower
+🔹 Internal Working: HashMap + Doubly Linked List
+            [A] ⇄ [B] ⇄ [C]
+🔹 Special Feature: LRU Cache. new LinkedHashMap<>(16, 0.75f, true)
+                    Access-order
+
+3. TreeMap:
+      Sorted keys
+      No null key ❌
+      Map<Integer, String> map = new TreeMap<>();
+🔹 Internal Working- Red-Black Tree (Balanced BST)
+🔹 Time Complexity:
+      Operation	Time
+      put()	      O(log n)
+      get()	      O(log n)
+
+4. Hashtable (Legacy):
+      Thread-safe
+      No null key/value
+      Slow
+
+5. ConcurrentHashMap (VERY IMPORTANT):
+      Thread-safe
+      High performance
+      No null key/value
+      Map<Integer, String> map = new ConcurrentHashMap<>();
+🔹 Internal Working -Java 8:
+      Bucket-level locking
+      CAS (Compare-And-Swap)
+      Multiple threads can access different buckets
+
+      🔹 Goal :Thread-safe + high performance (no full locking)
+      🔹 Structure (Java 8+)
+                  Array (bucket) → Node → Tree (if large)
+                  Index:   0      1      2
+                          [ ]    [A]    [ ]
+                                  ↓
+                                [B] → [C]
+      🔹 Key Concepts
+            Concept	            Meaning
+            CAS	                  Lock-free update
+            Bucket-level lock	      Only one bucket locked
+            No global lock	      Better performance
+      🔹 Step-by-Step:put() -> map.put("A", 1);
+            Step 1: Calculate hash . hash("A")
+            Step 2: Find bucket index . index = hash & (n - 1)
+            Step 3: Check bucket
+                  Case 1: Bucket empty ✅ Use CAS (no lock)
+                          if bucket == null → insert directly
+                  Case 2: Bucket NOT empty ❗.Lock only that bucket. synchronized (bucket)
+            Step 4: Handle collision
+                  [A=1] → [B=2]
+                  Traverse list
+                  If key exists → update
+                  Else → add new node
+            Step 5: Convert to Tree (if needed)
+                  If size > 8 → convert to Red-Black Tree
+      🔹 Step-by-Step get() -> map.get("A");
+             No locking ❗
+            Calculate hash
+            Find bucket
+            Traverse list/tree
+      🔹 Resize (Rehashing) When: size > capacity * loadFactor. 
+                              Resize happens gradually (not full lock)
+      🔹 Why Fast?
+                  Reads → no lock
+                  Writes → minimal locking.Uses CAS
+
+🔹 Difference from HashMap:
+      Feature	      HashMap	ConcurrentHashMap
+      Thread-safe	      ❌	      ✅
+      Null allowed	✅	      ❌
+      Performance	      High	      High (concurrent)
+
+Special Map Types:
+1. WeakHashMap:
+      Map<Object, String> map = new WeakHashMap<>();
+      Internal: weak references
+      GC removes entries automatically
+
+2. IdentityHashMap:
+      Map<Object, String> map = new IdentityHashMap<>();
+      Behavior: Uses: == instead of equals()
+
+3. EnumMap:
+      EnumMap<Day, String> map = new EnumMap<>(Day.class);
+      Internal: Array-based (very fast)
+
+4. ConcurrentSkipListMap:
+      Map<Integer, String> map = new ConcurrentSkipListMap<>();
+      Internal: Skip list (sorted + concurrent)
+
+Internal Comparison:
+      Map	                  Internal DS
+      HashMap	            Array + list/tree
+      LinkedHashMap	      HashMap + linked list
+      TreeMap	            Red-Black Tree
+      ConcurrentHashMap	      Bucket + CAS
+      WeakHashMap	            HashMap + weak refs
+      EnumMap	            Array
+      SkipListMap	            Skip list
+
+Real-Life Usage:
+🔹 1. HashMap - Caching and Lookup tables
+🔹 2. LinkedHashMap - LRU cache and Maintain order
+🔹 3. TreeMap - Sorted leaderboard and Range queries
+🔹 4. ConcurrentHashMap - Multi-threaded apps and Shared cache
+🔹 5. WeakHashMap - Memory-sensitive cache
+🔹 6. EnumMap - State mapping
+
+      Scenario	      Use
+      Fast lookup	      HashMap
+      Maintain order	LinkedHashMap
+      Sorted data	      TreeMap
+      Multi-threading	ConcurrentHashMap
+      Auto cleanup	WeakHashMap
+      Enum keys	      EnumMap
+
+ LRU Cache using LinkedHashMap:
+       Least Recently Used item removed first
+🔹 Trick:
+       Use:LinkedHashMap(capacity, loadFactor, accessOrder=true)
+🔹 Implementation:
+      class LRUCache<K, V> extends LinkedHashMap<K, V> {
+          private int capacity;
+          public LRUCache(int capacity) {
+              super(capacity, 0.75f, true); // accessOrder = true
+              this.capacity = capacity;
+          }
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+              return size() > capacity;
+          }
+      }
+🔹 How It Works:
+      Insert [A] → [B] → [C]
+      Access B [A] → [C] → [B] Moves to end
+      Add D (capacity full)
+      Remove A (least used)
+      [C] → [B] → [D]
+🔹 Internal Working:
+       LinkedHashMap uses:HashMap (fast lookup) and Doubly Linked List (order)
+            [A] ⇄ [B] ⇄ [C]
+🔹 Use Cases:
+      Cache system
+      Browser history
+      Database query cache
+
+Red-Black Tree (Very Important):
+      A self-balancing binary search tree
+🔹 Why Needed?Keeps operations:O(log n)
+🔹 Properties:
+      Node is either RED or BLACK
+      Root is always BLACK
+      No two RED nodes together
+      Every path has same number of BLACK nodes
+🔹 Example
+              10(B)
+             /     \
+          5(R)     20(R)
+Insertion in Red-Black Tree:
+      🔹 Step 1: Insert as RED. Insert 15
+      🔹 Step 2: Fix violations
+            Case 1: Parent is BLACK ✅→ Nothing to do   
+            Case 2: Parent is RED ❗Fix using: Rotation and Recoloring
+                  🔹 Rotations
+                  Left Rotation
+                      10            20
+                        \    →     /
+                        20        10
+                  Right Rotation
+                        20         10
+                       /    →        \
+                     10              20
+  Used in: TreeMap, TreeSet and HashMap (collision tree)
+
+ Tree Conversion in HashMap:
+      If bucket size > 8 → LinkedList → Red-Black Tree
+       Improves worst-case: O(n) → O(log n)
+
+1. Why HashMap allows one null key? -> Because hash of null = 0 (special case)
+2. Why ConcurrentHashMap doesn’t allow null? ->  To avoid ambiguity: get() → null (not found OR value null?)
+3. Difference: HashMap vs Hashtable?
+      HashMap → not thread-safe
+      Hashtable → thread-safe (slow)
+4. How HashMap handles collisions? -> LinkedList → Tree
+5. Why TreeMap is slower?-> Tree operations → O(log n)
+6. Fail-fast vs Fail-safe? -> HashMap → fail-fast ConcurrentHashMap → fail-safe
+7. What happens if hashCode() is same?-> equals() decides uniqueness
+8. Can we use mutable key? -> ❌ Dangerous (breaks hashing)
+9. Why load factor 0.75?-> Balance between memory & performance
+10. Internal capacity always power of 2? -> Yes → faster index calculation
+
+
