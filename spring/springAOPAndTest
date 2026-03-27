@@ -551,8 +551,6 @@ JUnit + Mockito + Spring Boot:
                 assertNotNull(service.getUser(1));
             }
         }
-
-
 1. Difference: @Mock vs @MockBean
       @Mock                	@MockBean
       Mockito	              Spring Boot
@@ -567,3 +565,128 @@ JUnit + Mockito + Spring Boot:
 4. Why Mockito needs @ExtendWith? -> To initialize mocks automatically
 5. Can Mockito mock private methods? ❌ No (use PowerMockito)
 6. Can Mockito mock static methods? ✅ Yes (Mockito 3+)
+
+Mockito 3+ :
+ Key Features:
+    ✅ Static method mocking (NEW)
+    ✅ Better support for final classes/methods
+    ✅ Improved JUnit 5 integration
+    ✅ Cleaner API (less PowerMockito dependency)
+    🔹 1. Static Method Mocking (Game Changer):
+          try (MockedStatic<Utility> mocked = Mockito.mockStatic(Utility.class)) {
+              mocked.when(Utility::getValue).thenReturn("Mocked");
+          
+              assertEquals("Mocked", Utility.getValue());
+          }
+         Works inside try-with-resources (auto close)
+    🔹 2. Mock Final Classes / Methods:
+          final class PaymentService {
+              final String pay() { return "real"; }
+          }
+        PaymentService mock = mock(PaymentService.class);
+        when(mock.pay()).thenReturn("mock");
+        assertEquals("mock", mock.pay());
+
+Assertions (JUnit 5 Advanced):
+    🔹 Common Assertions:
+          assertEquals(10, value);
+          assertNotNull(obj);
+          assertTrue(flag);
+          assertFalse(flag);
+    🔹 Exception Assertion:
+        assertThrows(RuntimeException.class, () -> {
+            service.fail();
+        });
+    🔹 assertAll (Multiple Assertions):
+          assertAll(
+              () -> assertEquals(10, value),
+              () -> assertNotNull(obj)
+          );
+    🔹 Timeout:
+          assertTimeout(Duration.ofSeconds(2), () -> {
+              service.process();
+          });
+    🔹 assertIterableEquals:
+          assertIterableEquals(List.of(1,2), resultList);
+
+Advanced Mockito Use Cases
+    🔹 1. doReturn vs when (TRICKY):
+          when(obj.method()).thenReturn(val); // normal
+         ⚠️ Problem with Spy: doReturn(val).when(obj).method(); // safer
+            Use doReturn when: Using @Spy  and Avoid real method execution
+    🔹 2. doThrow():
+          doThrow(new RuntimeException())
+              .when(repo).save(any());
+    🔹 3. doAnswer() (Dynamic Logic):
+        when(repo.save(any())).thenAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            user.setName("Modified");
+            return user;
+        });
+     Powerful for:  Custom behavior and  Modifying input/output
+    🔹 4. Argument Matchers
+        when(repo.findById(anyInt())).thenReturn(user);
+        Common:
+            any()
+            anyString()
+            eq(value)
+        ⚠️ Rule:
+            when(repo.findById(1)).thenReturn(user); // OK
+            when(repo.findById(anyInt())).thenReturn(user); // OK
+            ❌ Mixing:when(repo.findById(anyInt(), "abc")) ❌ -> Must use all matchers or none
+    🔹 5. verify() :
+          verify(repo).findById(1);
+         Advanced Verify:
+          verify(repo, times(2)).save(any());
+          verify(repo, never()).delete(any());
+          verify(repo, atLeastOnce()).findAll();
+    🔹 6. verifyNoInteractions():
+          verifyNoInteractions(repo);
+    🔹 7. InOrder Verification:
+          InOrder inOrder = inOrder(repo);
+          inOrder.verify(repo).save(any());
+          inOrder.verify(repo).delete(any());
+    🔹 8. ArgumentCaptor:
+          @Captor
+          ArgumentCaptor<User> captor;
+          verify(repo).save(captor.capture());
+          User saved = captor.getValue();
+          assertEquals("John", saved.getName());
+    🔹 9. Spy:
+          @Spy
+          List<String> list = new ArrayList<>();
+          list.add("A");
+          verify(list).add("A");
+          ⚠️ Tricky:  when(spy.get(0)).thenReturn("mock"); ❌ (calls real method)
+          Use:  doReturn("mock").when(spy).get(0);
+    🔹 10. Reset Mock (Rare Use):
+        reset(repo); -> Avoid in real tests (bad practice usually)
+    
+    Common Mistakes:
+        ❌ Over-mocking everything
+        ❌ Testing implementation instead of behavior
+        ❌ Using Spy incorrectly
+        ❌ Not verifying interactions
+        ❌ Mixing matchers
+    
+ Special Cases:
+ 1. Mocking Void Methods:
+      doNothing().when(service).send();
+      doThrow(new RuntimeException()).when(service).send();
+2. Deep Stubs (Dangerous):
+      @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+      User user;
+      when(user.getAddress().getCity()).thenReturn("Chennai");
+      ⚠️ Avoid → makes tests fragile
+ 3. Lenient Stubbing:
+      lenient().when(repo.findAll()).thenReturn(list);
+      👉 Avoids unnecessary stubbing errors
+ 4. Mocking Collections:
+    List<String> list = mock(List.class);
+    when(list.size()).thenReturn(10);
+ 5. Multiple Return Values:
+    when(repo.get())
+        .thenReturn("A")
+        .thenReturn("B");
+ 6. thenCallRealMethod():
+    when(service.method()).thenCallRealMethod();
