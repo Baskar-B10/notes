@@ -236,7 +236,115 @@ Types of Stack (Conceptual)
     🔹 6. Backtracking Problems
               Maze solving
               Recursion simulation
-    
+
+Special List:
+CopyOnWriteArrayList:
+    A thread-safe List where:
+    Every write operation creates a new copy of the array
+    List<Integer> list = new CopyOnWriteArrayList<>();
+Why “Copy-On-Write”?
+  Because on every modification: Old Array → Copy → Modify → Replace
+      list.add(10);
+      list.add(20);
+      Internally:
+            Step 1: []
+            Step 2: [10]         (new array created)
+            Step 3: [10, 20]     (new array created again)
+ Internal Working:
+🔹 Structure: transient volatile Object[] array;
+    Key points:
+      Uses array internally
+      volatile → ensures visibility across threads
+      Uses ReentrantLock for writes
+🔹 Write Operation (add)
+      1. Acquire lock
+      2. Copy old array
+      3. Add new element
+      4. Replace reference
+      5. Release lock
+🔹 Read Operation
+      No lock needed ✅
+      Reads directly from array
+      That’s why reads are very fast
+ Key Features
+      Feature	            Value
+      Thread-safe	            ✅
+      Read performance	      Very fast
+      Write performance	      Slow
+      Iterator	            Fail-safe
+ Fail-Safe Iterator:
+      for(Integer i : list) {
+          list.add(100); // NO exception
+      }
+       Why- Iterator works on snapshot (copy)
+✅ Best Use Cases
+      Read-heavy systems
+      Rare writes
+🔹 Examples
+      Configuration data
+      Event listeners
+      Subscriber lists
+❌ When NOT to Use
+      Frequent updates ❌
+      Large data ❌ Because copying is expensive
+ Performance
+      Operation	Time
+      get()	      O(1)
+      add()	      O(n)
+      remove()	O(n)
+
+🔹 1. Snapshot Iteration- CopyOnWrite:Iterator sees old copy
+🔹 2. Locking Strategy
+            Writes → lock
+            Reads → no lock
+🔹 3. Memory Tradeoff- More memory usage due to copying
+
+Synchronized List
+      List<Integer> list = Collections.synchronizedList(new ArrayList<>());
+      🔹 Internal Working
+            Uses single lock
+            Every operation synchronized
+      🔹 Drawback - Slow (global locking)
+
+Immutable List (Java 9+):
+      List<Integer> list = List.of(1, 2, 3);
+      🔹 Features:
+            Cannot modify ❌
+            Thread-safe ✅
+      🔹 Use Case:
+            Constants
+            Fixed data
+
+Unmodifiable List:
+      List<Integer> list = Collections.unmodifiableList(originalList);
+      🔹 Behavior:
+            Read-only view
+            Underlying list can change
+
+Arrays.asList():
+      List<Integer> list = Arrays.asList(1, 2, 3);
+      🔹 Features:
+            Fixed size
+            Backed by array
+      🔹 Limitation:
+            list.add(4); // ❌ UnsupportedOperationException
+
+Singleton List
+      List<Integer> list = Collections.singletonList(10);
+      🔹 Features:
+            Only one element
+            Immutable
+
+Type	                  Thread-safe	      Modifiable	      Use Case
+CopyOnWriteArrayList	      ✅	      ✅	            Read-heavy
+SynchronizedList	            ✅	      ✅	            Simple thread safety
+Immutable List	            ✅	      ❌	            Constants
+UnmodifiableList	            ❌	      ❌ (view)	      Read-only
+Arrays.asList	            ❌	      Fixed size	      Array wrapper
+SingletonList	            ✅	      ❌	            Single value
+Vector	                  ✅	      ✅	            Legacy
+Stack	                        ✅	      ✅	            LIFO (legacy)
+
     1. Why remove is slow? Because elements are shifted
     2. Is LinkedList a List or Queue?  BOTH ✅
     3. Why ArrayList is faster than LinkedList? -> Direct index access (array)
@@ -251,6 +359,11 @@ Types of Stack (Conceptual)
     10. Why use Deque instead of Stack? -> Faster + non-legacy + no synchronization
     11. Is Stack thread-safe? -> Yes (because Vector)
     12.  Can LinkedList be used as Stack?  Yes. Deque<Integer> stack = new LinkedList<>();
+    13. Why CopyOnWriteArrayList is slow for writes? Copies entire array
+    14.  Why no ConcurrentModificationException?-> Iterator uses snapshot
+    15.  Difference: synchronizedList vs CopyOnWriteArrayList?
+            synchronized → lock everything
+            copy-on-write → copy on write only
 
  Queue:
        Queue follows FIFO (First In First Out)
