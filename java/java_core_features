@@ -291,3 +291,99 @@ Array vs String (Key Differences)
   3. Why use StringBuilder? -> For heavy string modification (performance)
   4. How String pool improves performance?-> Reuses objects → reduces memory usage
   5. Why chars() returns int? -> Because Java uses Unicode (UTF-16) → char internally represented as int
+
+Comparable Interface:
+  Used to define natural/default sorting order of objects.
+  Defined inside: java.lang.Comparable
+  🔹 Method in Comparable - int compareTo(T o);
+  🔹 Return Values:
+         Return      Meaning
+         < 0	        current object < other
+         0	          equal
+         > 0	        current object > other
+  🔹 Example:
+       class Student implements Comparable<Student> {
+           int id;
+           String name;
+           Student(int id, String name) {
+               this.id = id;
+               this.name = name;
+           }     
+           @Override
+           public int compareTo(Student s) {
+               return this.id - s.id; // ascending order by id
+           }
+       }
+  🔹 Usage:
+        List<Student> list = new ArrayList<>();
+        Collections.sort(list);
+
+Uses compareTo() internally:
+    ✔ Only one sorting logic
+    ✔ Class itself modified
+    ✔ Default sorting
+
+Comparator Interface:
+   Used to define custom sorting logic (multiple ways)
+   Defined in: java.util.Comparator
+  🔹 Main Method - int compare(T o1, T o2);
+  🔹 Example
+       class NameComparator implements Comparator<Student> {
+           @Override
+           public int compare(Student s1, Student s2) {
+               return s1.name.compareTo(s2.name);
+           }
+       }
+  🔹 Usage - Collections.sort(list, new NameComparator());
+
+Comparator (Java 8+ Methods 🔥) 
+   Java 8 introduced many powerful methods. Java 8 added:
+          ✅ 1. Default Methods
+          ✅ 2. Static Methods
+          ✅ 3. Lambda support
+🔹 Same interface, but new methods added:
+    ✔ Default Methods
+        🔹 thenComparing()
+              list.sort(
+                  Comparator.comparing(Student::getName)
+                            .thenComparing(Student::getId)
+              );
+         🔹 reversed()
+              list.sort(
+                  Comparator.comparing(Student::getName).reversed()
+              );
+    ✔ Static Methods
+        🔹 comparing()
+             list.sort(Comparator.comparing(Student::getName));
+       
+        🔹 naturalOrder() / reverseOrder()
+             Comparator<Integer> c1 = Comparator.naturalOrder();
+             Comparator<Integer> c2 = Comparator.reverseOrder();
+        🔹 nullsFirst() / nullsLast()
+             Comparator<String> comp = Comparator.nullsFirst(String::compareTo);
+        🔹 comparingInt(), comparingDouble()
+             list.sort(Comparator.comparingInt(Student::getId));
+              Avoids boxing (performance)
+
+Comparable vs Comparator:
+    Feature	     Comparable	              Comparator
+    Package	     java.lang	               java.util
+    Method	      compareTo()	             compare()
+    Sorting     	Default                  Custom
+    Logic        count                   	One	Multiple
+    Class        modification	Required   	Not required
+
+1. Why this.id - s.id is risky? 
+    return this.id - s.id; ❌ Risk of integer overflow
+   ✔ Better:return Integer.compare(this.id, s.id);
+2. Can we use both together?
+    ✔ Yes  
+    Comparable → default
+    Comparator → override when needed
+3. Where used internally?
+    TreeSet
+    TreeMap
+    Collections.sort()
+    Stream.sorted()
+4.  What happens if not implemented?
+    Sorting complex objects → Compile-time error
