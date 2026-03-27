@@ -1,0 +1,145 @@
+Spring AOP:
+  Spring AOP allows you to separate cross-cutting concerns (logic used across multiple places) from business logic.
+  Instead of repeating code → write once, apply everywhere.
+Cross-cutting concerns:
+    Logging
+    Security
+    Transactions
+    Caching
+    Auditing
+
+Core Concepts:
+🔹 1. Aspect- A class containing cross-cutting logic.
+      @Aspect
+      @Component
+      public class LoggingAspect {
+      }
+🔹 2. Advice (When to execute)
+      Type	            Description
+      @Before	          Before method
+      @After	          After method
+      @AfterReturning	  After success
+      @AfterThrowing	  On exception
+      @Around	          Full control
+🔹 3. Pointcut (Where to apply)
+        @Pointcut("execution(* com.app.service.*.*(..))")
+        public void serviceLayer() {}
+       Means: apply to all methods in service package
+🔹 4. Join Point
+        A specific method execution point
+🔹 5. Proxy 
+        Spring AOP works using proxy pattern
+         This is the heart of AOP
+
+Internal Working (Step-by-Step):
+    @Service
+    public class PaymentService {
+        public void pay() {
+            System.out.println("Payment done");
+        }
+    }
+What Spring Does Internally
+    Step 1: Bean Creation - Spring creates PaymentService bean
+    Step 2: Check for Aspects - Spring finds @Aspect classes
+    Step 3: Create Proxy Object - Instead of original object, Spring creates: 👉 Proxy(PaymentService)
+                              Two types:
+                                  JDK Dynamic Proxy → if interface exists
+                                  CGLIB → if no interface
+    Step 4: Method Call Flow
+          Client → Proxy → Aspect → Target Method → Aspect → Return
+ Flow Diagram:
+    User call
+       ↓
+    Proxy Object
+       ↓
+    @Before Advice
+       ↓
+    Actual Method
+       ↓
+    @After Advice
+       ↓
+    Return
+    
+Complete Example
+🔹 Service Class
+      @Service
+      public class UserService {
+          public String getUser() {
+              return "User data";
+          }
+      }
+🔹 Aspect Class
+        @Aspect
+        @Component
+        public class LoggingAspect {
+            @Before("execution(* com.app.service.*.*(..))")
+            public void beforeMethod(JoinPoint jp) {
+                System.out.println("Before: " + jp.getSignature().getName());
+            }
+            @AfterReturning(
+                pointcut = "execution(* com.app.service.*.*(..))",
+                returning = "result")
+            public void afterMethod(Object result) {
+                System.out.println("Returned: " + result);
+            }
+        }
+🔹 Output
+    Before: getUser
+    Returned: User data
+    
+ @Around Advice:
+      @Around("execution(* com.app.service.*.*(..))")
+      public Object around(ProceedingJoinPoint pjp) throws Throwable {
+          System.out.println("Before execution");
+          Object result = pjp.proceed(); // actual method call
+          System.out.println("After execution");
+          return result;
+      }
+ You can:
+    Modify input
+    Skip method
+    Change output
+    
+🚀 Real-Time Usage
+🔹 1. Logging
+        @Before("execution(* *(..))")
+        public void log() {}
+🔹 2. Transactions
+     Behind the scenes:  @Transactional  Uses AOP to: Start transaction and Commit / rollback
+🔹 3. Security
+      @PreAuthorize("hasRole('ADMIN')")  Uses AOP to check permissions
+🔹 4. Performance Monitoring
+        @Around
+        // measure execution time
+🔹 5. Caching
+      @Cacheable
+     AOP checks cache before calling method
+
+ Important Limitations:
+❌ 1. Works only on Spring Beans - Not on new objects
+❌ 2. Self-invocation problem - this.method2(); // AOP won't work 👉 Because proxy is bypassed
+❌ 3. Only public methods - Private methods not intercepted
+❌ 4. Runtime only - Not compile-time like AspectJ
+
+ Advanced Concepts:
+🔹 Multiple Aspects Order
+      @Order(1)
+      @Aspect
+      class A {}  
+      @Order(2)
+      @Aspect
+      class B {}
+    Lower number = higher priority
+🔹 Pointcut Expressions
+      execution(public * com.app.service.UserService.get*(..))
+      👉 Breakdown:
+          public → access modifier
+          → return type
+          get* → method name pattern
+          (..) → any arguments
+          
+ AOP vs Filter vs Interceptor
+Feature	      AOP	            Filter  	        Interceptor
+Level	        Method	        Servlet	          Spring MVC
+Use case	    Business logic	Request/Response	Controller
+Example	      @Transactional	Authentication	  Logging
