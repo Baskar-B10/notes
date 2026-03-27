@@ -1,5 +1,13 @@
 Spring MVC – 
   Spring MVC is a Java-based web framework built on top of the Spring Framework following the Model-View-Controller (MVC) design pattern.
+
+Configuration Types:
+    🔹 XML (Old) - <bean class="DispatcherServlet"/>
+    🔹 Java Config
+          @Configuration
+          @EnableWebMvc
+    🔹 Spring Boot (Auto) - No config needed
+
 Core Architecture :
     Client sends HTTP request
     DispatcherServlet (Front Controller) receives it
@@ -12,13 +20,13 @@ Core Architecture :
     Response returned to client
 
 Internal Working:
-  Example Request: /users
+  Client → /user/1
   DispatcherServlet receives request
-  Calls HandlerMapping → finds UserController#getUsers()
-  HandlerAdapter invokes method
-  Controller returns "users"
-  ViewResolver → /WEB-INF/views/users.jsp
-  View renders response
+  Calls: HandlerMapping and Finds correct controller method
+  Calls: HandlerAdapter and Controller executes
+  Returns: Model + View OR JSON
+  DispatcherServlet calls: ViewResolver
+  View rendered → Response
   
  Key Components :
  1. DispatcherServlet:
@@ -26,13 +34,44 @@ Internal Working:
       Handles all incoming requests
       Defined in web.xml (older) or auto-configured in Spring Boot
       Think of it as:“Traffic police of all requests”
+      Without it:
+          Every servlet handles its own mapping ❌
+          Tight coupling ❌
+      With it:
+          Centralized routing ✔️
+          Loose coupling ✔️
+          Easy extensibility ✔️
  2. HandlerMapping:
       Maps URL → Controller method
-      Example:
-      @RequestMapping("/users")
+      Type                    	      Usage
+      RequestMappingHandlerMapping	  Annotation-based (@RequestMapping)
+      SimpleUrlHandlerMapping	        XML-based mapping
+      BeanNameUrlHandlerMapping	      Bean name = URL
+   Internal Working
+        @GetMapping("/users")
+     HandlerMapping:
+        Scans all controllers
+        Stores mapping in memory
+        Uses URL pattern matching
 3. HandlerAdapter:
       Executes the mapped controller method
-      Allows different controller types
+      Allows different controller types:
+                  Annotation-based
+                  HttpRequestHandler
+                  SimpleController
+      Type	                          Usage
+      RequestMappingHandlerAdapter	  Most common
+      HttpRequestHandlerAdapter      	Low-level handlers
+      SimpleControllerHandlerAdapter	Old style
+   Internal Working:
+        Gets handler from HandlerMapping
+        Finds suitable adapter
+        Invokes method using reflection
+        Handles: Parameters and  Return type
+   Why not call controller directly?
+        Different handler types
+        Loose coupling
+        Extensibility
 4. Controller:
       Business logic layer
       @Controller
@@ -45,12 +84,41 @@ Internal Working:
       }
 5. Model:
       Holds data to be sent to view
+      Stores data to send to UI
+      🔹 Types of Model:
+            Type	          Description
+            Model           Interface
+            ModelMap	      Map implementation
+            ModelAndView	  Combines both
+      🔹 1. Model:
+            public String test(Model model) {
+                model.addAttribute("name", "John");
+                return "view";
+            }
+      🔹 2. ModelMap:
+              public String test(ModelMap map) {
+                  map.addAttribute("age", 25);
+                  return "view";
+              }
+      🔹 3. ModelAndView:
+              public ModelAndView test() {
+                  return new ModelAndView("view", "name", "John");
+              }
+          Model	        ModelAndView
+          Only data    	Data + View
+          Cleaner	      Old style
 6. ViewResolver:
       Resolves logical view name → actual file
       prefix=/WEB-INF/views/
       suffix=.jsp
 7. View:
       UI layer (JSP, Thymeleaf, etc.)
+      Types of View:
+      View Type	    Example
+      JSP	          .jsp
+      Thymeleaf	    .html
+      JSON	         REST API
+      PDF/Excel	     Reports
       
 MVC Pattern Explained:
       Component	    Responsibility
@@ -107,27 +175,172 @@ Global Exception
           }
       }
 
-Interceptors :Similar to filters but Spring-specific
-    Used for:
-            Logging
-            Authentication
-            Pre/Post processing
-            public class MyInterceptor implements HandlerInterceptor {
-                public boolean preHandle(...) {}
+Filter (Servlet Level): 
+    Runs BEFORE DispatcherServlet
+    Core Interface :  javax.servlet.Filter (now jakarta.servlet.Filter)
+      public interface Filter {
+          void init(FilterConfig config);
+          void doFilter(ServletRequest req, ServletResponse res, FilterChain chain);
+          void destroy();
+      }
+  Important Filter Implementations (Spring + Servlet):
+   1. OncePerRequestFilter:
+        Executes only once per request
+        Used in JWT, security
+       Why do we need it? -> 
+          In a normal Servlet Filter, a request may go through multiple dispatch types: REQUEST /FORWARD/ INCLUDE/ASYNC/ERROR
+          So the same filter may execute multiple times ❌
+        Problem Without OncePerRequestFilter:
+          Client → Filter → DispatcherServlet → Forward → Filter again
+          Filter runs twice → causes:
+              Duplicate logging ❌
+              Multiple authentication checks ❌
+              Performance issues ❌
+       Solution: OncePerRequestFilter. Guarantees: One HTTP request → Filter executes only once
+      Internal Working:
+        Internally it uses:request.setAttribute("FILTER_APPLIED", true);
+        Flow: Check if request already has attribute
+                  If YES → skip filter
+                  If NO → execute filter and mark it
+       Method to Override:
+            public class MyFilter extends OncePerRequestFilter {
+                @Override
+                protected void doFilterInternal(
+                    HttpServletRequest request,
+                    HttpServletResponse response,
+                    FilterChain filterChain)
+                    throws ServletException, IOException {
+                    System.out.println("Executed once per request");
+                    filterChain.doFilter(request, response);
+                }
             }
+         You DO NOT override doFilter(). You override: doFilterInternal()
+    Execution Flow:
+          Client Request
+             ↓
+          OncePerRequestFilter (executes once)
+             ↓
+          DispatcherServlet
+             ↓
+          Controller
+    Even if: Forward happens/  Async dispatch happens, Filter will NOT run again
+        ❗ Async Requests  By default:  shouldNotFilterAsyncDispatch() → true ,So filter may skip async dispatch
+        ❗ Error Dispatch - shouldNotFilterErrorDispatch()  Can control behavior
+     Real-Time Usage:
+         1. JWT Authentication Filter - Validate token once and Set user context
+         2. Logging Filter - Log request/response once
+         3. Security Filter - Check headers, roles
+         4. CORS Handling - Avoid duplicate headers
+    When NOT to Use It - Avoid when:
+        You need filter for every dispatch
+        Low-level servlet control required
+   2. GenericFilterBean:
+        Spring-friendly base class
+        Provides: Bean lifecycle support and Access to Spring context
+        Used when: You need Spring features but not once-per-request logic
+  3. DelegatingFilterProxy:
+        Purpose: Connects Servlet filter → Spring bean
+        Filter → DelegatingFilterProxy → Spring Bean (Filter logic)
+         Used in:  Spring Security (springSecurityFilterChain)
+  4. HttpFilter (Servlet 4+) :Simplified HTTP-specific filter  public abstract class HttpFilter extends GenericFilter
+  5. CharacterEncodingFilter (Spring) : Sets request encoding (UTF-8)
+  6. HiddenHttpMethodFilter: Converts POST → PUT/DELETE
+  7. CorsFilter :Handles CORS headers
+  8. FormContentFilter : Parses form data for PUT/PATCH
+      Type	                    Purpose
+      Authentication Filter    	JWT/Auth
+      Logging Filter	          Request logs
+      Compression Filter	      GZIP
+      CORS Filter	              Cross-origin
+      Encoding Filter          	UTF-8
+    🔹 Example Flow : Client → Filter → DispatcherServlet → Controller
+    🔹 Use Cases:
+        Security (JWT)
+        Encoding
+        Request modification
+
+Interceptor (Spring Level):
+   Runs AFTER DispatcherServlet
+    public interface HandlerInterceptor {
+    boolean preHandle(...)
+    void postHandle(...)
+    void afterCompletion(...)
+      }
+  🔹 Methods:
+      preHandle()
+      postHandle()
+      afterCompletion()
+  🔹 Flow: Client → DispatcherServlet → Interceptor → Controller
+  🔹 Types (based on lifecycle)
+        Type	            When
+        preHandle	        Before controller
+        postHandle	      After controller
+        afterCompletion  	After response
+
+    Special Interceptor Classes:
+       1. HandlerInterceptor (Most Used) - Full control over request lifecycle
+       2. AsyncHandlerInterceptor -> Extends HandlerInterceptor
+              void afterConcurrentHandlingStarted(...)
+              Used when: Async requests (@Async, DeferredResult)
+       3. HandlerInterceptorAdapter- 
+              Old adapter class (now deprecated)
+              Previously used to avoid implementing all methods
+              Now: Use default methods in interface
+       4. WebRequestInterceptor- 
+              public interface WebRequestInterceptor {
+                  void preHandle(WebRequest request)
+                  void postHandle(WebRequest request)
+              }
+            Difference:Works at WebRequest level, not HttpServletRequest
 
  Filters vs Interceptors:
     Feature	                        Filter	  Interceptor
     Type	                          Servlet	  Spring
     Runs before DispatcherServlet	  ✅	      ❌
     Access to Spring Beans	        ❌	      ✅
-    
-Configuration Types:
-    🔹 XML (Old) - <bean class="DispatcherServlet"/>
-    🔹 Java Config
-          @Configuration
-          @EnableWebMvc
-    🔹 Spring Boot (Auto) - No config needed
+
+Real-Time Mapping:
+Scenario	              Use
+JWT Auth	              OncePerRequestFilter
+Spring Security	        DelegatingFilterProxy
+Logging	                Filter / Interceptor
+Role Check	            Interceptor
+Request Modify	        Filter
+Response Modify        	Interceptor
+
+Filter vs Interceptor vs Special Types:
+Feature          	            Filter	      OncePerRequestFilter	    Interceptor
+Level	                        Servlet	      Servlet (Spring helper)  	Spring MVC
+Runs Before DispatcherServlet	✅          	✅	                      ❌
+Runs Once	                    ❌	          ✅	                      ❌
+Access Spring Beans          	❌	          ✅	                      ✅
+Use Case	                    Low-level	    Security/logging	        Business logic
+
+Complete Flow:
+Client Request
+   ↓
+Filter (Authentication, Logging)
+   ↓
+DispatcherServlet
+   ↓
+HandlerMapping
+   ↓
+HandlerAdapter
+   ↓
+Interceptor (preHandle)
+   ↓
+Controller
+   ↓
+Interceptor (postHandle)
+   ↓
+ViewResolver
+   ↓
+View Rendering
+   ↓
+Interceptor (afterCompletion)
+   ↓
+Response
+
 Real-Time Use Cases:
       Web applications (login, dashboard)
       REST APIs (microservices)
@@ -159,4 +372,34 @@ Performance Tips:
 8. How JSON conversion happens? Via:HttpMessageConverter. Uses Jackson internally
 9. What is ModelAndView? - return new ModelAndView("view", "data", obj);
 10. Can we skip DispatcherServlet? ❌ NO — core of Spring MVC
-
+11. Can interceptor replace filter? -> ❌ No (different layers)
+12. What if multiple interceptors? ->  Executed in chain order
+13. Can we have multiple DispatcherServlets? -> ✅ YES (different URL patterns)
+14. Is DispatcherServlet thread-safe? ->  Yes, but controllers must avoid shared state
+15. Where does validation happen?  Inside HandlerAdapter using: DataBinder and Validator
+16. When ViewResolver is skipped?  When using: @RestController
+17. Can OncePerRequestFilter run multiple times? ->
+  Yes, if: Different requests and Different threads
+            But for same request → only once
+18. Why used in Spring Security? 
+  Because:
+      Authentication should happen once
+      Avoid duplicate token validation
+19. Does it work across forwards? ✅ Yes — still runs once
+20. What happens if you forget filterChain.doFilter()? ❌ Request stops and Controller never executes
+21. Can we replace all filters with this?  ❌ No . Only when: You need once-per-request behavior
+22. Why DelegatingFilterProxy is used? 
+    Because:
+      Filters are managed by Servlet container
+      Spring beans are managed by Spring
+      It bridges both worlds
+23. Can Filter call Spring Beans directly? ❌ No (unless using DelegatingFilterProxy or GenericFilterBean)
+24. Why GenericFilterBean?
+   Gives:
+    Spring lifecycle
+    Bean injection
+25. Interceptor vs AsyncInterceptor?
+   AsyncInterceptor handles: Async threads and Non-blocking requests
+26. Can multiple filters/interceptors exist?  ✅ Yes — executed in chain/order
+27. Which is faster? Filter slightly faster (lower level)
+28. Can Interceptor replace Filter? -> ❌ No — different layers
