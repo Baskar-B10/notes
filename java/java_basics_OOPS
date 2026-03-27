@@ -147,10 +147,20 @@ Modern Garbage Collectors:
   3. Shenandoah GC (Low Pause GC)- Low pause time like ZGC. Concurrent compaction. Reduces GC pause impact.Applications needing consistent response time
                           -XX:+UseShenandoahGC
   4.Parallel GC (Throughput GC) - Focus on high throughput. Uses multiple threads. Higher pause time. Batch processing
+  5. finalize() Method - A method of Object class called by Garbage Collector (GC) before destroying an object.
+        @Override
+        protected void finalize() throws Throwable {
+            System.out.println("Cleanup before GC");
+        }
+        ❌ Deprecated since Java 9
+        ❌ Not reliable (no guarantee when/if it runs)
+        ❌ Causes performance issues
+        Why not recommended?
+                GC timing is unpredictable
+                Can lead to memory leaks
+                Slows down GC
+        ✔ Modern Alternative - Use:  try-with-resources for AutoCloseable.
     
-Class loader- loads .class files in JVM
-Bootstrap ( libraries in Java.lang) -> Extension (lib in extension path) ->Application  (java classes)
-
 main method:
 public - access from all places
 static - no object needed
@@ -386,6 +396,25 @@ interface B extends A {
 }
 class C implements B {} -> B is more specific → used
 3. Must override if conflict
+
+
+IS-A (Inheritance) - Represents inheritance
+        class Animal {}
+        class Dog extends Animal {}
+        Dog IS-A Animal
+HAS-A (Composition) -  Represents object contains another object
+        class Engine {}
+        class Car {
+            Engine engine;  // HAS-A relationship
+        }
+        Car HAS-A Engine
+
+Feature	        IS-A	        HAS-A
+Type	        Inheritance	    Composition
+Reuse	        Tight coupling	Loose coupling
+Flexibility	    Less	        More
+Prefer HAS-A over IS-A (composition over inheritance)
+
 
 Marker Interface:
   A marker interface is an empty interface — it has no methods. Its main purpose is to mark a class so that the JVM or frameworks can handle it in a special way.
