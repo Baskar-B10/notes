@@ -333,3 +333,87 @@ Simplified Internal Code:
         Compile-time (AspectJ)
         Load-time
         Runtime (Spring AOP)
+
+
+Spring Testing:
+    Spring provides powerful testing support using:
+        JUnit 5
+        Mockito
+        Spring Test Context Framework
+
+Types of Testing in Spring:
+  1. Unit Testing:
+          Test individual classes
+          Use Mockito
+          @ExtendWith(MockitoExtension.class)
+          class UserServiceTest {
+              @Mock
+              UserRepository repo;
+              @InjectMocks
+              UserService service;
+              @Test
+              void testFindUser() {
+                  when(repo.findById(1)).thenReturn(Optional.of(new User()));
+                  User user = service.getUser(1);
+                  assertNotNull(user);
+              }
+          }
+  2. Integration Testing:
+          Load Spring context
+          Test real beans
+          @SpringBootTest
+          class UserServiceIntegrationTest {
+              @Autowired
+              UserService service;
+              @Test
+              void testService() {
+                  assertNotNull(service);
+              }
+          }
+  3. Web Layer Testing:
+        @WebMvcTest(UserController.class)
+        class UserControllerTest {
+            @Autowired
+            MockMvc mockMvc;
+            @MockBean
+            UserService service;
+            @Test
+            void testAPI() throws Exception {
+                mockMvc.perform(get("/users"))
+                       .andExpect(status().isOk());
+            }
+        }
+Important Annotations:
+      Annotation	        Purpose
+      @SpringBootTest	    Full application context
+      @WebMvcTest	        Controller layer
+      @DataJpaTest	      JPA layer
+      @MockBean	          Mock Spring bean
+      @Autowired	        Inject dependency
+      @ExtendWith	        Integrate JUnit
+
+MockMvc (API Testing Without Server):
+      No need to start Tomcat
+      Fast testing
+          mockMvc.perform(post("/users")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"name\":\"John\"}"))
+                  .andExpect(status().isCreated());
+
+ Best Practices:
+      Prefer unit tests for logic
+      Use integration tests sparingly (slow)
+      Mock external dependencies
+      Use Testcontainers for DB testing (advanced)
+
+AOP + Testing Combined:
+    You can test AOP behavior:
+        @SpringBootTest
+        class AOPTest {
+            @Autowired
+            UserService service;
+            @Test
+            void testAOP() {
+                service.getUser(1); // triggers logging aspect
+            }
+        }
