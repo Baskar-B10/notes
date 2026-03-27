@@ -251,3 +251,389 @@ Types of Stack (Conceptual)
     10. Why use Deque instead of Stack? -> Faster + non-legacy + no synchronization
     11. Is Stack thread-safe? -> Yes (because Vector)
     12.  Can LinkedList be used as Stack?  Yes. Deque<Integer> stack = new LinkedList<>();
+
+ Queue:
+       Queue follows FIFO (First In First Out)
+            Insert → Rear (end)
+            Remove → Front (start)
+      Head & Tail Pointers:
+            head → removal
+            tail → insertion
+      Resizing:
+            When full → resize (double size)
+            Copy elements in order
+ Queue Hierarchy:
+            Collection
+               ↓
+            Queue (Interface)
+               ↓
+            Deque (sub-interface)
+
+Core Queue Methods:
+      Method	Purpose	      Behavior
+      offer(e)	Add element	      returns false if fails
+      add(e)	Add element	      throws exception if fails
+      poll()	Remove head	      returns null if empty
+      remove()	Remove head	      throws exception
+      peek()	View head	      returns null
+      element()	View head	      throws exception
+
+      offer() vs add() → safe vs exception
+      poll() vs remove() → safe vs exception
+      peek() vs element() → safe vs exception
+
+Types of Queue:
+            Queue
+            ├── Simple Queues
+            │     ├── ArrayDeque
+            │     └── LinkedList
+            │
+            ├── Priority Queue
+            │     └── PriorityQueue
+            │
+            ├── BlockingQueue (Thread-safe + blocking)
+            │     ├── ArrayBlockingQueue
+            │     ├── LinkedBlockingQueue
+            │     ├── PriorityBlockingQueue
+            │     ├── DelayQueue
+            │     └── SynchronousQueue
+            │
+            └── Concurrent Queues (Thread-safe + non-blocking)
+                  ├── ConcurrentLinkedQueue
+                  └── ConcurrentLinkedDeque
+
+  A. Normal Queue (FIFO)
+      Implementation	Internal Working
+      ArrayDeque	      Circular array
+      LinkedList	      Doubly linked list
+  Behavior: IN → → → OUT
+  B. Priority Queue (Special Queue)
+      Implementation	Internal
+      PriorityQueue	Heap
+    Behavior:Smallest element comes first (NOT FIFO)
+  C. Blocking / Concurrent Queue (Multithreading)
+      Type	                  Use
+      ArrayBlockingQueue	Fixed size
+      LinkedBlockingQueue	Dynamic
+      ConcurrentLinkedQueue	Lock-free
+
+ 1. Deque (Double-Ended Queue) :
+      🔹 Definition:
+            Allows insertion/removal at both ends.Can act as: Queue and Stack
+            Deque<Integer> dq = new ArrayDeque<>();
+      🔹 Implementations:
+            ArrayDeque ✅ (best)
+            LinkedList
+      🔹 Methods:
+            addFirst()
+            addLast()
+            pollFirst()
+            pollLast()
+            peekFirst()
+            peekLast()
+      🔹 Use Cases
+            Sliding window problems
+            LRU cache
+            Stack + Queue combo
+      WHY Deque Can Do Both - Because it supports both ends
+            Queue uses:
+                  Insert → end
+                  Remove → front
+            Stack uses:
+                  Insert → front
+                  Remove → front
+            Same structure → different usage
+       Visual Understanding:
+            Queue (FIFO)
+                  Front → [10, 20, 30] ← Rear
+                  Remove here ↑
+                  Add here →
+            Stack (LIFO)
+                  Top → [30, 20, 10]
+                  Remove & Add same side ↑
+                  Deque (Both)
+                  Front ↔ [10, 20, 30] ↔ Rear
+1.A ArrayDeque:
+      Deque<Integer> dq = new ArrayDeque<>();
+      It implements: Deque which extends Queue
+      FIFO when used as queue and Also supports deque
+      Queue<Integer> q = new ArrayDeque<>();
+      Hierarchy:
+            Collection
+               ↓
+            Queue
+               ↓
+            Deque
+               ↓
+            ArrayDeque
+      Internal Working: Uses Resizable Circular Array   
+                  [ _, _, 10, 20, _ ]
+                          ↑ head
+                  No shifting like ArrayList
+                  Uses head/tail pointers
+                  Very efficient
+   Time Complexity:
+            Operation	Time
+            offer()	O(1)
+            poll()	O(1)
+            peek()	O(1)
+   ArrayDeque can behave as:
+            ✅ 1. Stack (LIFO)
+            ✅ 2. Queue (FIFO)
+            ✅ 3. Deque (Both ends)
+
+       1. Using ArrayDeque as Stack:  Behavior: LIFO
+            Deque<Integer> stack = new ArrayDeque<>();
+            stack.push(10);
+            stack.push(20);  
+            System.out.println(stack.pop()); // 20
+
+      2. Using ArrayDeque as Queue: Behavior: FIFO
+            Deque<Integer> queue = new ArrayDeque<>();
+            queue.offer(10);
+            queue.offer(20);
+            System.out.println(queue.poll()); // 10
+
+      3. Using as Deque (Both Ends)
+            Deque<Integer> dq = new ArrayDeque<>();
+            dq.addFirst(10);
+            dq.addLast(20);
+            dq.pollFirst(); // 10
+            dq.pollLast();  // 20
+
+ Why ArrayDeque is Powerful:
+            Feature	            Benefit
+            No synchronization	Faster
+            No index                shifting Efficient
+            Supports both ends	Flexible
+            Better than Stack	      Modern
+
+Circular Array Concept : Used in: ArrayDeque and ArrayBlockingQueue
+                         Avoids shifting: tail → wraps around
+
+1.B. LinkedList as Queue : Queue<Integer> q = new LinkedList<>();
+     Internal Working: Doubly Linked List
+                  [10] <-> [20] <-> [30]
+                   ↑ front        ↑ rear
+      🔹 Behavior:
+                  True FIFO
+                  No resizing needed
+      🔹 Time Complexity:
+            Operation	Time
+            offer()	O(1)
+            poll()	O(1)
+
+ Performance Comparison for ArrayDeque vs LinkedList:
+      Feature	      ArrayDeque	      LinkedList
+      Memory	      Less	            More (nodes + pointers)
+      Cache locality	High	            Low
+      Insert/remove	O(1)	            O(1)
+      Random access	❌	            ❌
+      Speed	            Faster	      Slower
+
+ 2. PriorityQueue :
+      Elements ordered by priority
+      Not pure FIFO
+
+      Queue<Integer> pq = new PriorityQueue<>();
+      pq.offer(30);
+      pq.offer(10);
+      pq.offer(20);  
+      System.out.println(pq.poll()); // 10
+   Internal Working : Uses Min Heap (Binary Heap)
+                          10
+                         /  \
+                       30    20
+                  Rule:
+                        Parent ≤ Children
+                        Smallest element always at root
+                  Heap Property:
+                        Parent index = (i-1)/2
+                        Left child = 2*i + 1
+                        Right child = 2*i + 2
+   Internal Representation:
+           Internally uses array-based binary heap
+           Not sorted fully — only root guaranteed smallest
+           Iteration order ≠ sorted order ❗'
+
+       Stored as array:
+            Index:   0   1   2   3   4
+            Value:  [10, 20, 30, 40, 50]
+            Tree view:
+            
+                    10
+                   /  \
+                 20    30
+                /  \
+               40  50
+            🔹 Step-by-Step Insertion (offer)
+            Insert 30: [30]
+            Insert 10:  [30, 10]
+            Heapify Up:  10 < 30 → swap [10, 30]
+            Tree:
+                     10
+                    /
+                  30
+            Insert 20:[10, 30, 20] No swap needed
+            Insert 5: [10, 30, 20, 5]
+            Heapify Up: 5 < 30 → swap [10, 5, 20, 30]
+                        5 < 10 → swap [5, 10, 20, 30]
+            Tree:
+                          5
+                         / \
+                       10   20
+                      /
+                    30
+         Removal (poll) — Step-by-Step
+            Before removal: [5, 10, 20, 30]
+            Step 1: Remove root (5) -  Replace with last element:  [30, 10, 20]
+            Step 2: Heapify Down - 30 > 10 → swap [10, 30, 20] so 30 > 20 → swap, [10, 20, 30]
+        
+        Time Complexity:
+                  Operation	Time
+                  offer()	O(log n)
+                  poll()	O(log n)
+                  peek()	O(1)
+    Custom Comparator: Queue<Integer> pq = new PriorityQueue<>((a,b) -> b - a); -> Max Heap
+
+3. BlockingQueue (Multithreading):
+      Special queue for producer-consumer problems
+      Key Features: Thread-safe ✅
+      Blocking operations:
+            put() → waits if full
+            take() → waits if empty
+      Hireachy: 
+            Collection
+               ↓
+            Queue
+               ↓
+            BlockingQueue   (thread-safe)
+               ├── PriorityBlockingQueue
+               ├── DelayQueue
+               ├── SynchronousQueue
+               ├── ArrayBlockingQueue
+               └── LinkedBlockingQueue
+      🔹 Examples:
+            ArrayBlockingQueue
+            LinkedBlockingQueue
+      🔹 Behavior:
+            Thread-safe
+            Used in producer-consumer
+            BlockingQueue<Integer> bq = new ArrayBlockingQueue<>(10);
+            bq.put(10);   // waits if full
+            bq.take();    // waits if empty
+  3.A ArrayBlockingQueue: BlockingQueue<Integer> q = new ArrayBlockingQueue<>(5);
+      Fixed size
+      Thread-safe
+      Uses circular array
+  3.B LinkedBlockingQueue : BlockingQueue<Integer> q = new LinkedBlockingQueue<>();
+      Optional bound
+      Uses linked list
+  3.C PriorityBlockingQueue
+      Type: BlockingQueue + PriorityQueue behavior
+      Internal:Heap (same as PriorityQueue)
+      Sorted order (NOT FIFO)
+      BlockingQueue<Integer> q = new PriorityBlockingQueue<>();
+  3.D DelayQueue
+      Type: BlockingQueue (time-based)
+      Stores:Elements with delay
+      Internal:PriorityQueue (heap based on time)
+      Only available after delay expires
+ 3.E SynchronousQueue
+       Type: BlockingQueue (special case)
+      ❌ No storage at all
+      Producer → directly handoff → Consumer
+      Example:Thread communication
+
+4. Concurrent Queues
+            Collection
+               ↓
+            Queue
+               ↓
+            (Concurrent / Non-blocking Queues)
+      ✅ They are Queue implementations
+      ✅ They are thread-safe
+      ❌ But they are NOT BlockingQueue
+      
+  Concurrent Queue Types:
+       1. ConcurrentLinkedQueue
+            Queue<Integer> q = new ConcurrentLinkedQueue<>();
+            🔹 Belongs To Queue -> ConcurrentLinkedQueue Implements:  Queue and Serializable
+            🔹 Internal Working: Lock-free linked list
+                  Based on CAS (Compare-And-Swap)
+                        [10] → [20] → [30]
+                        Head & tail pointers updated atomically
+                        No locking → high performance
+            🔹 Behavior:
+                  FIFO
+                  Non-blocking
+                  Thread-safe
+            🔹 Methods:
+                  offer()
+                  poll()
+                  peek()
+      🔹 Use Case-High-performance systems: Messaging systems, Event queues and Real-time processing
+      
+      2. ConcurrentLinkedDeque:
+            Deque<Integer> dq = new ConcurrentLinkedDeque<>();
+      🔹 Belongs To
+            Queue
+               ↓
+            Deque
+               ↓
+            ConcurrentLinkedDeque
+      🔹 Internal Working: Lock-free doubly linked list
+             [10] <-> [20] <-> [30]
+      🔹 Behavior
+            Works as: Queue (FIFO) and Stack (LIFO)
+            Thread-safe
+            Non-blocking
+     
+Key Difference:
+      Type	            BlockingQueue	Concurrent Queue
+      Thread-safe	      ✅	            ✅
+      Blocking (wait)	✅ (put/take)	❌
+      Locking	      Uses locks	      Mostly lock-free (CAS)
+
+      
+Internal Comparison:
+      Queue Type	      Internal DS
+      PriorityQueue	Binary Heap
+      ArrayDeque	      Circular Array
+      LinkedList	      Doubly Linked List
+      BlockingQueue	Array / Linked
+
+ Real-Time Usage
+    🔹 1. Task Scheduling -CPU scheduling , Thread pools
+    🔹 2. Producer–Consumer Pattern -Producer → Queue → Consumer
+    🔹 3. BFS (Graph Traversal) - Visit level by level
+    🔹 4. Messaging Systems - Kafka and  RabbitMQ
+    🔹 5. Request Handling - Web servers (request queue)
+
+Usage:
+      Scenario	            Use
+      General queue	      ArrayDeque
+      Priority-based	      PriorityQueue
+      Thread-safe blocking	BlockingQueue
+      Non-blocking concurrent	ConcurrentLinkedQueue
+      Sliding Window Maximum   Deque
+      Task Scheduling          Queue
+      Top K Elements           PriorityQueue
+      Producer-Consumer        BlockingQueue
+
+Queue vs Deque vs Stack:
+            Feature	Queue	      Deque	      Stack
+            Order      	FIFO	      Both	      LIFO
+            Ends used	One	      Two	      One
+
+1. Why PriorityQueue is not FIFO? ->Because it uses heap sorting
+2. Why ArrayDeque is faster than LinkedList? ->  No node allocation, better cache locality
+3. Can Queue store null? -> Most implementations don’t allow null
+4. Best queue implementation: ArrayDeque ✅
+5. Why ArrayDeque is Faster:
+      No object creation (nodes)
+      Continuous memory (cache-friendly)
+      No pointer traversal
+6. When LinkedList Wins:
+      Frequent middle insert/delete (not queue usage)
+      Need stable iterators in some scenarios
