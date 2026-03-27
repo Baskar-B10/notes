@@ -750,3 +750,208 @@ Queue vs Deque vs Stack:
 6. When LinkedList Wins:
       Frequent middle insert/delete (not queue usage)
       Need stable iterators in some scenarios
+
+Set:
+   Set is a collection that:
+      ❌ Does NOT allow duplicates
+      ❌ No index-based access
+      ✔ Can allow one null (depends on implementation)
+ Set Hierarchy:
+      Collection
+         ↓
+      Set (Interface)
+         ├── HashSet
+         ├── LinkedHashSet
+         ├── TreeSet
+         └── EnumSet
+   Core Methods of Set:
+      add(E e)
+      remove(Object o)
+      contains(Object o)
+      size()
+      isEmpty()
+      clear()
+      iterator()
+
+ Types of Set:
+      🔹 1. HashSet:
+                  No duplicates
+                  No order
+                  Allows one null
+            Set<Integer> set = new HashSet<>();
+            🔹 Internal Working-> Uses HashMap internally
+                  private transient HashMap<E,Object> map;
+                   When you do: set.add(10); Internally:  map.put(10, PRESENT);
+            🔹 How Duplicate is Prevented
+                  Compute hashCode()
+                  Find bucket
+                  Compare using equals()
+                  If already exists → NOT added
+            Internal Flow Example:
+                        set.add("A");
+                        set.add("B");
+                        set.add("A"); // duplicate 
+                  Internally:
+                        hash(A) → bucket1 → inserted
+                        hash(B) → bucket2 → inserted
+                        hash(A) → bucket1 → already exists → ignored
+            🔹 Structure (Java 8+)
+                  Bucket → LinkedList → Red-Black Tree (if large)
+            🔹 Time Complexity:
+                  Operation	Time
+                  add()      	O(1)
+                  remove()	O(1)
+                  contains()	O(1)
+
+      🔹 2. LinkedHashSet:
+                  Maintains insertion order
+                  No duplicates
+                  Set<Integer> set = new LinkedHashSet<>();
+            🔹 Internal Working- Uses:HashMap + Doubly Linked List
+                                    [10] → [20] → [30] (order preserved)
+            🔹 Use Case :When order matters
+      
+      🔹 3. TreeSet:
+                  Sorted order
+                  No duplicates
+                  No null allowed ❗
+                  Set<Integer> set = new TreeSet<>();
+            🔹 Internal Working-  Uses Red-Black Tree ( Balanced Binary Tree)
+            🔹 Sorting:
+                  Natural order OR
+                  Custom comparator
+                  new TreeSet<>((a,b) -> b - a);
+            🔹 Time Complexity:
+                  Operation	Time
+                  add()	      O(log n)
+                  remove()	O(log n)
+                  contains()	O(log n)
+      
+      🔹 4. EnumSet:
+            Only for enums
+            Very fast
+            EnumSet<Day> days = EnumSet.allOf(Day.class);
+            🔹 Internal Working- Uses bit vector (bitmask)
+
+HashSet vs LinkedHashSet vs TreeSet:
+Feature	HashSet	LinkedHashSet	TreeSet
+Order	      ❌	      Insertion	      Sorted
+Null	      1 allowed	1 allowed	      ❌
+Speed	      Fastest	Medium	      Slowest
+Internal	HashMap	HashMap + list	Red-Black Tree
+
+ Real-Life Usage:
+🔹 1. Remove Duplicates -  List<Integer> list = Arrays.asList(1,2,2,3); Set<Integer> set = new HashSet<>(list);
+🔹 2. Unique Users / IDs - User IDs and Email uniqueness
+🔹 3. Fast Lookup - if(set.contains(id)) {}-> O(1) lookup
+🔹 4. Caching / Membership Check -Blacklist and Whitelist
+🔹 5. Sorted Data - Use TreeSet: Leaderboards & Rankings
+🔹 6. Maintain Order-  Use LinkedHashSet: Recently visited items
+
+Important Internal Concepts:
+🔹 1. hashCode() & equals() MUST override in custom objects
+      @Override
+      public int hashCode() {}  
+      @Override
+      public boolean equals(Object o) {}
+🔹 2. Collision Handling-  Same bucket: LinkedList and Converted to Tree (Java 8+)
+🔹 3. Load Factor -  Default = 0.75 and  Resize when: size > capacity * loadFactor
+
+Fail-Fast Behavior:
+      for(String s : set) {
+          set.add("X"); // Exception Throws:ConcurrentModificationException
+      }
+
+Scenario	      Use
+Fast operations	HashSet
+Maintain order	LinkedHashSet
+Sorted data	      TreeSet
+Enum values	      EnumSet
+
+Special Set:
+ConcurrentHashSet:
+🔹 Backed by ConcurrentHashMap - ConcurrentHashMap<K, Boolean>
+      Internally: map.put(key, true);
+🔹 Why this works?
+      Keys are unique → acts like Set
+      Values are dummy (true)
+🔹 Internal Working:
+      Uses:
+      Segmented / bucket-level locking (Java 7)
+      CAS + synchronized blocks (Java 8+)
+      Structure: Bucket → Node → Tree (if large)
+🔹 Example:
+      Set<Integer> set = ConcurrentHashMap.newKeySet();
+      set.add(10);
+      set.add(20);
+ CAS (Compare-And-Swap):
+      If value unchanged → update
+      Else retry
+      No locks → faster
+🔹 Features:
+      Feature	      Value
+      Thread-safe	      ✅
+      Blocking	      ❌
+      Performance	      High
+      Null allowed	❌
+🔹 Use Case:
+      Multi-threaded apps
+      Shared caches
+      Real-time systems
+
+CopyOnWriteArraySet:
+      Set<Integer> set = new CopyOnWriteArraySet<>();
+      🔹 Internal Working- Uses:  CopyOnWriteArrayList
+             On write:New copy of array created
+      🔹 Features:
+            Feature	      Value
+            Thread-safe	      ✅
+            Reads	            Very fast
+            Writes	      Slow
+            Use case	      Read-heavy systems
+      🔹 Example Use Case:
+            Configuration data
+            Listener lists
+
+IdentityHashMap-based Set:
+      Set<Object> set = Collections.newSetFromMap(new IdentityHashMap<>());
+      🔹 Behavior ->Uses: == (reference equality) NOT equals()
+      🔹 Use Case :Object identity tracking
+
+WeakHashSet (via WeakHashMap):
+      Set<Object> set = Collections.newSetFromMap(new WeakHashMap<>());
+      🔹 Internal Working- Uses:Weak references When no strong reference:Object removed automatically (GC)
+      🔹 Use Case :Caching and Memory-sensitive apps
+
+Synchronized Set:
+      Set<Integer> set = Collections.synchronizedSet(new HashSet<>());
+      Thread-safe
+      Uses global lock
+      Slower than concurrent sets
+
+Comparison of Special Sets:
+Set Type	            Thread-safe      	Performance      	Special Feature
+ConcurrentHashSet	      ✅	            High	            Non-blocking
+CopyOnWriteArraySet	✅	            Read-fast	      Copy on write
+EnumSet	            ❌	            Very fast	      Bitmask
+WeakHashSet	            ❌	            Medium	      Auto GC
+Identity Set	      ❌	            Medium	      == comparison
+SynchronizedSet      	✅	            Slow	            Global lock
+
+ Real-Life Usage:
+🔹 ConcurrentHashSet -User session tracking and Real-time analytics
+🔹 CopyOnWriteArraySet- Event listeners, Observer pattern
+🔹 WeakHashSet -Cache (auto cleanup)
+🔹 EnumSet-Flags / states
+
+1.Why HashSet is fast? ->Uses hashing (O(1))
+2. How duplicates are avoided? -> hashCode() + equals()
+3. Why TreeSet slower? -> Uses tree (log n)
+4. Can we store null in TreeSet? -> No (NullPointerException)
+5. Difference: HashSet vs HashMap? -> HashSet uses HashMap internally
+6. Why no ConcurrentHashSet class? Because: Set can be implemented using Map keys
+7. Difference: ConcurrentHashSet vs synchronizedSet?
+      Concurrent → fine-grained locking / CAS
+      synchronized → single lock (slow)
+8. When to use CopyOnWriteArraySet? ->When reads >> writes
+9. Why EnumSet is fastest? -> Bit-level operations
