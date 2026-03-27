@@ -387,3 +387,209 @@ Comparable vs Comparator:
     Stream.sorted()
 4.  What happens if not implemented?
     Sorting complex objects → Compile-time error
+
+
+Exception and Error:
+  Exception Handling: 
+    Exception handling is a mechanism to handle runtime errors so the program does not crash and continues execution.
+         int a = 10;
+         int b = 0;
+         int result = a / b;  // ❌ ArithmeticException  -> Program crashes
+     With Exception Handling:
+        try {
+            int result = a / b;
+        } catch (ArithmeticException e) {
+            System.out.println("Cannot divide by zero");
+        } ->Program continues safely
+
+  Exception Hierarchy:
+        Throwable
+         ├── Error
+         └── Exception
+               ├── Checked Exception
+               └── Runtime Exception (Unchecked)
+
+   Error:
+     Errors are serious problems caused by JVM/system that your application should NOT try to handle.
+     When do Errors happen?
+         When something goes wrong at JVM / system level
+
+     Common Scenarios:
+         1. ❌ Memory Full
+         List<int[]> list = new ArrayList<>();
+         while (true) {
+             list.add(new int[1000000]);
+         } 💥 OutOfMemoryError
+         
+         2. ❌ Infinite Recursion
+             void recurse() {
+                 recurse();
+             } 💥 StackOverflowError
+         
+         3. ❌ JVM Internal Failure -> Rare, but possible
+         
+     Types of Errors:
+          OutOfMemoryError
+          StackOverflowError
+          VirtualMachineError
+          AssertionError
+     Key Points:
+         ❌ Not recoverable
+         ❌ Not meant to be caught
+         ❌ Caused by system/JVM
+
+  Exception:
+     Exceptions are problems caused by application logic or user input, and can be handled.
+     When do Exceptions happen?
+         During program execution (runtime) due to bad logic or unexpected input
+     🔹 Common Scenarios
+        1. Divide by zero - int x = 10 / 0; -> ArithmeticException
+        2. Null reference -String s = null;  s.length();-> NullPointerException
+        3. Invalid index - int[] arr = new int[2]; arr[5] = 10; ->ArrayIndexOutOfBoundsException
+        4. File not found - new FileReader("abc.txt"); -> FileNotFoundException (Checked)
+
+  Feature	     Error	             Exception
+  Type	        JVM/System issue  	Application issue
+  Recoverable	 ❌ No	             ✅ Yes
+  Handling     	Avoid	            Must/Can handle
+  Example	      OutOfMemoryError	 NullPointerException
+
+Types of Exceptions:
+ 1. Checked Exceptions (Compile-time) -> Must be handled
+      Examples:
+          IOException
+          SQLException
+          FileReader fr = new FileReader("file.txt"); // must handle
+ 2. Unchecked Exceptions (Runtime) -> Not mandatory to handle
+      Examples:
+          NullPointerException
+          ArrayIndexOutOfBoundsException
+          ArithmeticException
+
+Keywords in Exception Handling:
+   🔹 try: Wrap risky code
+              try {
+                  // risky code
+              }
+   🔹 catch: Handle exception
+            
+            catch (Exception e) {
+                e.printStackTrace();
+            }
+   🔹 finally: Always executes
+           finally {
+               System.out.println("Always runs");
+           }
+   🔹 throw: Used to explicitly throw exception
+           throw new IllegalArgumentException("Invalid input");
+   🔹 throws: Declares exception
+            void readFile() throws IOException {
+            }
+
+Try-Catch-Finally Flow
+     try {
+         System.out.println("Try");
+         int x = 10 / 0;
+     } catch (Exception e) {
+         System.out.println("Catch");
+     } finally {
+         System.out.println("Finally");
+     }
+
+ Multiple Catch Blocks:
+     try {
+         int[] arr = new int[2];
+         arr[5] = 10;
+     } catch (ArithmeticException e) {
+     } catch (ArrayIndexOutOfBoundsException e) {
+     }
+    Java 7 Feature (Multi-catch)
+       catch (ArithmeticException | NullPointerException e) {
+       }
+
+Try-With-Resources:  Automatically closes resources
+    try (BufferedReader br = new BufferedReader(new FileReader("file.txt"))) {
+        System.out.println(br.readLine());
+    } No need for finally block Uses AutoCloseable
+
+Custom Exception:
+    class MyException extends Exception {
+        MyException(String msg) {
+            super(msg);
+        }
+    }
+  Usage:
+    if (age < 18) {
+        throw new MyException("Not eligible");
+    }
+
+Important Methods in Exception:
+   🔹 printStackTrace() - e.printStackTrace(); -> Shows full error path  
+   🔹 getMessage() - System.out.println(e.getMessage());
+   🔹 toString() - System.out.println(e);
+
+Exception Propagation:
+    void method1() {
+        method2();
+    }
+    void method2() {
+        int x = 10 / 0;
+    }Exception propagates up call stack
+
+Finally Block Special Cases
+     Case 1: Even with return
+         try {
+             return 1;
+         } finally {
+             System.out.println("Finally runs");
+         }
+
+Checked vs Unchecked (Quick Table)
+     Feature	                  Checked	       Unchecked
+     Checked at compile time	   ✅	            ❌
+     Must handle	               ✅	            ❌
+     Example	                IOException     	NullPointerException
+
+throw: Used inside method	Used in method signature
+Throws: one exception	Can declare multiple
+
+Exception    	RuntimeException
+Checked	      Unchecked
+Must handle  	Optional
+
+Best Practices:
+    ✔ Catch specific exceptions
+    ✔ Avoid catching Exception unnecessarily
+    ✔ Use try-with-resources
+    ✔ Don’t ignore exceptions
+    ✔ Use meaningful messages
+
+
+1. Can we have try without catch? ✔ Yes (with finally)
+2. Can finally not execute? ✔ Yes, if: JVM crashes System.exit()
+3. Why checked exceptions exist?  Force developer to handle critical situations
+4. Can we catch an Error? ✔ Yes (technically)
+     try {
+         int[] arr = new int[Integer.MAX_VALUE];
+     } catch (OutOfMemoryError e) {
+         System.out.println("Handled");
+     }❗ But NOT recommended
+5. What happens if exception not handled? -> Program terminates
+6. Which comes first: compile-time or runtime exception?
+      Checked → compile-time
+      Unchecked → runtime
+7. Return in try vs finally
+     int test() {
+         try {
+             return 1;
+         } finally {
+             return 2;
+         }
+     } Output: 2 (finally overrides)
+8. Can we have multiple catch? ✔ Yes and Order matters (child → parent)
+  catch (IOException e) {}
+  catch (Exception e) {}
+
+9. Why NullPointerException happens? Accessing object through null reference
+10. Checked exception example trap
+   FileReader fr = new FileReader("file.txt"); -> Must handle → compile error if not
