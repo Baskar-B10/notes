@@ -1,0 +1,162 @@
+Spring MVC – 
+  Spring MVC is a Java-based web framework built on top of the Spring Framework following the Model-View-Controller (MVC) design pattern.
+Core Architecture :
+    Client sends HTTP request
+    DispatcherServlet (Front Controller) receives it
+    It checks HandlerMapping → finds controller method
+    HandlerAdapter invokes the controller
+    Controller returns:
+    View name OR
+    Response body (JSON/XML)
+    ViewResolver resolves view (JSP/Thymeleaf)
+    Response returned to client
+
+Internal Working:
+  Example Request: /users
+  DispatcherServlet receives request
+  Calls HandlerMapping → finds UserController#getUsers()
+  HandlerAdapter invokes method
+  Controller returns "users"
+  ViewResolver → /WEB-INF/views/users.jsp
+  View renders response
+  
+ Key Components :
+ 1. DispatcherServlet:
+      Central controller of Spring MVC
+      Handles all incoming requests
+      Defined in web.xml (older) or auto-configured in Spring Boot
+      Think of it as:“Traffic police of all requests”
+ 2. HandlerMapping:
+      Maps URL → Controller method
+      Example:
+      @RequestMapping("/users")
+3. HandlerAdapter:
+      Executes the mapped controller method
+      Allows different controller types
+4. Controller:
+      Business logic layer
+      @Controller
+      public class UserController {
+          @GetMapping("/user")
+          public String getUser(Model model) {
+              model.addAttribute("name", "John");
+              return "user";
+          }
+      }
+5. Model:
+      Holds data to be sent to view
+6. ViewResolver:
+      Resolves logical view name → actual file
+      prefix=/WEB-INF/views/
+      suffix=.jsp
+7. View:
+      UI layer (JSP, Thymeleaf, etc.)
+      
+MVC Pattern Explained:
+      Component	    Responsibility
+      Model	        Data
+      View	        UI
+      Controller	  Handles request & response
+      
+Important Annotations:
+🔹 Core:
+      @Controller → Marks controller
+      @RestController → Controller + JSON response
+      @RequestMapping → URL mapping
+🔹 HTTP Methods:
+      @GetMapping
+      @PostMapping
+      @PutMapping
+      @DeleteMapping
+🔹 Data Binding:
+      @RequestParam - comes in the url "?sortBy=Desc"
+      @PathVariable - comes in the ur "/{userId}"
+      @RequestBody
+      @ModelAttribute
+🔹 Example:
+    @GetMapping("/user/{id}")
+    public String getUser(@PathVariable int id) {
+        return "user";
+    }
+    
+Data Binding & Validation:
+    Binding Request → Object
+    @PostMapping("/save")
+    public String save(@ModelAttribute User user) {
+    }
+Validation:
+    @Valid User user
+    BindingResult result
+    
+REST Support- Using @RestController:
+    @RestController
+    public class ApiController {
+        @GetMapping("/api")
+        public String test() {
+            return "Hello";
+        }
+    }
+
+ Exception Handling:
+Global Exception
+      @ControllerAdvice
+      public class GlobalExceptionHandler {
+          @ExceptionHandler(Exception.class)
+          public String handle() {
+              return "error";
+          }
+      }
+
+Interceptors :Similar to filters but Spring-specific
+    Used for:
+            Logging
+            Authentication
+            Pre/Post processing
+            public class MyInterceptor implements HandlerInterceptor {
+                public boolean preHandle(...) {}
+            }
+
+ Filters vs Interceptors:
+    Feature	                        Filter	  Interceptor
+    Type	                          Servlet	  Spring
+    Runs before DispatcherServlet	  ✅	      ❌
+    Access to Spring Beans	        ❌	      ✅
+    
+Configuration Types:
+    🔹 XML (Old) - <bean class="DispatcherServlet"/>
+    🔹 Java Config
+          @Configuration
+          @EnableWebMvc
+    🔹 Spring Boot (Auto) - No config needed
+Real-Time Use Cases:
+      Web applications (login, dashboard)
+      REST APIs (microservices)
+      E-commerce systems
+      Banking portals
+
+Performance Tips:
+    Use @RestController for APIs
+    Avoid heavy logic in controllers
+    Use caching
+    Use async processing   
+
+ 1. Why DispatcherServlet is needed?-> Centralized request handling → decouples components
+ 2. Difference: @Controller vs @RestController
+          @Controller	          @RestController
+          Returns View	        Returns JSON
+          Needs @ResponseBody	  Built-in
+3. @RequestParam vs @PathVariable
+      Feature	    RequestParam	  PathVariable
+      URL	        /user?id=1	    /user/1
+      Optional	  Yes	            No
+4. What happens if no ViewResolver? You’ll get: HTTP 404 / View not found
+5. Can multiple HandlerMappings exist?  YES ✔️ (Spring checks in order)
+6. Is Spring MVC thread-safe? -> Controllers are singleton. Must avoid shared mutable state
+7. Difference: Forward vs Redirect
+      Forward      	Redirect
+      Server-side	  Client-side
+      Same request	New request
+8. How JSON conversion happens? Via:HttpMessageConverter. Uses Jackson internally
+9. What is ModelAndView? - return new ModelAndView("view", "data", obj);
+10. Can we skip DispatcherServlet? ❌ NO — core of Spring MVC
+
