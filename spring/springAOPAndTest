@@ -25,8 +25,65 @@ Core Concepts:
         @Pointcut("execution(* com.app.service.*.*(..))")
         public void serviceLayer() {}
        Means: apply to all methods in service package
+        Types of Pointcut Expressions:
+            🔹 1. execution() - execution(* com.app.service.*.*(..)) -> Most commonly used
+            🔹 2. within() - within(com.app.service..*) -> Targets class/package
+            🔹 3. args() - args(String, int) -> Based on method arguments
+            🔹 4. @annotation() -  @annotation(org.springframework.transaction.annotation.Transactional) -> Apply AOP to annotated methods   
+            🔹 5. this() vs target():
+                  this(com.app.MyInterface). this → proxy type
+                  target(com.app.MyClass).target → actual object
 🔹 4. Join Point
         A specific method execution point
+        Any point in program execution where an aspect can be applied
+        In full AOP (like AspectJ), join points include:
+              Method execution ✅
+              Method call
+              Constructor execution
+              Field access (get/set)
+              Exception handling
+         In Spring AOP:
+              ✅ ONLY method execution is supported as a Join Point
+              ❌ NOT supported:
+                    Field access
+                    Constructor join points
+                    Static blocks
+                 Because Spring AOP is proxy-based, not bytecode weaving.
+             JoinPoint Object (Runtime Info)- 
+        You can access details of the method being executed:
+              @Before("execution(* com.app.service.*.*(..))")
+              public void log(JoinPoint jp) {
+                  System.out.println(jp.getSignature().getName());
+                  System.out.println(Arrays.toString(jp.getArgs()));
+              }
+        What you can get from JoinPoint:
+                Method	            Description
+                getSignature()	    Method name
+                getArgs()	          Arguments
+                getTarget()	        Actual object
+                getThis()	          Proxy object
+        Types Related to Join Points:
+            🔹 1. JoinPoint:
+                  Used in all advice types
+                  Read-only (cannot control execution)
+            🔹 2. ProceedingJoinPoint (Special)
+                   Used only in @Around
+                    @Around("execution(* *(..))")
+                    public Object around(ProceedingJoinPoint pjp) throws Throwable {
+                        return pjp.proceed(); // controls execution
+                    }
+         Extra Powers:
+              Skip method execution
+              Modify arguments
+              Change return value
+      Join Point vs Pointcut:
+        Feature	      Join Point	            Pointcut
+        Meaning	      Actual execution point	Expression to select join points
+        Example	      Method call	            execution(* service.*(..))
+        Runtime	      Yes	                    No (just matcher)
+     Simple:
+          Join Point = real place
+          Pointcut = filter
 🔹 5. Proxy 
         Spring AOP works using proxy pattern
          This is the heart of AOP
@@ -117,8 +174,8 @@ Complete Example
 
  Important Limitations:
 ❌ 1. Works only on Spring Beans - Not on new objects
-❌ 2. Self-invocation problem - this.method2(); // AOP won't work 👉 Because proxy is bypassed
-❌ 3. Only public methods - Private methods not intercepted
+❌ 2. Self-invocation problem - this.method2(); // AOP won't work 👉 Because proxy is bypassed  
+❌ 3. Only public methods - Private/Final methods not intercepted
 ❌ 4. Runtime only - Not compile-time like AspectJ
 
  Advanced Concepts:
@@ -143,3 +200,21 @@ Feature	      AOP	            Filter  	        Interceptor
 Level	        Method	        Servlet	          Spring MVC
 Use case	    Business logic	Request/Response	Controller
 Example	      @Transactional	Authentication	  Logging
+
+
+1: Difference between JoinPoint and ProceedingJoinPoint?
+      JoinPoint      	ProceedingJoinPoint
+      Read-only	      Can control execution
+      All advice	    Only @Around
+2: Why Spring AOP supports only method execution?
+      Because:
+      It uses proxy pattern
+      Not bytecode weaving (like AspectJ)
+3: Can we modify method arguments?-> ✅ Only with ProceedingJoinPoint ; pjp.proceed(newArgs);
+4: Does AOP work on static methods? 👉 ❌ No
+5: What happens if multiple aspects match same join point? 👉 All will execute based on @Order
+6: What is weaving?
+    Process of applying aspects:
+        Compile-time (AspectJ)
+        Load-time
+        Runtime (Spring AOP)
