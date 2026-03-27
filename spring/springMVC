@@ -41,6 +41,54 @@ Internal Working:
           Centralized routing ✔️
           Loose coupling ✔️
           Easy extensibility ✔️
+      DispatcherServlet Lifecycle & Beans:
+          🔹 Lifecycle Phases:
+              1. Initialization: init()
+                  Loads WebApplicationContext
+                  Initializes strategies
+              2. Request Handling:doDispatch()
+              3. Destruction: destroy()
+          🔹 Important Internal Beans: DispatcherServlet auto-loads these:
+                  Bean	                        Purpose
+                  HandlerMapping	              Find controller
+                  HandlerAdapter	              Execute controller
+                  ViewResolver	                Resolve view
+                  HandlerExceptionResolver	    Handle exceptions
+                  LocaleResolver	              Localization
+                  MultipartResolver	            File upload
+           DispatcherServlet uses:Strategy Design Pattern
+      How DispatcherServlet is Thread-Safe?
+            Key Fact:
+                DispatcherServlet is a singleton bean
+                Handles multiple requests concurrently (multi-threaded)
+            Why it is thread-safe? 
+              Because it is stateless
+              No request-specific data stored in instance variables
+              Uses local variables per request
+              doDispatch(HttpServletRequest request, HttpServletResponse response)
+            Each request:
+              Gets its own thread
+              Uses its own stack memory
+           Where problems happen?
+             In Controller, not DispatcherServlet
+              @Controller
+              class Test {
+                  int count = 0; // ❌ NOT thread-safe
+              }
+           ✔ Fix:
+              Use local variables
+              Or ThreadLocal / stateless design  
+     How Multiple DispatcherServlets Possible? YES ✔️
+          In Configuration , Each DispatcherServlet has:
+              Its own ApplicationContext
+              Its own Controller set
+            Example:
+                /api/* → DispatcherServlet1
+                /admin/* → DispatcherServlet2
+            Use Case:
+                Micro frontends
+                Modular apps
+                Separate admin/user modules
  2. HandlerMapping:
       Maps URL → Controller method
       Type                    	      Usage
@@ -53,6 +101,19 @@ Internal Working:
         Scans all controllers
         Stores mapping in memory
         Uses URL pattern matching
+    How Multiple HandlerMappings Work?  Yes, multiple HandlerMapping exist
+          Spring stores them in: List<HandlerMapping>
+          Execution Flow:
+              DispatcherServlet loops through all mappings
+              Calls:  getHandler(request)
+              First match wins ✔️
+              Order Priority
+                  Controlled by: @Order(1) or Ordered interface
+              Example:
+                  Mapping	                      Order
+                  RequestMappingHandlerMapping	0
+                  BeanNameUrlHandlerMapping	    2
+               Lower value = higher priority
 3. HandlerAdapter:
       Executes the mapped controller method
       Allows different controller types:
@@ -183,6 +244,25 @@ Filter (Servlet Level):
           void doFilter(ServletRequest req, ServletResponse res, FilterChain chain);
           void destroy();
       }
+  Filter Dispatch Types:
+      Filters support multiple dispatch types:
+        Type	        Meaning
+        REQUEST	      Normal request
+        FORWARD	      Internal forward
+        INCLUDE	      Include another resource
+        ASYNC        	Async processing
+        ERROR        	Error handling
+      Example Flow : REQUEST → FORWARD → ERROR
+      Filter may execute multiple times ❌
+      ✔ Control Dispatch Types
+        registration.setDispatcherTypes(REQUEST, ERROR);
+  How Multiple Filters Work?
+      Filters are chained - Filter1 → Filter2 → Filter3 → DispatcherServlet
+       Execution
+        Order defined by:
+              @Order
+              FilterRegistrationBean
+        Flow :Request → F1 → F2 → Controller → F2 → F1 → Response
   Important Filter Implementations (Spring + Servlet):
    1. OncePerRequestFilter:
         Executes only once per request
@@ -276,7 +356,14 @@ Interceptor (Spring Level):
         preHandle	        Before controller
         postHandle	      After controller
         afterCompletion  	After response
-
+  How Multiple Interceptors Work?
+       Spring stores: List<HandlerInterceptor>
+       Execution Order:
+          PreHandle: Interceptor1 → Interceptor2 → Controller
+          PostHandle: Controller → Interceptor2 → Interceptor1
+          AfterCompletion:Reverse order again
+          Order Control:registry.addInterceptor(new MyInterceptor()).order(1);
+      Interceptors follow: Chain of Responsibility Pattern
     Special Interceptor Classes:
        1. HandlerInterceptor (Most Used) - Full control over request lifecycle
        2. AsyncHandlerInterceptor -> Extends HandlerInterceptor
@@ -298,6 +385,24 @@ Interceptor (Spring Level):
     Type	                          Servlet	  Spring
     Runs before DispatcherServlet	  ✅	      ❌
     Access to Spring Beans	        ❌	      ✅
+Why Filter is Faster than Interceptor?
+      Reason	      Explanation
+      Level        	Runs before Spring
+      Overhead	    No Spring context
+      Simplicity	  Direct servlet execution
+  Interceptor Overhead
+      Bean resolution
+      Handler mapping
+      Reflection call
+   Conclusion:
+      👉 Filter = lightweight
+      👉 Interceptor = feature-rich
+ Why Interceptor Cannot Replace Filter?
+      Feature	                      Filter	Interceptor
+      Runs before DispatcherServlet	✅	    ❌
+      Modify request/response       raw	✅	Limited
+      Works without Spring	        ✅	    ❌
+      🚨 Example👉 CORS, Encoding: Must happen before Spring. So interceptor ❌ cannot replace
 
 Real-Time Mapping:
 Scenario	              Use
@@ -341,6 +446,7 @@ Interceptor (afterCompletion)
    ↓
 Response
 
+
 Real-Time Use Cases:
       Web applications (login, dashboard)
       REST APIs (microservices)
@@ -351,7 +457,7 @@ Performance Tips:
     Use @RestController for APIs
     Avoid heavy logic in controllers
     Use caching
-    Use async processing   
+    Use async processing 
 
  1. Why DispatcherServlet is needed?-> Centralized request handling → decouples components
  2. Difference: @Controller vs @RestController
