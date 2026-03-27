@@ -813,3 +813,117 @@ Key concepts:
   transient → skip fields
   serialVersionUID → version control
 👉 Used in: Caching (Redis, files) and Microservices communication
+
+
+Type Safety (Generics):
+    Ensures only correct type is allowed at compile time
+    🔹 Without Generics
+            List list = new ArrayList();
+            list.add("Java");
+            list.add(10); // allowed ❌
+    🔹 With Generics
+            List<String> list = new ArrayList<>();
+            list.add("Java");
+            // list.add(10); ❌ compile-time error
+    Benefit:
+        ✔ No ClassCastException
+        ✔ Compile-time safety
+
+   1. <T> Usage (Generics): A type parameter (placeholder)
+        class Box<T> {
+            T value;
+            void set(T value) {
+                this.value = value;
+            }
+            T get() {
+                return value;
+            }
+        }
+        🔹 Usage : Box<Integer> b = new Box<>(); b.set(10);
+        Symbol	    Meaning
+        T	        Type
+        E	        Element
+        K	        Key
+        V	        Value
+
+    2. Wildcards (? extends, ? super)
+        🔹 ? extends T (Upper Bound)- Accepts T or subclasses of T
+                    List<? extends Number> list;
+                    ✔ Read allowed
+                    ❌ Write not allowed    
+        🔹 ? super T (Lower Bound) - Accepts T or superclasses
+                    List<? super Integer> list;       
+                    ✔ Write allowed
+                    ⚠ Read returns Object             
+         PECS Principle:
+                Producer → extends
+                Consumer → super
+
+    3. Type Erasure -Generics are removed at runtime
+        🔹 Example
+            List<String> list = new ArrayList<>();
+            At runtime → becomes: List list = new ArrayList();
+         Implications - No generic info at runtime
+         Cannot do: if(obj instanceof List<String>) ❌
+         Why Java uses it? Backward compatibility with old Java versions
+
+ Built-in Annotations:
+    🔹 @Override:
+        @Override
+        public String toString() {
+            return "test";
+        }
+        ✔ Ensures method actually overrides parent method
+    
+    🔹 @Deprecated:
+        @Deprecated
+        void oldMethod() {}
+        ✔ Marks method as outdated
+    
+    🔹 @SuppressWarnings:
+        @SuppressWarnings("unchecked")
+        ✔ Ignore compiler warnings
+    
+     Custom Annotations:
+            @interface MyAnnotation {
+                String value();
+            }
+        🔹 With Metadata
+            import java.lang.annotation.*;
+            @Retention(RetentionPolicy.RUNTIME)
+            @Target(ElementType.METHOD)
+            @interface MyAnnotation {
+                String value();
+            }
+        🔹 Usage
+            @MyAnnotation("test")
+            public void myMethod() {}
+
+            Annotation	    Purpose
+            @Retention    	When available
+            @Target	        Where used
+            @Inherited	    Inherited by subclasses
+
+Reflection API:
+    Allows accessing class, methods, fields at runtime
+    🔹 Example:
+        Class<?> cls = Class.forName("Student"); 
+        Object obj = cls.getDeclaredConstructor().newInstance();
+        Method m = cls.getMethod("getName");
+        m.invoke(obj);
+    🔹 Access private fields:
+        Field f = cls.getDeclaredField("name");
+        f.setAccessible(true);
+        f.set(obj, "Java");
+    Uses:
+        Spring Framework
+        Hibernate
+        Dependency Injection
+        Testing frameworks
+   Advantages:
+    ✔ Dynamic behavior
+    ✔ Framework building
+  Disadvantages: 
+    ❌ Slower
+    ❌ Breaks encapsulation
+    ❌ Security issues
