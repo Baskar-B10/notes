@@ -1,0 +1,253 @@
+The Java Collections Framework (JCF) is a unified architecture to store, manipulate, and process groups of objects.
+It belongs to java.util package and provides interfaces, implementations (classes), and algorithms (methods).
+
+Core Hierarchy of Collections:
+      Iterable
+         ↓
+      Collection
+         ├── List
+         ├── Set
+         └── Queue
+              └── Deque
+Map (separate hierarchy, not part of Collection)
+
+Collection Interface:
+  Common Methods (available in all collections):
+    add(E e)
+    remove(Object o)
+    size()
+    isEmpty()
+    contains(Object o)
+    clear()
+    iterator()
+
+List Interface:
+    List is a child of Collection.
+    Key Characteristics:
+          Maintains insertion order
+          Allows duplicate elements
+          Supports index-based access
+          Allows null values
+   Main Implementations of List
+      🔹 1. ArrayList
+      🔹 2. LinkedList
+      🔹 3. Vector (Legacy)
+      🔹 4. Stack (extends Vector)
+   Common Methods in List
+        add(E e)
+        add(int index, E element)
+        get(int index)
+        set(int index, E element)
+        remove(int index)
+        remove(Object o)
+        size()
+        contains(Object o)
+        indexOf(Object o)
+        lastIndexOf(Object o)
+        clear()
+
+  1. ArrayList –
+    🔹 Structure:
+          Backed by dynamic array
+          transient Object[] elementData;
+    🔹 How It Works
+        Step 1: Initialization - ArrayList<Integer> list = new ArrayList<>(); Default capacity = 10
+        Step 2: Adding Elements - list.add(10); Stored in array index
+        Step 3: Resize (Growth Mechanism) - When capacity is full:
+                New Capacity = Old Capacity + (Old Capacity / 2)
+                             = 1.5x growth
+                              10 → 15 → 22 → 33 → ...
+    
+      Internally:  Arrays.copyOf()
+                  [10, 20, 30, null, null...]
+                           ↓
+                        add(40)
+                           ↓
+                  [10, 20, 30, 40, null...]
+
+    🔹 Time Complexity
+            Operation	    Time
+            get()	        O(1)
+            add()	        O(1) (amortized)
+            remove()	    O(n)
+            insert middle	O(n)
+
+ 2. LinkedList:
+    LinkedList implements: List, Deque, Queue. That means:
+      It works as List
+      Also works as Queue
+      Also works as Deque
+    Internal Working
+        Structure: Doubly Linked List
+        class Node {
+            E item;
+            Node next;
+            Node prev;
+        }
+        Representation: null <- [10] <-> [20] <-> [30] -> null
+    Key Operations:
+        Add:
+            list.add(10);
+            list.addFirst(5);
+            list.addLast(20);
+        Remove:
+            list.remove();
+            list.removeFirst();
+            list.removeLast();
+        Access:
+            list.get(1);
+  Internal Behavior:
+    Adding → link new node
+    Removing → update pointers
+    No shifting like ArrayList
+   Time Complexity:
+        Operation	    Time
+        add()	        O(1)
+        remove()	    O(1)
+        get()	        O(n)
+  
+  LinkedList can act as:Stack, Queue and Deque
+
+3.Vector
+🔹 Definition:
+      Legacy class
+      Same as ArrayList but thread-safe
+      Vector<Integer> v = new Vector<>();
+🔹 Internal Working:
+      Uses array
+      Automatically resizes
+      All methods are synchronized
+🔹 Key Methods:
+      add()
+      get()
+      remove()
+      size()
+🔹 Drawback: Slower due to synchronization
+
+4.Stack: 
+    follows LIFO (Last In First Out)
+    Push → Add element
+    Pop  → Remove last element
+    Peek → View top element
+    There are 3 main ways to use Stack:
+       1. Legacy Stack Class - Stack<Integer> stack = new Stack<>();
+       2. Deque (Recommended) - Deque<Integer> stack = new ArrayDeque<>();
+       3. LinkedList as Stack -  Deque<Integer> stack = new LinkedList<>();
+    
+  Stack Class (Legacy): public class Stack<E> extends Vector<E>
+                        It is synchronized (thread-safe)
+                        Slower due to locking
+          🔹 Methods:
+                  push(E item)
+                  pop()
+                  peek()
+                  isEmpty()
+                  search(Object o)
+
+                  Stack<Integer> s = new Stack<>();
+                  s.push(10);
+                  s.push(20);
+                  s.push(30);
+                  System.out.println(s.pop());  // 30
+                  System.out.println(s.peek()); // 20
+
+          Internal Working of Stack:  
+                  Since Stack extends Vector, internally: Uses Dynamic Array
+                            Object[] elementData;
+                    🔹 Push Operation:
+                            Before: [10, 20]
+                            push(30)
+                            After:  [10, 20, 30]
+                            Adds element at top (end of array)
+                    🔹 Pop Operation
+                            Before: [10, 20, 30]
+                            pop()
+                            After:  [10, 20]
+                            Removes last element
+                    🔹 Resize Mechanism - Same as ArrayList: New Capacity = Old + (Old / 2)
+                    🔹 Time Complexity
+                            Operation	  Time
+                            push()	    O(1)
+                            pop()	      O(1)
+                            peek()	    O(1)
+      Why Stack is NOT Recommended ❗
+      Problems:
+          Synchronized → slow
+          Legacy class
+          Extends Vector (bad design)
+    
+  Modern Stack (Using Deque) :
+    🔹 Best Practice:
+          Deque<Integer> stack = new ArrayDeque<>();
+    🔹 Methods Mapping:
+          Stack	    Deque
+          push()	  addFirst()
+          pop()	    removeFirst()
+          peek()	  peekFirst()
+    🔹 Example
+          Deque<Integer> stack = new ArrayDeque<>();
+          stack.push(10);
+          stack.push(20);    
+          System.out.println(stack.pop()); // 20
+    🔹 Internal Working (ArrayDeque) 
+          Uses Resizable Circular Array
+          
+          [ _, _, 10, 20, _ ]
+                  ↑ head
+          No shifting
+          Uses head/tail pointers
+
+    🔹 Why Faster?
+          No synchronization
+          Better memory usage
+          No legacy overhead
+
+Types of Stack (Conceptual)
+    🔹 1. Array-based Stack
+          Used in Stack, ArrayDeque
+          Fast access
+    🔹 2. Linked List Stack
+            class Node {
+                int data;
+                Node next;
+            }
+            Dynamic size
+            No resizing
+    🔹 3. Concurrent Stack
+            Thread-safe version Example: ConcurrentLinkedDeque
+  
+  Real-Time Usage of Stack
+    🔹 1. Function Call Stack (JVM) -> Stored in stack memory
+              main()
+                → methodA()
+                     → methodB()    
+    🔹 2. Expression Evaluation
+            Infix → Postfix
+            (2 + 3) * 4
+    🔹 3. Undo / Redo
+            Text editor
+            Browser history
+    🔹 4. Balanced Parentheses
+            if(ch == '(') push
+            if(ch == ')') pop
+    🔹 5. DFS (Depth First Search)
+              Graph traversal
+              Backtracking
+    🔹 6. Backtracking Problems
+              Maze solving
+              Recursion simulation
+    
+    1. Why remove is slow? Because elements are shifted
+    2. Is LinkedList a List or Queue?  BOTH ✅
+    3. Why ArrayList is faster than LinkedList? -> Direct index access (array)
+    4. How ArrayList grows? -> 1.5x resizing using Arrays.copyOf()
+    5. Why LinkedList uses more memory? -> Stores prev + next pointers
+    6. Which is better for insert in middle? -> LinkedList (no shifting)
+    7. Why Stack is not recommended? ->Legacy + synchronized → slow
+    8. Difference: Queue vs Deque?
+             Queue → one end
+             Deque → both ends
+    9. Best replacement for Stack? -> ArrayDeque
+    10. Why use Deque instead of Stack? -> Faster + non-legacy + no synchronization
+    11. Is Stack thread-safe? -> Yes (because Vector)
+    12.  Can LinkedList be used as Stack?  Yes. Deque<Integer> stack = new LinkedList<>();
