@@ -88,7 +88,81 @@ Core Concepts:
         Spring AOP works using proxy pattern
          This is the heart of AOP
 
-Internal Working (Step-by-Step):
+Proxy Creation (JDK vs CGLIB – Deep Dive):
+   Spring AOP is built on proxies, not direct method interception.
+   Core idea: Client → Proxy → Advice → Target Object
+   When does Spring create a proxy?
+      During bean initialization:Spring scans for @Aspect, @Transactional, etc.
+      If matched → wraps bean with proxy
+  🔹 1. JDK Dynamic Proxy (Interface-based):
+       Used when: Target class implements interface
+          public interface PaymentService {
+              void pay();
+          }
+        @Service
+        public class PaymentServiceImpl implements PaymentService {
+            public void pay() {
+                System.out.println("Paid");
+            }
+        }
+    Internal Working : Spring creates something like:
+        Proxy.newProxyInstance(
+            classLoader,
+            new Class[]{PaymentService.class},
+            invocationHandler
+        );
+    Execution Flow:
+          client.pay()
+             ↓
+          Proxy (InvocationHandler)
+             ↓
+          Before Advice
+             ↓
+          target.pay()
+             ↓
+          After Advice
+    Limitations:
+          Only works with interfaces
+          Cannot proxy class methods directly
+  🔹 2. CGLIB Proxy (Class-based):
+       Used when:
+        No interface present
+        OR forced via config
+          @Service
+          public class OrderService {
+              public void placeOrder() {
+                  System.out.println("Order placed");
+              }
+          }
+    Internal Working - CGLIB:
+        Creates subclass at runtime
+        Overrides methods
+        class OrderService$$EnhancerBySpring extends OrderService {
+            @Override
+            public void placeOrder() {
+                // before advice
+                super.placeOrder();
+                // after advice
+            }
+        }
+    Flow : Client → Proxy(Subclass) → Advice → Original Method
+     Limitations:
+        ❌ Cannot proxy final class
+        ❌ Cannot override final methods
+        Slightly heavier than JDK proxy
+
+  JDK vs CGLIB:
+      Feature	              JDK Proxy	      CGLIB
+      Requires interface	  ✅ Yes	        ❌ No
+      Works on class	      ❌ No          	✅ Yes
+      Uses	                Reflection	    Bytecode generation
+      Performance          	Faster (simple)	Slightly heavier
+      Final methods        	❌ No	          ❌ No
+
+  Spring Boot Default Behavior-> Spring Boot uses CGLIB by default
+  spring.aop.proxy-target-class=true
+
+Internal Working of AOP(Step-by-Step):
     @Service
     public class PaymentService {
         public void pay() {
@@ -117,15 +191,15 @@ What Spring Does Internally
        ↓
     Return
     
-Complete Example
-🔹 Service Class
+Complete Example:
+🔹 Service Class:
       @Service
       public class UserService {
           public String getUser() {
               return "User data";
           }
       }
-🔹 Aspect Class
+🔹 Aspect Class:
         @Aspect
         @Component
         public class LoggingAspect {
@@ -140,7 +214,7 @@ Complete Example
                 System.out.println("Returned: " + result);
             }
         }
-🔹 Output
+🔹 Output:
     Before: getUser
     Returned: User data
     
@@ -201,6 +275,47 @@ Level	        Method	        Servlet	          Spring MVC
 Use case	    Business logic	Request/Response	Controller
 Example	      @Transactional	Authentication	  Logging
 
+How @Transactional Works Internally (REAL AOP):
+  High-Level Flow:
+      Client
+        ↓
+      Proxy (TransactionInterceptor)
+        ↓
+      Start Transaction
+        ↓
+      Business Method
+        ↓
+      Commit / Rollback
+🔹 Step-by-Step Internal Working:
+      Step 1: Annotation Detection - Spring scans:
+            @Transactional
+            public void transfer() {}
+      Step 2: Proxy Creation - Spring wraps bean with proxy containing:  TransactionInterceptor
+      Step 3: Method Call Intercepted-   When method is called:  proxy.transfer()
+      Step 4: Transaction Starts-  Internally: transactionManager.begin();
+      Step 5: Execute Business Logic -  target.transfer();
+      Step 6: Commit or Rollback
+              if (success) {
+                  commit();
+              } else {
+                  rollback();
+              }
+Real Internal Classes (Advanced):
+      TransactionInterceptor
+      PlatformTransactionManager
+      TransactionAspectSupport
+Simplified Internal Code:
+      public Object invoke(MethodInvocation invocation) throws Throwable {
+          TransactionStatus status = txManager.getTransaction();
+          try {
+              Object result = invocation.proceed(); // actual method
+              txManager.commit(status);
+              return result;
+          } catch (Exception e) {
+              txManager.rollback(status);
+              throw e;
+          }
+      }
 
 1: Difference between JoinPoint and ProceedingJoinPoint?
       JoinPoint      	ProceedingJoinPoint
