@@ -417,3 +417,153 @@ AOP + Testing Combined:
                 service.getUser(1); // triggers logging aspect
             }
         }
+
+
+1. JUnit (Testing Framework):
+     JUnit is used to write and run tests in Java.
+      🔹 JUnit 5 Architecture:
+            JUnit Platform → runs tests
+            JUnit Jupiter → API (what we use)
+            JUnit Vintage → supports old JUnit 4
+      🔹 Basic Example:
+          import org.junit.jupiter.api.*;
+          class CalculatorTest {
+              @Test
+              void testAdd() {
+                  int result = 2 + 3;
+                  Assertions.assertEquals(5, result);
+              }
+          }
+      🔹 Important Annotations
+              Annotation	          Purpose
+              @Test	                Test method
+              @BeforeEach	          Before each test
+              @AfterEach	          After each test
+              @BeforeAll	          Before all tests (static)
+              @AfterAll	            After all tests
+              @DisplayName	        Custom name
+              @Disabled	            Skip test
+              @Nested              	Group tests
+              @ParameterizedTest	  Run multiple inputs
+      🔹 Assertions:
+            Assertions.assertEquals(10, value);
+            Assertions.assertTrue(flag);
+            Assertions.assertThrows(Exception.class, () -> method());
+      🔹 Parameterized Test:
+              @ParameterizedTest
+              @ValueSource(ints = {1, 2, 3})
+              void testNumbers(int num) {
+                  assertTrue(num > 0);
+              }
+
+2. Mockito (Mocking Framework):
+    Mock dependencies (fake objects) to isolate unit tests
+    🔹 Why Mockito?
+       Example:  UserService → UserRepository → DB
+         We don’t want DB in unit test → mock repository  
+    🔹 Basic Example:
+        @ExtendWith(MockitoExtension.class)
+        class UserServiceTest {
+            @Mock
+            UserRepository repo;
+            @InjectMocks
+            UserService service;
+            @Test
+            void testGetUser() {
+                when(repo.findById(1)).thenReturn(Optional.of(new User()));
+                User user = service.getUser(1);
+                assertNotNull(user);
+            }
+        }
+    🔹 Core Annotations:
+          Annotation	                          Purpose
+          @Mock	                                Create mock object
+          @InjectMocks	                        Inject mocks into class
+          @Spy	                                Partial mock
+          @Captor	                              Capture arguments
+          @ExtendWith(MockitoExtension.class)	  Enable Mockito
+    🔹 Common Methods:
+        1. Stubbing -when(repo.findById(1)).thenReturn(user);
+        2. Verify - verify(repo).findById(1);
+        3. Argument Matchers -  when(repo.findById(anyInt())).thenReturn(user);
+        4. Exception Testing - when(repo.save(any())).thenThrow(new RuntimeException());
+    
+    🔹 @Spy (Partial Mock):
+          @Spy
+          List<String> list = new ArrayList<>();
+          @Test
+          void testSpy() {
+              list.add("A");
+              verify(list).add("A");
+          }
+    🔹 ArgumentCaptor:
+          @Captor
+          ArgumentCaptor<User> captor;
+          verify(repo).save(captor.capture());
+          User saved = captor.getValue();
+
+ 3. PowerMockito (Advanced Mocking):
+     PowerMockito is used when Mockito cannot handle:
+    🔹 Why PowerMockito?
+         Mockito CANNOT mock:
+            static methods ❌
+            final classes ❌ (older versions)
+            private methods ❌
+            constructors ❌
+        PowerMockito solves this
+    🔹 Example: Static Method Mock
+            @RunWith(PowerMockRunner.class)
+            @PrepareForTest(Utility.class)
+            public class TestClass {
+                @Test
+                public void testStatic() {
+                    PowerMockito.mockStatic(Utility.class);
+                    when(Utility.getValue()).thenReturn("Mocked");
+                    assertEquals("Mocked", Utility.getValue());
+                }
+            }
+    🔹 Example: Constructor Mock
+              PowerMockito.whenNew(User.class)
+                  .withAnyArguments()
+                  .thenReturn(mockUser);
+    🔹 Example: Private Method Mock
+          PowerMockito.spy(service);
+          PowerMockito.doReturn("mock")
+              .when(service, "privateMethod");
+    Important Note:
+       PowerMockito is mostly deprecated / discouraged now
+       Modern alternative:  Mockito 3+ supports static mocking:
+            try (MockedStatic<Utility> mocked = mockStatic(Utility.class)) {
+                mocked.when(Utility::getValue).thenReturn("Mock");
+            }
+
+JUnit + Mockito + Spring Boot:
+    🔹 Spring Boot Test Example
+        @SpringBootTest
+        class UserServiceTest {
+            @MockBean
+            UserRepository repo;
+            @Autowired
+            UserService service;
+            @Test
+            void test() {
+                when(repo.findById(1)).thenReturn(Optional.of(new User()));
+                assertNotNull(service.getUser(1));
+            }
+        }
+
+
+1. Difference: @Mock vs @MockBean
+      @Mock                	@MockBean
+      Mockito	              Spring Boot
+      Unit test	            Integration test
+      No Spring context	    Replaces bean in context
+2. @Spy vs @Mock
+      @Mock	        @Spy
+      Fully fake	  Real + partial mock
+3. when() vs doReturn()
+      when(obj.method()).thenReturn(val);   // normal
+      doReturn(val).when(obj).method();     // for spy
+4. Why Mockito needs @ExtendWith? -> To initialize mocks automatically
+5. Can Mockito mock private methods? ❌ No (use PowerMockito)
+6. Can Mockito mock static methods? ✅ Yes (Mockito 3+)
