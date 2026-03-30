@@ -625,3 +625,99 @@ To check Namespaces:
     Via Portal: Go to your AKS Cluster > Kubernetes resources > Namespaces.
     Via Terminal: Run kubectl get ns.
     You will see defaults like default, kube-system, and likely your own (e.g., tif-dev).
+
+Scaling in AKS is a multi-layered process. 
+It ranges from adding more "workers" (Nodes) to creating more "copies" of your app (Pods). 
+KEDA is the modern way to bridge these layers using real-world events.
+1. The Three Layers of Scaling
+To have a truly scalable microservice, you need to coordinate three different systems:
+Scale Layer        Name                                What it does
+Application        HPA (Horizontal Pod Autoscaler)    Adds more Pods when CPU/Memory is high.
+Infrastructure     Cluster Autoscaler                 Adds more Nodes (VMs) when Pods have no place to sit.
+Event-Driven       KEDA                               "Scales Pods based on Events (e.g., 500 messages in a Queue)."
+
+KEDA (Kubernetes Event-Driven Autoscaling) 
+  IT is an open-source component that lets you scale your Java containers based on external triggers like Azure Service Bus, Kafka, or RabbitMQ.
+  Why use it? 
+      Standard HPA only looks at CPU/Memory.
+      But if your Service Bus has 10,000 pending messages, your CPU might still be low. 
+      KEDA "sees" those messages and tells Kubernetes to scale up before the CPU gets hot.
+  Scale to Zero: 
+      KEDA can shut down all your pods if there is no work to do, saving you money. 
+      When a new message arrives, it "wakes up" the pods.
+
+How to Implement Scaling
+  A. Enable Cluster Autoscaler (Infrastructure)
+      You can do this via Ansible or the Azure CLI when updating your node pool. This ensures that if you scale to 100 pods, Azure adds the VMs to handle them.
+      az aks nodepool update \
+        --resource-group <rg-name> \
+        --cluster-name <cluster-name> \
+        --name <pool-name> \
+        --enable-cluster-autoscaler \
+        --min-count 1 --max-count 10
+  B. Implement KEDA (Application)
+      Install the KEDA Add-on: You can enable it directly on your AKS cluster:
+      az aks update -g <rg> -n <cluster> --enable-keda
+      Create a ScaledObject: This tells KEDA what to watch.
+      apiVersion: keda.sh/v1alpha1
+      kind: ScaledObject
+      metadata:
+        name: servicebus-scaler
+      spec:
+        scaleTargetRef:
+          name: my-java-app-deployment
+        triggers:
+        - type: azure-servicebus
+          metadata:
+            queueName: orders-queue
+            messageCount: "5" # Scale up for every 5 messages
+            connectionFromEnv: SERVICEBUS_CONNECTION_STRING
+
+How to Verify Scaling in Azure
+    Method 1: The Azure Portal (Visual)
+          Go to your AKS Cluster > Settings > Node pools.
+          Look for the Autoscale column. It should say "Enabled."
+          Under Monitoring, click Insights. You can see a chart of "Node Count" and "Pod Count" over time. 
+          If the lines go up during a load test, scaling is working.
+    Method 2: The Command Line (Real-time)
+        Run these commands while pushing messages into your queue: 
+        Watch Pods: kubectl get pods -w (You should see new pods status change to ContainerCreating).
+        Watch KEDA: kubectl get scaledobject (Check the READY and ACTIVE columns).
+        Check Node Events: kubectl get events --sort-by=.metadata.creationTimestamp (Look for TriggeredScaleUp from the cluster-autoscaler).
+
+Vertical Pod Autoscaler (VPA):
+    The VPA is a Kubernetes service that automatically sets the Resource Requests and Limits for your Java containers.
+    The Problem it Solves:
+        Developers often guess how much RAM a Java app needs. 
+        If you guess too low, you get OutOfMemory errors. 
+        If you guess too high, you waste money.
+    How it works: 
+        VPA watches your app's actual usage over time. 
+        If it sees your Java app consistently using 2GB of RAM but you only requested 1GB, it will restart the pod with a new 2GB limit.
+You define a VerticalPodAutoscaler object in the same namespace as your microservice:
+      apiVersion: autoscaling.k8s.io/v1
+      kind: VerticalPodAutoscaler
+      metadata:
+        name: java-app-vpa
+      spec:
+        targetRef:
+          apiVersion: "apps/v1"
+          kind: Deployment
+          name: my-java-app
+        updatePolicy:
+          updateMode: "Auto" # Or "Initial" to only set values at startup
+Vertical Node Scaling (Resizing the "Hardware")
+    Unlike Pods, you cannot "resize" a Virtual Machine while it is running. 
+    If your microservice requires a massive VM (e.g., moving from 8GB RAM to 64GB RAM), you have to change the Node Pool.
+How to do it: 
+      1. Create a New Node Pool with the larger VM size (SKU) using Ansible or Azure CLI.
+      2. Taint the old node pool so no new pods go there.
+      3. Drain the old nodes to move your Java apps to the new, larger nodes.
+      4. Delete the old node pool.
+
+Feature	    Vertical Scaling	                                                  Horizontal Scaling (HPA/KEDA)
+Best For	  Legacy apps that aren't "Cloud Native" or heavy Java Monoliths.     Distributed microservices and stateless APIs.
+Downtime	  Requires a Restart to change Pod limits.	                          Zero Downtime (new pods are added next to old ones).
+Limit	      Capped by the size of the largest VM in Azure.	                    Virtually unlimited (just keep adding more nodes).
+Risk	      High (Single point of failure gets bigger).	                        Low (Risk is spread across many small pods).
+
