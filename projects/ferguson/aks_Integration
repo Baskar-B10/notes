@@ -351,51 +351,75 @@ Management    High (You manage Nodes/Pods)          Zero (Azure manages everythi
             Connection Check: Under Settings, click Connection String.
             Crucial: Cosmos DB for Mongo often requires retrywrites=false and SSL to be enabled in your Java connection string.
 
-Gemini said
-In a microservices architecture, you will likely encounter several other "supporting" components. Here is how they work and how to verify them.
+Integrating Java microservices with secrets and configurations in AKS involves a "handshake" between Azure's infrastructure and the Kubernetes environment.
+When you add Ansible to the mix, it acts as the glue that pushes these values into the right places during deployment.
+Here is the architecture for managing these properties:
+1. Integrating Java with Key Vault (Secrets):
+    The most secure way to handle secrets (like DB passwords or API keys) in AKS is to use the Azure Key Vault Provider for Secrets Store CSI Driver.
+    The Workflow: 
+          1.  Secrets are stored in Azure Key Vault.
+          2.  The CSI Driver "mounts" these secrets as files inside your Java Pod or syncs them into Kubernetes Secrets.
+          3.  Your Java app reads them as environment variables or properties.
+    If you use the spring-cloud-azure-starter-keyvault-secrets dependency, Spring can pull secrets directly at startup using Managed Identity
+    YAML
+    # application.yml
+    spring:
+      cloud:
+        azure:
+          keyvault:
+            secret:
+              property-sources:
+                - endpoint: https://your-vault-name.vault.azure.net/
+2. Integrating Java with App Configuration (Non-Secrets):
+    For non-sensitive settings (URLs, timeouts, feature flags), use Azure App Configuration.
+    Java Side: Use the spring-cloud-azure-starter-appconfiguration library. 
+               It allows you to refresh configurations in real-time without restarting your pods.
+    AKS Side: You can use the Azure App Configuration Provider for Kubernetes to automatically sync these settings into Kubernetes ConfigMaps.
+3. How Ansible Properties are used in Orchestration:
+  In your stack, Ansible acts as the Pre-processor. It takes static variables and injects them into the Kubernetes manifests before they are applied to the cluster.
+  A. The Ansible Template Strategy:
+      Instead of hardcoding values in your deploy-from-project.yml, you use Jinja2 placeholders.
+      Ansible Variable (vars/main.yml): db_name: "orders_db"
+      Kubernetes Template (deployment.j2): 
+            YAML
+            env:
+              - name: DATABASE_NAME
+                value: "{{ db_name }}"
+      The Orchestration: When you run the playbook, Ansible replaces {{ db_name }} with orders_db and then runs kubectl apply.
+  B. Managing Secret References:
+      Ansible should not hold the actual secret. 
+      Instead, it should configure the SecretProviderClass in Kubernetes to point to the correct Key Vault.
+      YAML
+      - name: Create Secret Provider Class
+        kubernetes.core.k8s:
+          definition:
+            apiVersion: secrets-store.csi.x-k8s.io/v1
+            kind: SecretProviderClass
+            metadata:
+              name: "{{ project_name }}-secrets"
+            spec:
+              parameters:
+                keyvaultName: "{{ azure_kv_name }}"
+                objects: |
+                  array:
+                    - |
+                      objectName: db-password
+                      objectType: secret
+4. How Properties Flow into Java:
+    The final integration happens inside the Java Container. 
+    There are two main ways the properties from Azure/Ansible reach your code: 
+    Environment Variables (Most Common): 
+              Ansible sets the env block in the Deployment YAML. 
+              Java reads these via @Value("${DATABASE_NAME}") or System.getenv("DATABASE_NAME").
+    Mounted Volumes: 
+              For complex configurations, Ansible can mount a ConfigMap as a file (e.g., /config/application.properties). 
+              Spring Boot can be told to look for this file at startup:
+              java -jar app.jar --spring.config.location=file:/config/application.properties
 
-1. Azure Key Vault (Secrets & Keys)
-Instead of putting passwords in your Ansible YAML or Git, you store them in Key Vault.
-
-What it is: A secure "safe" for secrets (passwords), keys (encryption), and certificates.
-
-How to Verify in Portal: * Go to Key Vaults > Select your Vault > Secrets.
-
-Tip: If the value looks cut off (common with long Mongo connection strings), use the Azure CLI to see the full value:
-az keyvault secret show --name <secret-name> --vault-name <vault-name> --query value -o tsv
-
-Check Permissions: Under Access configuration, ensure your app's Managed Identity has "Key Vault Secrets User" (RBAC) or "Get/List" (Access Policy).
-
-2. Azure App Configuration
-While Key Vault stores secrets, App Configuration stores settings (like feature flags or API URLs).
-
-What it is: A central place to manage non-sensitive settings across all microservices.
-
-How it connects: Often, a value in App Configuration is just a "Reference" to a secret in Key Vault.
-
-How to Verify: Go to App Configuration > Configuration Explorer. Look for the "Key Vault Reference" icon.
-
-3. Database Connections (SQL & Mongo)
-Your Java app needs to talk to a data store. In Azure, these are typically:
-
-Azure SQL (Relational)
-How to Verify: 1. Go to SQL databases > Select your DB.
-2. Click Query editor (preview) on the left. Sign in with your credentials to see if the database is actually "alive" and queryable.
-3. Check Networking: Ensure "Allow Azure services and resources to access this server" is set to Yes, otherwise your AKS pods can't reach it.
-
-Azure Cosmos DB (Mongo API)
-How to Verify:
-
-Go to Azure Cosmos DB > Select your account.
-
-Click Data Explorer to browse your collections.
-
-Connection Check: Under Settings, click Connection String.
-
-Crucial: Cosmos DB for Mongo often requires retrywrites=false and SSL to be enabled in your Java connection string.
-
-4. How to "Test" Connections from your App
-If your app is failing, you can check if it can even "see" these services from inside the cluster:
+Source          Management Tool      Destination in AKS                Access in Java 
+Secrets         Azure Key Vault      Kubernetes Secret / CSI Volume    @Value or Environment Var
+App Settings    App Configuration    ConfigMaps                        Spring Cloud Azure Starter
+Build Settings  Ansible YAML         Deployment Manifest               Injected at Deploy-time
 
 Component	Port to Test (via nc or telnet)
 SQL Database	-> yourserver.database.windows.net 1443
@@ -406,7 +430,6 @@ Secrets	 -> Expiration Date	  -> Key Vault > Secrets
 SQL	     -> Firewall Rules	    -> SQL Server > Networking
 Mongo	    -> Throughput (RU/s)	 -> Cosmos DB > Metrics
 App Config -> 	Environment Labels	 -> App Config > Configuration Explorer
-
 
 In the Azure ecosystem, "Managed Identity" is a specific type of Workload Identity.
 While Managed Identity is the favorite for Azure-native services (like your AKS cluster), 
@@ -433,7 +456,6 @@ Here is the breakdown of the other identities you should know:
     This represents you—the developer. When you run az login on your local Linux machine, you are using a User Identity.
     Local Development: Your Java code's DefaultAzureCredential will automatically use your logged-in user identity if it can't find a Managed Identity. 
     This allows you to test the same code on your laptop that runs in the cloud.
-
 
 Identity Type          Managed by    Uses Secrets?    Best For
 System-Assigned MI    Azure          No                One-to-one mapping (e.g., one VM).
