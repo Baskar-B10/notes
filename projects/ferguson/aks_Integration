@@ -331,7 +331,7 @@ Management    High (You manage Nodes/Pods)          Zero (Azure manages everythi
           az keyvault secret show --name <secret-name> --vault-name <vault-name> --query value -o tsv
       Check Permissions: Under Access configuration, ensure your app's Managed Identity has "Key Vault Secrets User" (RBAC) or "Get/List" (Access Policy).
 
-2. Azure App Configuration
+2. Azure App Configuration - no access for me
       While Key Vault stores secrets, App Configuration stores settings (like feature flags or API URLs).
       What it is: A central place to manage non-sensitive settings across all microservices.
       How it connects: Often, a value in App Configuration is just a "Reference" to a secret in Key Vault.   
@@ -344,9 +344,66 @@ Management    High (You manage Nodes/Pods)          Zero (Azure manages everythi
             1. Go to SQL databases > Select your DB.
             2. Click Query editor (preview) on the left. Sign in with your credentials to see if the database is actually "alive" and queryable.
             3. Check Networking: Ensure "Allow Azure services and resources to access this server" is set to Yes, otherwise your AKS pods can't reach it.
-    Azure Cosmos DB (Mongo API)
+    Azure Cosmos DB (Mongo API) - No account 
         How to Verify:
             Go to Azure Cosmos DB > Select your account.
             Click Data Explorer to browse your collections.
             Connection Check: Under Settings, click Connection String.
             Crucial: Cosmos DB for Mongo often requires retrywrites=false and SSL to be enabled in your Java connection string.
+
+Gemini said
+In a microservices architecture, you will likely encounter several other "supporting" components. Here is how they work and how to verify them.
+
+1. Azure Key Vault (Secrets & Keys)
+Instead of putting passwords in your Ansible YAML or Git, you store them in Key Vault.
+
+What it is: A secure "safe" for secrets (passwords), keys (encryption), and certificates.
+
+How to Verify in Portal: * Go to Key Vaults > Select your Vault > Secrets.
+
+Tip: If the value looks cut off (common with long Mongo connection strings), use the Azure CLI to see the full value:
+az keyvault secret show --name <secret-name> --vault-name <vault-name> --query value -o tsv
+
+Check Permissions: Under Access configuration, ensure your app's Managed Identity has "Key Vault Secrets User" (RBAC) or "Get/List" (Access Policy).
+
+2. Azure App Configuration
+While Key Vault stores secrets, App Configuration stores settings (like feature flags or API URLs).
+
+What it is: A central place to manage non-sensitive settings across all microservices.
+
+How it connects: Often, a value in App Configuration is just a "Reference" to a secret in Key Vault.
+
+How to Verify: Go to App Configuration > Configuration Explorer. Look for the "Key Vault Reference" icon.
+
+3. Database Connections (SQL & Mongo)
+Your Java app needs to talk to a data store. In Azure, these are typically:
+
+Azure SQL (Relational)
+How to Verify: 1. Go to SQL databases > Select your DB.
+2. Click Query editor (preview) on the left. Sign in with your credentials to see if the database is actually "alive" and queryable.
+3. Check Networking: Ensure "Allow Azure services and resources to access this server" is set to Yes, otherwise your AKS pods can't reach it.
+
+Azure Cosmos DB (Mongo API)
+How to Verify:
+
+Go to Azure Cosmos DB > Select your account.
+
+Click Data Explorer to browse your collections.
+
+Connection Check: Under Settings, click Connection String.
+
+Crucial: Cosmos DB for Mongo often requires retrywrites=false and SSL to be enabled in your Java connection string.
+
+4. How to "Test" Connections from your App
+If your app is failing, you can check if it can even "see" these services from inside the cluster:
+
+Component	Port to Test (via nc or telnet)
+SQL Database	-> yourserver.database.windows.net 1443
+Cosmos (Mongo) -> 	youraccount.mongo.cosmos.azure.com 10255
+Key Vault	 ->yourvault.vault.azure.net 443
+Need to check :
+Secrets	 -> Expiration Date	  -> Key Vault > Secrets
+SQL	     -> Firewall Rules	    -> SQL Server > Networking
+Mongo	    -> Throughput (RU/s)	 -> Cosmos DB > Metrics
+App Config -> 	Environment Labels	 -> App Config > Configuration Explorer
+
