@@ -469,3 +469,52 @@ How to Check These in the Azure Portal:
                             Then look under "Enterprise Applications" to see the actual "Instance" that has the permissions.
     For Permissions: On any resource (like your Service Bus), go to Access Control (IAM) and look for the names of these identities.
 
+1. The Foundation: VNet & Subnet
+    A VNet (Virtual Network) is your private "Gated Community" in Azure. It isolates your resources from the rest of the internet.
+    VNet: The entire boundary of your network (e.g., 10.0.0.0/16).
+    Subnet: A smaller "Neighborhood" inside the VNet (e.g., 10.0.1.0/24).
+    In AKS: 
+        Your Nodes (the VMs) live in a specific subnet. 
+        Depending on your configuration (Azure CNI), your Pods might also take IP addresses from this same subnet.
+2. The Workforce: Node Pools
+    A Node Pool is a group of identical virtual machines that run your Kubernetes workloads. 
+    System Node Pool: The "Utility Workers." 
+        This pool hosts critical system services (like DNS and metrics) that keep the cluster alive. 
+        You usually don't put your own apps here.
+    User Node Pool: The "Business District."
+        This is where your Java microservices run. 
+        You can have different pools for different needs (e.g., a GPU Pool for AI or a High-Memory Pool for heavy databases).
+
+Term                          What it is                                    Why it matters
+CIDR                          The IP address range format (e.g., /24).      Determines how many "addresses" (Nodes/Pods) you can fit in your subnet.
+NSG(Network Security Group)   A "Security Guard" at the subnet gate.        It contains rules (Allow/Deny) that control which traffic can reach your nodes.
+Private Endpoint              A "Secret Entrance."                          Lets your AKS cluster talk to services like SQL or Key Vault over a private IP, never touching the public internet.
+Azure CNI vs Overlay          The "Plumbing" model.                         CNI: Every Pod gets a real VNet IP. Overlay: Pods get private internal IPs, saving VNet space.
+
+Where is this used in your workflow?
+  When you run your Ansible playbooks, you are often defining these very things:
+  VNet/Subnet: Your Ansible code checks if the subnet exists before deploying the cluster.
+  Node Pool Sizing: You specify in your YAML how many nodes (e.g., node_count: 3) should be in your userpool.
+  NSG Rules: Ansible can automate opening Port 443 so your microservice is reachable.
+
+1. The Infrastructure Layer (VNet & Subnet)
+      This is the "ground" your cluster sits on.
+      Where to find it: Search for Virtual Networks in the top search bar.
+      How to check: 
+          1. Select your VNet (e.g., my-vnet).
+          2. Click Subnets on the left menu.
+          3. Look for the subnet assigned to AKS. You can see the Available IP addresses here—if this number is low, your cluster won't be able to scale.
+          4. Click Connected devices to see the actual Network Interfaces (NICs) of your cluster nodes.
+2. The Compute Layer (Cluster, Node Pools & Nodes)
+      This is the "hardware" managing your containers.
+      Where to find it: Search for Kubernetes services.
+      How to check Node Pools: 
+          1. Select your AKS cluster.
+          2. Under Settings, click Node pools.
+          3. Here you see the "System" and "User" pools, their status, and the VM size (e.g., Standard_DS2_v2).
+      How to check individual Nodes:
+          Inside the cluster menu, look under Kubernetes resources and click Nodes.
+          This shows you the health, CPU usage, and Memory pressure of each physical VM in the pool.
+3. The Workload Layer (Deployments, Pods & Services)
+      These are the "Logical" items inside Kubernetes. Historically, you had to use the command line (kubectl) for this, but the Azure Portal now has a built-in view.
+      Where to find it: Inside your AKS Cluster page, look for the Kubernetes resources section on the left sidebar.
