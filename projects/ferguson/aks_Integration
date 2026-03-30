@@ -721,3 +721,92 @@ Downtime	  Requires a Restart to change Pod limits.	                          Ze
 Limit	      Capped by the size of the largest VM in Azure.	                    Virtually unlimited (just keep adding more nodes).
 Risk	      High (Single point of failure gets bigger).	                        Low (Risk is spread across many small pods).
 
+
+- artifact_id: sbk8-poc
+  version: snapshot
+  #replicas: 2
+  keda:
+    minReplicaCount: 1
+    maxReplicaCount: 5
+    pollingInterval: 30
+    cooldownPeriod: 10
+    stabilizationWindowSeconds: 30
+    triggers:
+    - type: azure-servicebus
+      metadata:
+        queueName: "keda-poc_student_q_01"
+        messageCount: "1000"
+      authenticationRef:
+        name: "sbk8-poc-queue"
+    - type: azure-servicebus
+      metadata:
+        topicName: "keda-poc_student_t_01"
+        subscriptionName: "sbk8-poc"
+        messageCount: "1000"
+      authenticationRef:
+        name: "sbk8-poc-topic"
+  properties:
+  - name: "spring.data.mongodb.uri"
+    mongo_uri:
+      instance: rti
+      min_conn: 1
+      max_conn: 5
+  - name: "mongo.clusterrti.readwrite.database"
+    value: "eventMessages"
+  - name: "mongo.sbk8pocstudents.readwrite.collection"
+    value: "sbk8pocStudents"
+  - name: "log4j.mongo.write.uri"
+    mongo_uri:
+      instance: log
+      min_conn: 1
+      max_conn: 5
+  - name: "log4j.mongo.write.enable"
+    value: "false"
+  - name: "log4j.mongo.write.enable.route.log"
+    value: "false"
+  - name: "log4j.mongo.write.level"
+    value: "DEBUG"
+  - name: "log4j.mongo.write.database"
+    value: "tifLogging"
+  - name: "log4j.mongo.write.collection"
+    value: "logAKS"
+  - name: "azsb.sbk8pocstudents.read.topic.subscription"
+    value: "sbk8-poc"
+  service_bus_props:
+  - name: "azsb.sbk8pocstudents.read.queue.endpoint"
+    queue: "keda-poc_student_q_01"
+    access: subscriber
+  - name: "azsb.sbk8pocstudents.write.queue.endpoint"
+    queue: "keda-poc_student_q_01"
+    access: publisher
+  - name: "azsb.sbk8pocstudents.read.topic.endpoint"
+    topic: "keda-poc_student_t_01"
+    access: subscriber
+  - name: "azsb.sbk8pocstudents.write.topic.endpoint"
+    topic: "keda-poc_student_t_01"
+    access: publisher
+This YAML snippet is a high-level configuration (likely used as input for an Ansible Role or a Helm Chart) that defines how your Java microservice (sbk8-poc) should behave in AKS.
+
+It covers three main areas: Scaling (KEDA), Database (MongoDB), and Messaging (Service Bus). Here is the breakdown of what this configuration is doing:
+
+1. KEDA Autoscaling (Event-Driven)
+    Instead of scaling based on CPU, this app scales based on the number of messages waiting in Azure Service Bus.
+    Min/Max Replicas: It will always keep at least 1 pod running and can scale up to 5 pods. 
+    Threshold (messageCount: 1000): KEDA will start adding more pods only when there are more than 1000 messages in the queue or topic.
+    Polling & Stabilization: It checks the Service Bus every 30 seconds. If the messages disappear, it waits 30 seconds (Stabilization Window) before deciding to scale down, preventing "flapping" (constant starting/stopping of pods).
+    Triggers: It monitors both a Queue (keda-poc_student_q_01) and a Topic Subscription (keda-poc_student_t_01).
+
+2. MongoDB Properties
+    The properties section defines how the Java Spring Boot app connects to Mongo.
+    Dual Instances: The app connects to two different Mongo instances:
+    rti: For business data (eventMessages database).
+    log: Specifically for log4j logging (currently disabled via value: "false").
+    Connection Pooling: It restricts the Java app to between 1 and 5 connections per instance. This is a "Vertical" constraint to ensure the app doesn't overwhelm the Database.
+    Dynamic URI: The mongo_uri tag suggests that your Ansible playbook will look up a secret (likely from Key Vault) to build the full connection string at deploy time.
+
+3. Service Bus Integration
+    This section maps the physical Azure resources to the internal Java property names.
+    Subscriber vs. Publisher: * The app is configured to Read (Subscriber) and Write (Publisher) to the same queue/topic.
+    Subscriber: Uses the sbk8-poc subscription for the topic.
+    Managed Identity Hint: The authenticationRef in the KEDA section points to a TriggerAuthentication object.
+        This confirms you are likely using Managed Identity (Workload Identity) to authenticate, as there are no "Shared Access Keys" visible here.
