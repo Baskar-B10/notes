@@ -822,6 +822,44 @@ Content	      Stack traces, DB queries, Business logic.	  Container start/stop e
 Storage	      Typically sent to stdout or a file.	        Stored as JSON files on the Node's disk.
 Access	      Logging libraries (Log4j, Zap).	            kubectl logs command.
 
+1. Typical Application Log (Standard)
+2026-03-30 14:22:01.452  INFO 1 --- [main] c.e.demo.DemoApplication : Starting DemoApplication...
+2026-03-30 14:22:03.121  INFO 1 --- [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8080 (http)
+2026-03-30 14:22:05.884  INFO 1 --- [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-03-30 14:25:10.012  INFO 1 --- [nio-8080-exec-2] c.e.demo.controller.UserController      : Fetching details for User ID: 505
+2. Error Log (Stack Trace)
+2026-03-30 14:26:45.110 ERROR 1 --- [nio-8080-exec-3] o.a.c.c.C.[Tomcat].[localhost].[/]       : Servlet.service() for servlet [dispatcherServlet] threw exception
+java.lang.NullPointerException: Cannot invoke "String.toLowerCase()" because "username" is null
+    at com.example.demo.service.UserService.validate(UserService.java:42)
+    at com.example.demo.controller.UserController.login(UserController.java:18)
+    ... 24 more
+3. Kubernetes System Error (Pod Level)
+sh: can't open 'start-app.sh': No such file or directory
+# OR
+Error: Could not find or load main class com.example.Main
+Caused by: java.lang.ClassNotFoundException: com.example.Main
+Note: If you see absolutely no logs, run kubectl describe pod <name> and look at the Events section. '
+The issue might be a CanvasPullImageError or Pending state where the container hasn't even tried to run yet.
+
+Application Logs: The specific output from your code (e.g., your Java, Python, or Node.js app).
+Pod Logs: The total output of every container inside that Pod.
+If your Pod has only one container (which is true for 90% of cases), then Pod logs == Application logs.
+
+When they are DIFFERENT:
+    If you have a "Sidecar" (a second container), the Pod logs now include two different application streams.
+    Example: A Web App with a Logging Agent 
+        Container A (Main App): Prints "User logged in."
+        Container B (Sidecar): Prints "Syncing logs to S3..."
+        If you run kubectl logs <pod-name>, Kubernetes will actually stop and ask you:
+        "Error from server (BadRequest): a container name must be specified for pod [name], choose one of: [main-app] [sidecar]"
+        At this point, you have to choose which "application" log you want to see.
+
+What else is included?
+    Sometimes, "Pod logs" include things your application didn't write, such as: 
+    Runtime Errors: If the Java Virtual Machine (JVM) crashes before your app starts, the Pod log will show the JVM error. 
+    Entrypoint Scripts: If you have a start.sh script that runs before your app, any echo commands in that script show up in the Pod logs.
+    Proxy Logs: If you use a Service Mesh (like Istio), the "Pod logs" will include every network request handled by the proxy sidecar.
+
 - artifact_id: sbk8-poc
   version: snapshot
   #replicas: 2
