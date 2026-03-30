@@ -15,7 +15,7 @@ Spring:
   AOP
   Security
   Testing
-  spring boot
+  spring boot - integrate with security, exception handler, mongo and sql , caching and its implementation 
 
 FrameworkS/tech:
   Apache camel
@@ -23,7 +23,7 @@ FrameworkS/tech:
   orcika
   CI/CD 
   AKS
-  design patterns like microservices , adapter, factory, saga , circuit breaker , reliance4j, single and multiple DB
+  design patterns like microservices(data consistency in DB , service discovery, handles external call failures, adapter, factory, saga , circuit breaker , reliance4j, single and multiple DB
 
 
 
