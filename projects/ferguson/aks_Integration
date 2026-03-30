@@ -518,3 +518,110 @@ Where is this used in your workflow?
 3. The Workload Layer (Deployments, Pods & Services)
       These are the "Logical" items inside Kubernetes. Historically, you had to use the command line (kubectl) for this, but the Azure Portal now has a built-in view.
       Where to find it: Inside your AKS Cluster page, look for the Kubernetes resources section on the left sidebar.
+
+In a microservices architecture, the Load Balancer and API Gateway (Apigee) work together to handle two different types of traffic:
+External (North-South) traffic coming from users, and Internal (East-West) traffic between your services.
+
+Load Balancer (Layer 4): 
+    Acts as the "Traffic Cop" at the network level.
+    It distributes raw TCP/UDP traffic across your AKS nodes.
+    In Azure, when you create a Kubernetes service of type: LoadBalancer, Azure automatically spins up a Standard Load Balancer in your resource group.
+Apigee (Layer 7):
+    Acts as the "Concierge."
+    It sits in front of your microservices to handle API keys, rate limiting, security policies, and transformation. 
+    It doesn't just route traffic; it manages the API.
+
+How to Connect the Load Balancer in Java/AKS
+To connect your Java microservice to a load balancer, you define a Kubernetes Service.
+For Public Access:
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: java-microservice-public
+        spec:
+          type: LoadBalancer # This triggers the Azure Public Load Balancer
+          ports:
+            - port: 80
+              targetPort: 8080 # Your Java app port
+          selector:
+            app: java-app
+For Internal Access (Private IP):
+    If you want a private load balancer that only Apigee or other internal services can see, use an annotation: 
+    metadata:
+      name: java-microservice-internal
+      annotations:
+        service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+
+Calling Between Services using Apigee and Load Balancer:
+When Service A needs to call Service B, you have two main patterns:
+Pattern A: Direct Service-to-Service (Performance)
+      Service A calls Service B directly using the Kubernetes ClusterIP name (e.g., http://service-b).
+      This bypasses the Load Balancer and Apigee entirely, which is faster and cheaper for internal communication.
+Pattern B: Via Apigee (Governance & Security)
+      If you need to enforce security policies (like OAuth or logging) even for internal calls,
+      Service A calls the Apigee Proxy URL, which then routes the request back to Service B's Internal Load Balancer.
+
+How to set this up in Apigee:
+    Target Server: In Apigee, create a "Target Server" pointing to the Internal Load Balancer IP of Service B.
+    API Proxy: Create a proxy in Apigee that uses this Target Server.
+    The Call: Service A makes an HTTP request to https://api.yourcompany.com/service-b.
+
+How to Verify the Connection
+    Check the Load Balancer IP: Run kubectl get svc. Look at the EXTERNAL-IP column. For an internal LB, this will be a private IP (e.g., 10.0.x.x).
+    Check Apigee Targets: In the Apigee UI, go to Develop > Target Endpoints. Ensure the URL matches your Load Balancer's IP or DNS name.
+    Test the Path: From inside a pod in Service A, try to "curl" the Apigee endpoint:
+    curl -v https://api.yourcompany.com/service-b/health
+    If you get a 200 OK, the chain (Service A -> Apigee -> Load Balancer -> Service B) is successful.
+
+Feature            Direct (ClusterIP)              Via Apigee + Load Balancer
+LatencyExtremely   Low                             Moderate (due to Gateway hop)
+Security           Minimal (Basic Network Policy)  High (OAuth, Threat Protection)
+Observability      Kubernetes Logs                 Full API Analytics & Trace
+
+Because you are using AKS, the "real" networking hardware lives in that special hidden Resource Group (the one starting with MC_).
+Step A: Find the Load Balancer Resource
+      In the Azure Portal, search for Resource groups.
+      Look for the one named MC_[YourResourceGroup]_[YourClusterName]_[Location]. 
+      Inside this group, look for a resource of type Load balancer (usually named kubernetes).
+Step B: Verify the IP Address (Frontend IP)
+      Click on that Load Balancer resource.
+      On the left menu, click Frontend IP configuration.  
+      What to look for:
+            You will see the IP address here. 
+            If it's a Private IP (e.g., 10.x.x.x), it is an Internal Load Balancer. 
+            If it's a Public IP, it's reachable from the internet.
+Step C: Verify the "Health" of your Java App (Backend Pools)
+      Click on Backend pools in the same menu.
+      Click on the pool (usually named kubernetes).
+      What to look for:
+            You should see a list of your AKS Nodes. 
+            If the "Health State" is not 100%, it means your Java app is crashing or the "Health Probe" is failing, and the Load Balancer is refusing to send traffic there.
+Step D: Verify the Port Mapping (Load Balancing Rules)
+      Click on Load balancing rules.
+      What to look for:
+            You will see a rule mapping the "Frontend Port" (usually 80 or 443) to the "Backend Port." 
+            This confirms that traffic hitting the IP is actually being told where to go.
+
+1. Azure Resource Group (The "Cloud" Container)
+    A Resource Group (RG) is a logical container for Azure resources. In your workflow, this is handled via Azure CLI or Ansible.
+    What it handles: Physical or virtual Azure assets like the AKS Cluster itself, Virtual Networks (VNet), Managed Identities, Key Vaults, and Storage Accounts.
+    Usage: 
+          Billing: You can see exactly how much your "Dev" environment costs versus "Production" by looking at the RG. 
+          Lifecycle: If you delete the Resource Group, everything inside it (the cluster, the disks, the IPs) is deleted instantly. 
+          Access (RBAC): You can give a developer permission to manage one Resource Group without letting them touch the rest of the subscription.
+2. Kubernetes Namespace (The "Cluster" Partition)
+    A Namespace is a virtual cluster inside your physical AKS cluster. This is handled via kubectl or your Ansible k8s module.
+    What it handles: Kubernetes-specific objects like Pods, Services, Deployments, ConfigMaps, and Secrets.
+    Usage: 
+        Isolation: You can run the same microservice in a dev namespace and a test namespace on the same cluster without them crashing into each other.
+        Resource Quotas: You can limit a namespace so it only uses, for example, 4GB of RAM, preventing one buggy microservice from crashing the whole cluster.
+        Security: Using "Network Policies," you can block traffic between namespaces (e.g., the frontend namespace cannot talk directly to the db namespace).
+
+How to check them in your environment
+To check Resource Groups:
+    Go to the Azure Portal and search for "Resource groups." 
+    You will likely see your main group and that "hidden" MC_ group I mentioned earlier which handles the networking.
+To check Namespaces:
+    Via Portal: Go to your AKS Cluster > Kubernetes resources > Namespaces.
+    Via Terminal: Run kubectl get ns.
+    You will see defaults like default, kube-system, and likely your own (e.g., tif-dev).
