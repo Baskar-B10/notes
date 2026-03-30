@@ -1,0 +1,99 @@
+Since you are using Ansible to configure properties, the microservice is likely running as a Docker container or a systemd service.
+1. Check Running Containers: If it’s a containerized app, use: docker ps
+  Look for the image name from your ACR and check the "STATUS" column (it should say Up X minutes).
+2. Check Service Status: If Ansible installs it as a native Linux service: systemctl status <service-name>
+3. Verify Logs: To see if the app started correctly without internal errors: docker logs -f <container_id>  (for Docker)
+4. Network Check: Verify the service is listening on the expected port: netstat -tuln | grep <port_number>
+
+Azure Container Registry (ACR):
+  Navigate to your ACR resource ->  Under Services -> click Repositories.
+  Find your service name and click it to see the Tags. Verify that a new tag (usually the Jenkins build number or a timestamp) was pushed recently.
+
+Virtual Machine / App Service: (extra)
+  If you are deploying to an Azure VM, check the Networking tab to ensure the ports defined in your Ansible YAML are open in the Network Security Group (NSG).
+  Check Insights/Metrics to see CPU and memory heartbeats, which indicate the service is actually doing work.
+
+Core Components of  Pipeline:
+1. Git Repo - Holds the Source Code and the Ansible Playbooks.
+2. Jenkins - 	The Orchestrator. It triggers the build, runs Docker commands to build the image, and executes the Ansible task.
+3. Ansible	- The Configuration Manager. It ensures the Linux server has the right environment variables, secrets, and pulls the correct image version from ACR.
+4. ACR	- The private storage for your Docker images. Jenkins pushes here; the Server pulls from here.
+5. Linux Server	- The Host. The final destination where the code actually executes.
+
+To verify : curl -I http://localhost:<port>/health
+
+1. The Authentication Command: az acr login --name feidtifacr001 --subscription <sub-id>
+    What it does: Authenticates your local Docker/Podman daemon with your private Azure Container Registry (ACR).
+    Why it's helpful: Without this, your local machine won't have the "keys" to pull the microservice images stored in Azure. 
+                      It ensures that when Ansible tries to deploy the app, it doesn't get an "Access Denied" error from the registry.
+
+2. The Deployment Playbooks: The ansible-playbook commands are the "brains" of the operation.
+                            Ansible uses these YAML files to ensure your local environment matches the required state.
+A. Project Setup & Deployment: ansible-playbook -i ... test-setup.yml deploy-from-project.yml -e project_dir=/app/dev/<your project>
+    test-setup.yml: Likely prepares the infrastructure (creates namespaces, sets up storage, or verifies dependencies).
+    deploy-from-project.yml: This is the main action. It pulls the code/image from the directory you specified (-e project_dir) and pushes it to your target environment.  
+        -e (Extra Vars): This allows you to tell Ansible exactly which microservice project you want to work on without changing the code of the playbook.
+B. Environment Configuration: ansible-playbook -i ... dev-sandbox.yml and k8-vdi-env.yml
+dev-sandbox.yml: Sets up a "Sandbox" (a safe, isolated area) on your Linux machine or AKS cluster so you can test changes without breaking the main development branch.
+    k8-vdi-env.yml: Configures the specific Kubernetes environment for a VDI (Virtual Desktop Infrastructure) setup.
+                It likely handles the networking and permissions needed for your local Linux machine to talk to the Kubernetes API.
+
+How this helps your local setup:
+Consistency: By using these commands, you ensure your local Linux machine is configured exactly like the production server.
+Speed: Instead of manually setting up database connections or environment properties, Ansible does it in seconds.
+Isolation: The "sandbox" playbooks allow you to break things locally while you experiment with the Ansible YAML properties without affecting other developers.
+
+To verify these in the Azure Portal, follow these steps:
+1. Check Exposed Endpoints (Services & Ingress): This is where you find the External IP or DNS name for your microservice.
+    Navigate to: Azure Portal > Kubernetes services > Select your Cluster.
+    Go to: Under the Kubernetes resources section on the left, click Services and ingresses.
+    What to look for:
+    Services tab: Look for your service name. 
+                  If the type is LoadBalancer, you will see an External IP listed. 
+                  This is the public entry point. 
+    Ingresses tab: If you are using an Ingress Controller (like Nginx), look here for the Host or Address. 
+                   This usually maps multiple microservices to one IP via different paths (e.g., /api/user, /api/order).
+2. Check the "Workloads" (Is the code actually running?): Even if an IP is exposed, the service won't work if the container failed to start.
+      Navigate to: Cluster > Kubernetes resources > Workloads.
+      Check Status: Look at the Deployments or Pods tab.
+                    You want to see a green checkmark or Ready: 1/1.
+                    If it says ImagePullBackOff, it means AKS couldn't talk to your ACR (check your az acr login permissions).
+                    If it says CrashLoopBackOff, the code is failing internally (check Live Logs in the portal).
+3. Verify the Container Image in ACR: To ensure Jenkins actually pushed the latest version:
+      Navigate to: Azure Portal > Container registries > Select feidtifacr001.
+      Go to: Under Services, click Repositories.
+      Action: Find your specific microservice repository. Click on it to see the Tags. 
+              The top tag should match the timestamp or build ID from your recent Jenkins/Ansible run.
+
+Get Public URL/IP -> AKS > Services and ingresses -> External IP / Frontend IP
+Check App Health  -> AKS > Workloads > Pods       -> Status (Running) & Live Logs
+Verify Image Push -> ACR > Repositories            -> Tag (Timestamp/Build ID)
+Check Config/Secrets  -> AKS > Configuration        -> ConfigMaps / Secrets
+
+1. The Cluster:
+          The Cluster is the entire "Gated Community." It is a group of virtual machines (Nodes) working together, managed by Azure.  
+          In your case: This is the resource you see in the Azure Portal that contains all your dev/sandbox environments.
+2. The Node:
+          A Node is a single "Apartment Building" (a Virtual Machine) within the cluster.
+          In your case: When you run ansible-playbook -i ... vdi, your inventory is likely pointing to these nodes. 
+                        They provide the CPU and RAM that actually run your microservice.
+3. The Pod:
+          A Pod is the "Individual Apartment." It is the smallest unit in Kubernetes. 
+          It wraps your Docker container (the image from your ACR) and gives it an internal IP address.
+          In your case: If your microservice crashes, the Pod is what gets restarted. 
+                        You check Pod status in the Workloads section of the Azure Portal.
+4. The Deployment:
+          A Deployment is the "Building Blueprint" or the "Property Manager." 
+          It defines how many copies (replicas) of a Pod should be running and which version of the image from feidtifacr001 should be used.
+          In your case: Your deploy-from-project.yml Ansible playbook likely creates or updates this Deployment. 
+                        If you want to scale your service from 1 instance to 3, you update the Deployment.
+5. The Service:
+          A Service is the "Front Gate/Intercom."
+          Since Pods are constantly being destroyed and recreated (getting new internal IPs), the Service provides a permanent IP address or DNS name so other apps can find your microservice.
+          In your case: This is what "exposes" your app. When you looked at Services and ingresses in the portal, you were looking at this layer to find the External IP.
+
+How they connect to your Ansible commands:
+      Your Ansible Playbook tells the Cluster to create a Deployment.
+      That Deployment pulls an image from ACR and puts it into a Pod.
+      The Pod runs on a Node.
+      A Service is created so you can access that Pod from your browser or another microservice.
