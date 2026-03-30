@@ -149,6 +149,42 @@ How to Verify on the Linux Server (CLI)
     Look for AuthenticationFailed or StorageException. If you see these, it usually means the IAM role in Step II is missing.
 
 
+When you run a database or a file-processing app in AKS, you need a way for data to survive even if a Pod is deleted or a Node crashes.
+In Kubernetes, this is handled by Persistent Volumes (PV) and Persistent Volume Claims (PVC).
+Think of it as a Rental Agreement:
+    Persistent Volume (PV): The actual "Storage Space" (the physical Azure Disk or File Share).
+    Persistent Volume Claim (PVC): The "Rental Application" your app submits to say, "I need 10GB of SSD storage."
+    Storage Class (SC): The "Property Manager" that automatically creates the disk when a request comes in.
+
+Azure Storage Types for AKS:
+Depending on your microservice needs, you choose between Disks and Files:
+Feature        Azure Managed Disks                    Azure Files
+Performance    High (SSD/Ultra)                       Moderate (SMB/NFS)
+Access Mode    ReadWriteOnce (1 Pod at a time)        ReadWriteMany (Multiple Pods)
+Best For       "Databases (MongoDB, SQL)"            "Shared config, CMS, Log storage"
+Default SC      default or managed-csi                azurefile-csi
+
+Verification: Where to see this in Azure
+Even though you use Ansible, you can verify the "physical" connection in the Portal:
+
+Check the Claim: Run kubectl get pvc -n tif-dev. The status should be Bound.
+Find the Physical Disk:
+      Go to the Azure Portal.
+      Navigate to your MC_ Resource Group.
+      You will see a new Disk resource with a long random name (e.g., pvc-1234...).
+      This was created by your Ansible task!
+Check the Node: 
+      In the AKS Cluster menu, go to Nodes > Device attachments. 
+      You will see that specific Azure Disk attached to the VM where your Pod is currently running.
+
+Feature              Persistent Volume (PV)                      Azure Blob Storage
+Java Interaction     java.io.File (Local path)                   BlobServiceClient (SDK/API)
+Mounting             "Must be ""Mounted"" in the YAML."          Accessed directly via URL/Credentials.
+Shared Access         ReadWriteMany (Only with Azure Files).     Unlimited shared access.
+Visibility            Hidden from the internet.                  Can be made public via URL.
+Configuration         Handled in deployment.yml.                  Handled in application.properties.
+
+
 how to connect azure services bus similary and how to verify:
     Connecting a Java microservice to Azure Service Bus is very similar to connecting to Blob Storage,
     but instead of files, you are dealing with Messages (Queues and Topics).
