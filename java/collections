@@ -1081,6 +1081,63 @@ Core Methods:
       🔹 Why Fast?
                   Reads → no lock
                   Writes → minimal locking.Uses CAS
+To create a clean, annotation-free caching class, the most reliable approach is to wrap a ConcurrentHashMap. 
+This ensures that your cache is thread-safe, meaning multiple parts of your application can read and write to it simultaneously without crashing or corrupting data.
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
+public class SimpleCache<K, V> {
+    // Using ConcurrentHashMap for thread safety without synchronized blocks
+    private final Map<K, V> storage = new ConcurrentHashMap<>();
+    /**
+     * Adds or updates a value in the cache.
+     */
+    public void put(K key, V value) {
+        if (key != null && value != null) {
+            storage.put(key, value);
+        }
+    }
+    /**
+     * Retrieves a value. Returns null if the key doesn't exist.
+     */
+    public V get(K key) {
+        return storage.get(key);
+    }
+    /**
+     * Removes a specific entry from the cache.
+     */
+    public void remove(K key) {
+        storage.remove(key);
+    }
+    /**
+     * Clears all cached data.
+     */
+    public void clear() {
+        storage.clear();
+    }
+    /**
+     * Returns the current size of the cache.
+     */
+    public int size() {
+        return storage.size();
+    }
+}
+public class Main {
+    public static void main(String[] args) {
+        // Create a cache for User objects indexed by their ID (String)
+        SimpleCache<String, User> userCache = new SimpleCache<>();
+        // Put data
+        userCache.put("user_101", new User("Alice"));
+        // Get data
+        User cachedUser = userCache.get("user_101");
+        System.out.println("Retrieved: " + cachedUser.getName());
+        // Remove data
+        userCache.remove("user_101");
+    }
+}
+Thread Safety: By using ConcurrentHashMap, you avoid ConcurrentModificationException when one thread is reading while another is removing an item.
+Generic Types: Using <K, V> allows you to reuse this same class for any data type (e.g., String keys with Integer values, or Long keys with CustomObject values).
+No Magic: Unlike @Cacheable, there are no hidden proxies. If you call get(), it executes immediately, making it much easier to debug.
 
 🔹 Difference from HashMap:
       Feature	      HashMap	ConcurrentHashMap
