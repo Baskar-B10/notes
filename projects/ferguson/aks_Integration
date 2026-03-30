@@ -846,3 +846,51 @@ It covers three main areas: Scaling (KEDA), Database (MongoDB), and Messaging (S
     Subscriber: Uses the sbk8-poc subscription for the topic.
     Managed Identity Hint: The authenticationRef in the KEDA section points to a TriggerAuthentication object.
         This confirms you are likely using Managed Identity (Workload Identity) to authenticate, as there are no "Shared Access Keys" visible here.
+
+
+Integrating GitOps into an AKS cluster is a highly recommended move. It shifts the "Source of Truth" from your manual kubectl commands to a Git Repository.
+If someone manually deletes a pod or changes a configuration in the portal, the GitOps controller will automatically detect the "drift" and revert the cluster to match what is in Git.
+In Azure, the most seamless way to do this is via the AKS GitOps Extension, which uses Flux v2 or ArgoCD under the hood.
+1. High-Level GitOps Workflow:
+    Git Repo: You push your Kubernetes YAMLs (Deployments, Services, KEDA ScaledObjects) to a repo.
+    GitOps Operator: A small agent (Flux or ArgoCD) runs inside AKS.
+    Sync/Reconcile: The agent "pulls" the code from Git and applies it to the cluster.
+2. Steps to Integrate GitOps (using Flux v2 Extension)
+    Step 1: Register the Resource Providers
+          Before Azure can manage GitOps for you, you must enable the specific configuration providers in your subscription.
+          az provider register --namespace Microsoft.Kubernetes
+          az provider register --namespace Microsoft.ContainerService
+          az provider register --namespace Microsoft.KubernetesConfiguration
+    Step 2: Install the GitOps Extension
+          You can do this via the Azure CLI or the Portal. This installs the Flux controllers into your cluster.
+          az k8s-extension create \
+            --cluster-name <your-aks-cluster> \
+            --resource-group <your-resource-group> \
+            --name flux \
+            --extension-type microsoft.flux \
+            --cluster-type managedClusters
+    Step 3: Create a GitOps Configuration (The "Link")
+          This step connects your specific Git repository to a namespace in AKS.
+          az k8s-configuration flux create \
+            --cluster-name <your-aks-cluster> \
+            --resource-group <your-resource-group> \
+            --name cluster-config \
+            --namespace flux-system \
+            --cluster-type managedClusters \
+            --scope cluster \
+            --url https://github.com/<your-org>/<your-repo> \
+            --branch main \
+            --kustomization name=infra path=./infrastructure prune=true
+3. Verification: How to Check in Azure Portal
+      Once integrated, Azure provides a dedicated UI to monitor your GitOps health:
+      Go to your AKS Cluster in the portal.
+      On the left-hand sidebar, under Settings, click GitOps.
+      Check Compliance: You will see your configuration name. Look at the Compliance State.
+          Compliant: Everything in Git matches the cluster.
+          Non-compliant: There is a difference (drift), and the agent is trying to fix it.
+          Failed: There is an error in your YAML files.
+4. Why this is better than your current Ansible setup
+    Currently, you are "pushing" changes from a machine running Ansible.
+    With GitOps: You just git push. You don't need to run a playbook manually. 
+    Security: You can remove "Contributor" permissions from developers on the cluster.
+        They only need access to the Git repo. The cluster handles the rest securely using its own Managed Identity.
