@@ -407,3 +407,43 @@ SQL	     -> Firewall Rules	    -> SQL Server > Networking
 Mongo	    -> Throughput (RU/s)	 -> Cosmos DB > Metrics
 App Config -> 	Environment Labels	 -> App Config > Configuration Explorer
 
+
+In the Azure ecosystem, "Managed Identity" is a specific type of Workload Identity.
+While Managed Identity is the favorite for Azure-native services (like your AKS cluster), 
+you will encounter other identity types depending on whether your app is running inside Azure, in a different cloud (like AWS), or in your local Jenkins pipeline.
+
+Here is the breakdown of the other identities you should know:
+1. Service Principal (The Traditional "App Account"):
+    A Service Principal is essentially a "User Account for an Application."
+    Unlike Managed Identities, which Azure manages for you, you are responsible for a Service Principal.
+    Authentication: Uses a Client Secret (password) or a Certificate.
+    When to use: Use this for things outside of Azure. 
+                 For example, your Jenkins server likely uses a Service Principal to push images to your ACR.
+    Risk: If you check the Client Secret into Git, anyone can access your Azure resources. 
+          This is why Managed Identity is preferred for apps inside Azure.
+
+2. Workload Identity (The AKS Specialist):
+    This is a specific "bridge" identity for Kubernetes.
+    Since a Pod in AKS isn't a "real" Azure resource (it's a container), it needs a way to prove who it is.
+    How it works: It links a Kubernetes Service Account to a User-Assigned Managed Identity using a "Federated Credential." 
+    Why it's the best for you: It allows each microservice Pod to have its own unique identity, rather than sharing the "Node's" identity. 
+    Verification: You'll see an annotation in your Kubernetes YAML: azure.workload.identity/client-id.
+
+3. User Identity (Human Identity):
+    This represents you—the developer. When you run az login on your local Linux machine, you are using a User Identity.
+    Local Development: Your Java code's DefaultAzureCredential will automatically use your logged-in user identity if it can't find a Managed Identity. 
+    This allows you to test the same code on your laptop that runs in the cloud.
+
+
+Identity Type          Managed by    Uses Secrets?    Best For
+System-Assigned MI    Azure          No                One-to-one mapping (e.g., one VM).
+User-Assigned MI      You/Azure      No                Sharing one ID across many microservices.
+Service Principal      You          Yes                Jenkins, GitHub Actions, or apps on-prem.
+Workload Identity      K8s + Azure  No                Individual Pods in your AKS cluster.
+
+How to Check These in the Azure Portal:
+    For Managed Identities: Search for "Managed Identities" in the top bar. You will see your standalone User-Assigned IDs here.
+    For Service Principals: Search for "App Registrations". This is the "Blueprint" for the identity.
+                            Then look under "Enterprise Applications" to see the actual "Instance" that has the permissions.
+    For Permissions: On any resource (like your Service Bus), go to Access Control (IAM) and look for the names of these identities.
+
