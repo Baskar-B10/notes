@@ -53,3 +53,65 @@ public class ConversionService {
     }
 }
 
+
+List<Flux<?>> fluxes = new ArrayList<>();
+        ExecutorService executorService = createExecutorService.apply(CreateExecutorService.ThreadPoolRequest.builder()
+                .threadCount(maxThreads)
+                .name("populateJob")
+                .build());
+        Scheduler scheduler = Schedulers.fromExecutor(executorService);
+
+        Flux<?> cFlux = Flux.fromStream(repo.findAllIds())
+                .map(mongoObject::getId)
+                .sort()
+                .distinct()
+                .parallel(maxThreads)
+                .runOn(scheduler)
+                .doOnNext(updateById::apply)
+                .doOnError(throwable -> log.error("Error in classification update flow msg: {}", throwable.getMessage()))
+                .sequential();
+        fluxes.add(cFlux);
+
+        config config = repo.findById("configuration")
+        .stream().findFirst().orElse(null);
+        if (config != null) {
+            final lovg lovg = config.getData().getListOfValuesGroupList().getValue();
+            updateByid.apply(listOfValueGroup);
+
+            Flux<?> lovgFlux = Flux.fromStream(lovg.getValues().stream())
+                    .parallel(maxThreads)
+                    .runOn(scheduler)
+                    .doOnNext(lovg -> updateByid.apply(new Pair<>(lovg, lovv)))
+                    .doOnError(throwable -> log.error("Error in lovg update flow msg: {}", throwable.getMessage()))
+                    .sequential();
+            fluxes.add(lovgFlux);
+
+his code is a sophisticated implementation of Reactive Parallel Processing using Project Reactor (Flux). 
+It is designed to handle high-volume data migration (the "StepV2 Configuration" you mentioned) by distributing the workload across multiple CPU cores via a custom thread pool.
+
+Here is a breakdown of what is happening under the hood:
+
+1. The Infrastructure: Custom Thread Management
+    ExecutorService executorService = createExecutorService.apply(...);
+    Scheduler scheduler = Schedulers.fromExecutor(executorService);
+    Instead of using the default Project Reactor schedulers (like Schedulers.parallel()),
+    you are creating a dedicated ExecutorService named "populateJob".
+    Why? This provides Resource Isolation. 
+          If this data conversion job gets heavy,
+          it won't starve other parts of your microservice (like the REST API) of threads. 
+          It also makes your thread dumps in AKS much easier to read.
+
+2. The Data Flow (Classification Update):
+      This block is processing "Classifications" in a non-blocking, parallel manner:
+      Extraction: Flux.fromStream(...) pulls all IDs from your Received Collection (MongoDB).
+      Preparation: It sorts and applies .distinct() to ensure no redundant updates are sent to your target SQL/CDM database. 
+      Parallelization: .parallel(maxThreads).runOn(scheduler) is the engine. It splits the IDs into "rails" (sub-streams). If maxThreads is 8, it will process 8 IDs simultaneously.
+      Execution: .doOnNext(updateClassificationById::apply) calls your logic to perform the actual update.
+      Re-assembly: .sequential() merges the parallel rails back into a single stream for monitoring.
+
+3. Nested Data Processing (List of Values):
+      The second part of the code handles hierarchical data:
+      It fetches a "configuration" entity and drills down into a ListOfValueGroup.
+      It processes each listOfValueValue in parallel.
+      The "Pair" Pattern: Notice .apply(new Pair<>(listOfValueGroup, listOfValueValue)). 
+      This is a common way to pass context (the parent group) along with the specific item being updated in a functional pipeline.
