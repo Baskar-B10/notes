@@ -243,6 +243,65 @@ What is ServiceBusClientBuilder?
   The Credentials: How you prove who you are (Connection String vs. Managed Identity).
   The Client Type: Whether you want to send, receive, or "peek" at messages.
 
+A standard Azure Service Bus connection string looks like this:
+    Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=xxxxxx...
+        SharedAccessKeyName: This is the name of your authorization rule (the "User").
+        SharedAccessKey: This is the Shared Access Signature (SAS) key.
+        This key acts as your credential. When the ServiceBusClientBuilder initializes, 
+        it uses this key to cryptographically sign a request and obtain a temporary token from Azure under the hood.
+        You don't see the token because the SDK manages the SAS Token provider for you automatically.
+
+Steps to find the Connection String:
+    Search for Service Bus: Log in to the Azure Portal and search for "Service Bus" in the top search bar.
+    Select your Namespace: Click on the specific namespace you created (e.g., your-project-sb-namespace).
+    Go to Shared Access Policies: In the left-hand sidebar menu, scroll down to the Settings section and click on Shared access policies.
+    Select a Policy: By default, there is a policy named RootManageSharedAccessKey. Click on it.
+          Note: If you want to follow "Least Privilege," you can create a new policy here with only "Send" or "Listen" rights instead of using the Root key.
+          Copy the String: A panel will slide out from the right. You will see fields for "Primary Key," "Secondary Key," and "Primary Connection String".
+          Click the Copy icon next to the Primary Connection String.
+
+   public ServiceBusPublisherConfiguration(@Value("${k8.app.artifact.id}") final String artifactId,
+                                            @Value("${k8.app.publisher.connection.string}") final String publisherConnectionString,
+                                            @Value("${k8.app.id.eliminators:}") final String idEliminators,
+                                            @Value("${k8.app.publisher.max.retries:3}") final int maxRetries,
+                                            @Value("${k8.app.publisher.retry.delay.millis:500}") final long delayMillis,
+                                            @Value("${k8.app.publisher.retry.max.delay.millis:7501}") final long maxDelayMillis,
+                                            @Value("${k8.app.publisher.retry.timeout.millis:2000}") final long timeoutMillis) {
+        this.publisherConnectionString = publisherConnectionString;
+        this.topicName = ENTITY_NAME_EXTRACTOR.apply(publisherConnectionString);
+        this.appId = AzureServiceBusApplicationIdResizer.resizeAppId(artifactId, idEliminators);
+        this.amqpRetryOptions = new AmqpRetryOptions()
+                .setMaxRetries(maxRetries)
+                .setDelay(Duration.ofMillis(delayMillis))
+                .setMaxDelay(Duration.ofMillis(maxDelayMillis))
+                .setTryTimeout(Duration.ofMillis(timeoutMillis))
+                .setMode(AmqpRetryMode.EXPONENTIAL);
+    }
+ 
+    @Bean("publisherClientBuilder")
+    ServiceBusClientBuilder publisherClientBuilder() {
+        return new ServiceBusClientBuilder().clientOptions(new ClientOptions().setApplicationId(appId))
+                                            .connectionString(publisherConnectionString);
+    }
+ 
+    @Bean
+    @Primary
+    ServiceBusSenderClient publisherClient(@Qualifier("publisherClientBuilder") final ServiceBusClientBuilder publisherClientBuilder) {
+        return publisherClientBuilder
+                .retryOptions(amqpRetryOptions)
+                .sender()
+                .topicName(topicName)
+                .buildClient();
+    }
+
+Key Details in your Configuration:
+.retryOptions(amqpRetryOptions): This is critical. Since this is an external network call,
+      if Azure Service Bus is momentarily throttled or busy,
+      this client will automatically retry the send operation based on your defined backoff strategy before throwing an exception to your REST API.
+.topicName(topicName): This targets the specific Topic you found in the Azure Portal. Messages sent here will "fan out" to all subscribed queues.
+Thread Safety: The ServiceBusSenderClient is thread-safe. 
+        You only need one instance (the Bean) for your entire application to handle multiple concurrent REST requests.
+
 How to achieve Managed Identity:
   To use Managed Identity, you combine ServiceBusClientBuilder with the DefaultAzureCredential class.
   This tells Java: "Don't look for a password; look for the 'ID Card' assigned to this Linux server/AKS pod.
