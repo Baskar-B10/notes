@@ -256,3 +256,27 @@ Target Endpoint: Check the TargetEndpoint configuration in the proxy.
           It will point to the internal load balancer IP or the DNS name of your service running in AKS.
 Note on Security: In this setup, it is crucial that your AKS service is not exposed to the public internet. 
 It should only accept traffic originating from Apigee's IP addresses to prevent someone from bypassing the OAuth layer and hitting your service directly with the internal credentials.
+
+
+The mongo database needs to be upgraded to the version 7.
+For this, the mongo drivers in the middleware services needs to be updated to mongo version 5.3.1
+
+Compatibility Overview:
+The MongoDB Java/Node.js Driver 5.3.x is fully compatible with MongoDB 7.0.
+In fact, the 5.x driver line is the recommended path for users moving toward MongoDB 7.0 and 8.0.
+
+Component               Target Version          Compatibility Notes
+MongoDB Server          7.0                     Supports new features like Queryable Encryption (GA) and Vector Search.
+MongoDB Driver          5.3.1                  Minimum requirement for several 7.0 features; supports JDK 17+ (for Java).
+Spring Data (if used)   2024.1 (4.4.x)        "If your middleware uses Spring Data MongoDB, version 4.4.x or higher is required for driver 5.2+."
+
+Critical Changes in Driver 5.3.1
+When moving to version 5.3.1 from older versions (like 4.x), keep an eye on these mechanical changes:
+Dropped Support for Server 4.0: Driver 5.3 officially raises the minimum supported server version to 4.2. 
+        Since you are moving to 7.0, this won't impact your connection to the new DB, but it means you cannot use this driver to connect to very old legacy clusters during a transition.
+Vector Search & BinaryVector: If your middleware handles AI or similarity search, 5.3.1 introduces the BinaryVector class. 
+        This provides more efficient storage for vector data compared to standard lists.
+Connection Pool Fairness: Version 5.3.1 removes "explicit fairness" from the connection pool. 
+        This generally improves throughput for high-concurrency microservices (like those in AKS), though you might see a slight increase in "tail latency" (p99) in very specific scenarios.
+
+New Write Options: You can now use a sort option within updateOne() and replaceOne() operations, which wasn't possible in older driver versions.
