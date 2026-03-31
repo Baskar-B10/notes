@@ -1121,5 +1121,134 @@ Best For	            Developer experience & Visibility  	Security-first & Edge c
         Flux has excellent native support for SOPS (Secrets Operations), 
         allowing you to store encrypted secrets directly in Git and decrypt them on-the-fly in the cluster.
 
+exclude tomcat and use undertow:
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <!-- We want to use Undertow rather than Tomcat as our Web container -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-tomcat</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-undertow</artifactId>
+        </dependency>
 
-
+configure to generate code under target for service publisher using spring boot 3.x and swagger:
+    <plugins>
+            <plugin>
+                <groupId>com.ferguson.mw.k8.maven.plugin</groupId>
+                <artifactId>dockerfile-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.ferguson.mw.k8.maven.plugin</groupId>
+                <artifactId>springboot-camel-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate-springboot-camel</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <packageName>com.ferguson.tif.sb.order.cashsale.publisher.rti.v1</packageName>
+                    <outputDirectory>target/generated-sources/java</outputDirectory>
+                    <openapiFile>openapi.yaml</openapiFile>
+                    <jsonIgnoreUnknown>true</jsonIgnoreUnknown>
+                    <framework>SPRING</framework>
+                    <generateMessages>false</generateMessages>
+                    <javaxOrJakarta>jakarta</javaxOrJakarta>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>
+                                target/generated-sources/java</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.ferguson.tif.sb.maven.plugin</groupId>
+                <artifactId>springboot-pattern-generator-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>codegen</goal>
+                        </goals>
+                    </execution>
+                </executions>
+<!--                <configuration>
+                    <patternToGenerate>PUBLISHER</patternToGenerate>
+                    <packageName>com.ferguson.tif.sb.order.cashsale.publisher.rti.v1</packageName>
+                    <genOutputDirectory>generated-sources/java</genOutputDirectory>
+                    <dbName>eventMessages</dbName>
+                    <rcvdCollection>rcvdTrilBusinessEntity</rcvdCollection>
+                    <dataCollection>businessEntity</dataCollection>
+                    <eventSource>RTI</eventSource>
+                    <rcvdEntity>payload</rcvdEntity>
+                </configuration>-->
+                <configuration>
+<!--					<patternToGenerate>PUBLISHER</patternToGenerate>-->
+					<genOutputDirectory>generated-sources/java</genOutputDirectory>
+					<packageName>com.ferguson.tif.sb.order.cashsale.publisher.rti.v1</packageName>
+					<publisherConfig>
+						<rcvdEntity>rcvdTrilCashSale</rcvdEntity>
+						<eventSource>RTI</eventSource>
+					</publisherConfig>
+				</configuration>
+            </plugin>
+        </plugins>
+1. springboot-camel-maven-plugin:
+      This is your Contract-First engine.
+      What it does: It takes your openapi.yaml and generates the Spring Boot/Camel infrastructure.
+      Key Config: * <javaxOrJakarta>jakarta</javaxOrJakarta>: This is important because you are likely on Spring Boot 3.x (which requires Jakarta EE).
+      <outputDirectory>target/generated-sources/java</outputDirectory>: It places the models and routes here so they don't clutter your src/main/java.
+2. build-helper-maven-plugin:
+      This is the "bridge" that makes the generated code usable.
+      Why it's there: By default, Maven only looks at src/main/java. This plugin tells Maven (and your IDE) that the code inside target/generated-sources/java is also part of the source code and should be compiled.
+3. springboot-pattern-generator-maven-plugin:
+      This is the most critical plugin for your Event-Driven Architecture. It is generating the boilerplate for the "Received Collection" pattern you described.
+      <rcvdEntity>: rcvdTrilCashSale — This likely generates the Repository and Model for your "Received Collection" (the source of truth).
+      <eventSource>: RTI — This probably flavors the metadata or headers being published to the Service Bus Topic.  
+      Logic Generation: Based on your earlier explanation, this plugin likely generates the service code that:
+      Saves to rcvdTrilCashSale.
+      Publishes the metadata (ID, SyncID, EventSource) to the Topic.
+4. dockerfile-maven-plugin & spring-boot-maven-plugin
+      Repackage: Creates the executable "Fat JAR" containing all your dependencies.
+      Dockerfile: Automates the creation of the Docker image for deployment into AKS.
