@@ -1,0 +1,55 @@
+Ferguson:
+  se:
+    scheduler:
+      schedules:
+        populatejob	
+          job-group: f.step
+          job-name: populatejob
+          job-class: <class path com.bac.populatejob>
+          cron-trigger:
+          cron-expression: 0 5 21 * * ?
+          enabled: false
+          description: populate 
+
+The Scheduler (PopulateJob):
+This is the "Trigger" for your data conversion.
+Logic: It will execute the code in com.bac.populatejob every night at 9:05 PM (0 5 21 * * ?).
+GitOps Role: Because enabled: false is set, the job is "dormant." In a GitOps workflow,
+you would keep it disabled in your repository and only flip it to true via a Pull Request
+when you are ready to start the migration or synchronization in a specific environment.
+
+Field            Value / Meaning
+job-class        populatejob — This is the Java class containing the logic to fetch data from MongoDB (StepV2) and prepare it for SQL.
+cron-expression  0 5 21 * * ? — This job is scheduled to run every day at 9:05 PM.
+enabled: false   Critical: The job is currently deactivated. It will not run automatically unless this is changed to true.
+job-group        f.step — Used to categorize jobs in the Quartz monitor/database.
+
+ferguson:
+  se:
+    caching:
+          caches:
+              class-by-id:	
+                  valueClass: com.bac.DOClass
+                  cache-provider: eh_cache
+
+The Caching Configuration (Ehcache):
+You are using Ehcache (a popular Java-based caching library) to store com.bac.DOClass objects in memory.
+How it works:
+When your application needs a DOClass object (likely a Data Object used during conversion), it follows this flow:
+Check Cache: It looks in the class-by-id cache.
+Cache Hit: If found, it returns the object immediately (Microseconds).
+Cache Miss: If not found, it queries the Database (Mongo/SQL), populates the cache, and then returns the object (Milliseconds).
+
+Why use "class-by-id" for Data Conversion?
+In a Mongo-to-SQL migration, you often have Reference Data (like Product Categories or Tax Codes).
+Instead of querying the database for the same Category 10,000 times during a bulk migration, Ehcache stores it in the JVM's memory.
+
+@Service
+public class ConversionService {
+    @Cacheable(value = "class-by-id", key = "#id")
+    public DOClass getReferenceData(String id) {
+        // This only runs if the data is NOT in Ehcache
+        return mongoRepository.findById(id);
+    }
+}
+
