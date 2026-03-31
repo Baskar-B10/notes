@@ -119,7 +119,19 @@ Azure Blob Storage is typically handled through Environment Variables or Managed
         Ansible/Jenkins: Your Jenkins pipeline or Ansible YAML file stores the Storage Account Key as a "Secret."
         Deployment: Ansible injects this secret into your Kubernetes Pod as an environment variable (e.g., AZURE_STORAGE_CONNECTION_STRING). 
         Java Side: Your app reads this variable to connect.
-
+example:
+      @Configuration
+      public class BlobConfiguration {
+          private final String blobEndpoint;
+          public BlobConfiguration(@Value("${azbs.productpubslisherstep.read.blob.endpoint}") final String blobEndpoint) {
+              this.blobEndpoint = blobEndpoint;
+          }
+          @Bean("blobServiceClient")
+          BlobServiceClient blobServiceClient() {
+              return new BlobServiceClientBuilder().endpoint(blobEndpoint)
+                      .credential(new DefaultAzureCredentialBuilder().build()).buildClient();
+          }
+      }
 2. Where to Check in Azure Portal
     To verify if the connection is configured correctly, check these three specific places:
     I. Service Connector (Easiest Check) - No acess for me 
@@ -127,15 +139,22 @@ Azure Blob Storage is typically handled through Environment Variables or Managed
         Go to: Your AKS Cluster > Settings (left menu) > Service Connector.
         What to look for: You should see a connection listed for "Storage - Blob."
         Validation: Click on the connection and select Validate. It will run a "health check" to see if the network and permissions between the Cluster and Storage are actually working.   
-    II. Access Control (IAM) on the Storage Account
+    II. Access Control (IAM) on the Storage Account:
         If using Managed Identity, you must ensure the app has permission.
         Go to: Your Storage Account > Access Control (IAM) > Role Assignments.
         Check: Ensure your Managed Identity (or the identity of the AKS cluster) has the Storage Blob Data Contributor role.
                Without this, you will get a "403 Forbidden" error even if the code is perfect.
-    III. Storage Browser (Verify the Data)
+    III. Storage Browser (Verify the Data):
         Go to: Your Storage Account > Storage browser > Blob containers.
         Check: Use this to manually see if the files your Java app is supposed to upload/download are actually appearing in the container.
 
+To get Endpoint:
+      Search for Storage Accounts: In the Azure Portal, search for "Storage accounts" and select the account you are using for this project.
+      Go to Endpoints: In the left-hand sidebar menu, scroll down to the Settings section and click on Endpoints.
+      Copy the Blob Service URL: Look for the section labeled Blob service. You will see a URL that looks like this:
+      https://<your-storage-account-name>.blob.core.windows.net/
+
+This is your blobEndpoint value.
 pom.xml -> Includes azure-storage-blob and azure-identity dependencies.
 Ansible YAML -> Configures the ConfigMap or Secret that holds the Storage Account name/URL.
 Managed Identity -> The "Digital ID Card" that lets your Java app bypass passwords.
@@ -277,13 +296,20 @@ Steps to find the Connection String:
                 .setTryTimeout(Duration.ofMillis(timeoutMillis))
                 .setMode(AmqpRetryMode.EXPONENTIAL);
     }
- 
+ to publish :
     @Bean("publisherClientBuilder")
     ServiceBusClientBuilder publisherClientBuilder() {
         return new ServiceBusClientBuilder().clientOptions(new ClientOptions().setApplicationId(appId))
                                             .connectionString(publisherConnectionString);
     }
- 
+ to subcribe:
+    @Bean("subscriberClientBuilder")
+    ServiceBusClientBuilder subscriberClientBuilder() {
+        return new ServiceBusClientBuilder()
+                .clientOptions(new ClientOptions()
+                        .setApplicationId(AzureServiceBusApplicationIdResizer.resizeAppId(artifactId, "")))
+                .connectionString(subscriberConnectionString);
+    }
     @Bean
     @Primary
     ServiceBusSenderClient publisherClient(@Qualifier("publisherClientBuilder") final ServiceBusClientBuilder publisherClientBuilder) {
