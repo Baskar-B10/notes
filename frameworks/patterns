@@ -1,1 +1,40 @@
+Pattern used in Ferguson:
+    from external channel -> put message in REST API , 
+    API will save the collection as received collection (rcvd) and publish message in metdata format (id and eventdata) to topic ,
+    topic will be subscribed by multiple queue. 
+    writer service will subscribe the message from corresponding queue and fetch the data from received collection based on metadata
+    and  write the message in collection data model (CDM) . 
+    update , add , delete will be determined as type in message which is published to topic ,
+    sync id will be there , if its latest than existing then update the data .
+    if any failure occurs goes for retry .If successful save in CDM collections .
+    And there is a redeliver rest service ,  In redeliver it will try to put again on queue similar to publisher based on Id and data range. 
+    if again fails moves to DLQ. 
 
+1. The Ingestion Flow:
+External Channel → REST API: 
+      The raw payload is persisted immediately into a Received Collection. 
+      This acts as your "Source of Truth" or an audit log of exactly what was sent.
+Metadata Publisher: The API publishes a slim message to a Topic.
+      Payload: { "id": "123", "eventData": "...", "type": "UPDATE/ADD/DELETE", "syncId": 20260331 }
+Fan-out: The Topic pushes this metadata to multiple Subscriber Queues.
+2. The Writer Service Logic:
+The Writer Service is the "brain" of the operation. It performs the following steps:
+Hydration: It receives the metadata, then fetches the full document from the Received Collection using the id.
+Idempotency & Versioning: It compares the syncId from the message against the syncId already in the CDM.
+          If $syncId_{new} > syncId_{existing}$, the operation proceeds
+          If it's older, the message is discarded to prevent "stale" data from overwriting newer updates (a common issue in asynchronous systems).
+Transformation: It maps the raw data into the CDM schema based on the type (Add, Update, or Delete).
+     When performing a DELETE based on a syncId, consider using Soft Deletes (a deleted: true flag). 
+3. Error Handling & Redelivery
+Scenario             Action
+First Failure        The message enters a Retry Loop (exponential backoff is usually best here).
+Exhausted Retries    The message is sent to a Dead Letter Queue (DLQ) or flagged for the Redeliver Service.
+Redeliver Service    A manual or scheduled REST trigger that fetches original data by ID or Date Range and re-injects it into the flow.
+
+Yes, it ensures Eventual Consistency.
+Safety: No matter what order messages arrive in (Update 2 before Update 1), 
+        the database will always end up with the state of the message that has the highest timestamp.
+Liveness: Your Redeliver Service can safely re-send old data from the "Received Collection" without fear of corrupting the CDM,
+          because the long timestamp check will automatically ignore the re-delivered "old" data if the CDM is already more current.
+Verdict: A long timestamp is excellent for 95% of use cases. 
+        As long as you generate the timestamp at the entry point and use a "Strictly Greater Than" check in your Writer, your data consistency will be solid.
