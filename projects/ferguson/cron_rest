@@ -213,3 +213,46 @@ maximumRedeliveries(numOfRetries): If a MongoException occurs (e.g., a socket ti
 maximumRedeliveryDelay(retryDelay): This adds a "wait period" between retries. In a distributed system, retrying instantly often leads to more failures. This delay gives the database a few milliseconds/seconds to breathe.
 handled(true): This "swallows" the exception. Once the retries are exhausted, Camel stops trying to throw the error further up the chain and instead moves to your custom error-building logic.
 
+Apigee interaction:
+we have service and there is no trace of authentcaion mechanism
+but we have properties of apigee.username and password in ansible properties 
+and apiee-service another project is there which contains proxies , policeis of xml and json file .
+how authenctaion achieved by passing oauth in test environment .
+is it using AKS networking ? not to relate previoys topic
+
+In the architecture you described, authentication is likely handled at the API Gateway layer (Apigee) rather than within the AKS networking layer or the microservice itself.
+This is a common "Sidecar" or "Gateway" offloading pattern where the backend service remains "unaware" of security logic to keep it lightweight and focused on business logic.
+
+1. The Role of Apigee (The Entry Point)
+Since your other project contains Apigee proxies and policies (XML/JSON), Apigee acts as the security enforcement point.
+When you send an OAuth token in your test environment,the flow typically looks like this:
+OAuth Verification: The Apigee proxy contains an OAuthV2 policy. 
+When a request hits the proxy with a Header: Authorization Bearer <token>, Apigee intercepts it, validates the token against its own data store (or an external Identity Provider), and extracts the associated developer metadata.
+Credential Injection: Once validated, Apigee uses the username and password (stored in your Ansible properties) to perform a "Service Callout" or to fulfill a "Basic Auth" policy.
+It injects these credentials into the header of the request before forwarding it to your backend.
+
+2. Why your Service has "No Trace" of Auth
+Your backend service (running in AKS) likely expects Basic Authentication or a specific header that Apigee provides. 
+Because Apigee handles the translation from OAuth (Public-facing) to Basic Auth (Internal-facing), the microservice code doesn't need to know how to validate OAuth tokens. 
+It simply trusts the request because it comes from the Apigee IP range or contains the correct internal credentials.
+
+3. Is it using AKS Networking?
+While AKS networking (like a LoadBalancer or Ingress Controller) is used to physically route the traffic into the cluster, it is not likely responsible for the authentication logic you are seeing.
+AKS Networking's Role: It ensures that the request from Apigee reaches the correct Pod.
+Apigee’s Role: It ensures the user is "who they say they are" via OAuth and translates that into the credentials your service expects.
+How to verify this in your Test Environment
+To confirm this flow, you can check the following in your Apigee project:
+Check the Proxy Flow: Look for a <Step> in the XML files that references a VerifyAccessToken policy. This confirms OAuth is being checked.
+Look for AssignMessage: Look for a policy in the XML that uses the Ansible-provided apigee.username. It will likely look like this:
+
+<AssignMessage name="AddAuthHeader">
+   <Set>
+      <Headers>
+         <Header name="Authorization">{private.encoded_credentials}</Header>
+      </Headers>
+   </Set>
+</AssignMessage>
+Target Endpoint: Check the TargetEndpoint configuration in the proxy. 
+          It will point to the internal load balancer IP or the DNS name of your service running in AKS.
+Note on Security: In this setup, it is crucial that your AKS service is not exposed to the public internet. 
+It should only accept traffic originating from Apigee's IP addresses to prevent someone from bypassing the OAuth layer and hitting your service directly with the internal credentials.
