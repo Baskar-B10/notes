@@ -85,6 +85,9 @@ List<Flux<?>> fluxes = new ArrayList<>();
                     .doOnError(throwable -> log.error("Error in lovg update flow msg: {}", throwable.getMessage()))
                     .sequential();
             fluxes.add(lovgFlux);
+         Flux.merge(fluxes).blockLast();
+         scheduler.dispose();
+        executorService.shutdown();
 
 his code is a sophisticated implementation of Reactive Parallel Processing using Project Reactor (Flux). 
 It is designed to handle high-volume data migration (the "StepV2 Configuration" you mentioned) by distributing the workload across multiple CPU cores via a custom thread pool.
@@ -115,3 +118,46 @@ Here is a breakdown of what is happening under the hood:
       It processes each listOfValueValue in parallel.
       The "Pair" Pattern: Notice .apply(new Pair<>(listOfValueGroup, listOfValueValue)). 
       This is a common way to pass context (the parent group) along with the specific item being updated in a functional pipeline.
+
+Flux.merge(fluxes).blockLast()
+      This is the execution phase.
+      Merge: It takes your List<Flux<?>> (Classifications, ListOfValueGroups, etc.) and runs them all concurrently.
+      BlockLast: Since this is a Scheduled Job (running at 9:05 PM), you want the main thread to wait until every single record is processed.
+      If you didn't "block," the job would technically "finish" in milliseconds, while the background threads were still trying to write to the SQL/CDM database.
+      In a Kubernetes environment, if the job finishes, the Pod might move to a "Completed" state or the Job context might be destroyed, killing your background processing prematurely.
+
+scheduler.dispose() and executorService.shutdown()
+    This is Resource Hygiene. It is the most important part for long-term stability in your GitOps environment.
+    The Risk: Every time your cron job runs, it creates a new ThreadPool with maxThreads. If you don't shut them down, those threads stay "alive" in the JVM's memory.
+    The Consequence: After a few days of running the 9:05 PM job, your Pod will eventually hit an Out Of Memory (OOM) error or a "Thread Limit" error, causing it to crash and restart in AKS.
+    The Fix: By calling .shutdown(), you tell the JVM: "I am done with these threads. Once the current tasks are finished, reclaim this memory."
+
+Pros:                      
+High Throughput: By utilizing parallel(), you significantly reduce the time it takes to convert thousands of Mongo records to SQL.
+Error Isolation: The .doOnError blocks ensure that a single corrupt record doesn't crash the entire 9:05 PM batch job.
+Clean Resource Shutdown: Since you are manually creating the ExecutorService, ensure your job has a try-finally or a shutdown hook to close it, or you will leak threads in your Pod.
+
+Cons:
+Backpressure Risk: fromStream pulls data eagerly. If your database is slow and the stream is fast, you could face memory issues if the maxThreads is too high.
+Ordering: Because it runs in .parallel(), the order in which records are saved to the target DB is not guaranteed, even though you called .sort() earlier.
+Complexity: Debugging parallel Flux streams can be difficult because stack traces will hop between different threads in your custom pool.
+
+
+  from(ConstantsRest.ROUTE_ID_UPDATE).routeId(ApplicationConstants.ROUTE_ID_UPDATE)
+                .setProperty(CommonConstants.LOGGING_PROP_NAMES_PROP,
+                        constant(ApplicationConstants.CUSTOM_LOG_PROPS_UPDATE))
+                .setExchangePattern(ExchangePattern.InOnly)
+                .setProperty(Log4jMongoConstants.EX_PROP_DEBUG_MSG_ID,
+                        constant("pmtool.customer.job.bulk.loader.v1.input.message"))
+                .to(DebugLoggerRoute.DIRECT_LOG_DEBUG_MONGO_PRODUCER)
+                .bean(ValidationBean.class, "validateRequest").setHeader(Exchange.HTTP_CHUNKED, constant(false))
+                .choice().when(simple("${exchangeProperty.validcustkey} == 'true'"))
+
+                .setProperty(ApplicationConstants.REQUEST_TYPE, constant("entity"))
+                .to(ApplicationConstants.UPDATE_JOBCUSTOMER_DATA_ROUTE)
+
+                .otherwise()
+
+                .bean(ResponseBuilder.class, "prepareResponse")
+
+                .endChoice().end();
