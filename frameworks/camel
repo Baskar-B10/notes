@@ -1,0 +1,7 @@
+Feature                Headers                                    Properties
+Location               Inside the Message object                  Inside the Exchange object
+External Visibility    Yes (Sent to Kafka, HTTP, JMS, etc.)       No (Stays inside your Java app)
+Lifecycle              Can be lost if a new Message is created    Persists until the Exchange is finished
+Standard Usage         Protocol metadata (URL, Filename)          Route state/logic (Flags, Retry counts)
+DSL Syntax              ".setHeader(""key"", value)"              ".setProperty(""key"", value)"
+Simple Expression      ${header.key}                              ${exchangeProperty.key}
