@@ -1,0 +1,80 @@
+Spring Boot:
+    Spring Boot is an open-source Java framework built on top of the Spring Framework that simplifies the development of production-ready applications.
+    It eliminates much of the boilerplate configuration traditionally required in Spring applications.
+
+Core Philosophy:
+Spring Boot follows three key principles:
+  Convention over Configuration — sensible defaults are provided out of the box, so you only configure what you need to change.
+  Opinionated Defaults — it makes decisions for you (e.g., which libraries to use), so you can focus on business logic.
+  Standalone Applications — apps run independently without needing an external server like Tomcat or JBoss.
+
+Key Features:
+1. Auto-Configuration:
+    Spring Boot automatically configures your application based on the dependencies present on the classpath.
+    For example, if spring-boot-starter-web is included, it auto-configures an embedded Tomcat server, Spring MVC, Jackson for JSON, etc.
+2. Spring Boot Starters
+    Starters are pre-packaged dependency descriptors that bundle related libraries together:
+    Starter                       Purposes
+    pring-boot-starter-web        REST APIs & MVC
+    spring-boot-starter-data-jpa  Database with JPA/Hibernate
+    spring-boot-starter-security  Authentication & Authorization
+    spring-boot-starter-test      Testing (JUnit, Mockito)
+    spring-boot-starter-actuator  Monitoring & Metrics
+3. Embedded Server
+    No need to deploy a WAR file to an external server. 
+    Spring Boot embeds Tomcat, Jetty, or Undertow directly into your JAR — just run java -jar app.jar.
+4. Spring Boot Actuator
+    Provides production-ready endpoints for monitoring:
+      /actuator/health — app health status
+      /actuator/metrics — performance metrics
+      /actuator/env — environment properties
+      /actuator/info — custom app info
+5. Spring Boot DevTools
+    Enables hot reloading during development — changes reflect without restarting the server.
+
+The Architecture & Flow:
+The lifecycle of a Spring Boot application generally follows this path:
+    Deployment: The user triggers the main method in a class annotated with @SpringBootApplication.
+    Bootstrap: The SpringApplication.run() method starts the context.
+    Component Scanning: Spring looks for classes annotated with @Component, @Service, @Repository, or @Controller.
+    Auto-Configuration: Based on the libraries found in the pom.xml or build.gradle, Spring Boot applies the necessary configurations.
+    Execution: The embedded server starts, and the application becomes ready to handle requests.
+
+Core Annotations:
+Annotation                  Purpose
+@SpringBootApplication      Entry point — combines @Configuration, @EnableAutoConfiguration, @ComponentScan
+@RestController             Marks a class as a REST API controller
+@RequestMapping             Maps HTTP routes to methods
+@Service                    Marks a service class
+@Repository                 Marks a data access class
+@Autowired                  Dependency injection
+@Entity                     Maps a class to a database table
+@Value                      Injects values from application.properties
+
+Why Use Spring Boot?
+Speed: Go from an empty folder to a running "Hello World" REST API in minutes.
+Microservices Ready: Its lightweight nature and ease of deployment make it the industry standard for microservice architectures.
+Large Community: Excellent documentation and massive community support for troubleshooting.
+Externalized Configuration: Easily manage different environments (Dev, Test, Prod) using application.
+                            properties or application.yml files.
+
+Spring Boot Ecosystem:
+Spring Boot integrates seamlessly with:
+      Spring Security — JWT, OAuth2, role-based access
+      Spring Cloud — microservices, service discovery (Eureka), API Gateway
+      Spring Data — JPA, MongoDB, Redis, Elasticsearch
+      Spring Batch — batch processing
+      Spring Kafka / RabbitMQ — message queues
+
+Build Tools
+Spring Boot projects are typically created using:
+
+Spring Initializr (start.spring.io) — web-based project generator
+Maven (pom.xml) — most common
+Gradle (build.gradle) — faster builds
+
+
+When to Use Spring Boot
+    It's ideal for building REST APIs, microservices, web applications, batch jobs, and event-driven systems in Java/Kotlin. 
+    It's the industry standard for enterprise Java development due to its maturity, vast ecosystem, and strong community support.
+    
