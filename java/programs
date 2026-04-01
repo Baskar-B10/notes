@@ -1,0 +1,28 @@
+Find longest substring from string:
+abcdabc-> abcd
+public class LongestSubstringAtomic {
+     Map<Character, Integer> map = new HashMap<>();
+        AtomicInteger left = new AtomicInteger(0);
+        AtomicInteger maxLen = new AtomicInteger(0);
+        AtomicInteger start = new AtomicInteger(0);
+        //sliding window left to right
+        IntStream.range(0, s.length()).forEach(right -> {
+            char ch = s.charAt(right);
+            if (map.containsKey(ch)) { // update the left with value which is repeated
+                left.set(Math.max(left.get(), map.get(ch) + 1));
+            }
+            map.put(ch, right); // put the values in map and pointer
+            int currentLen = right - left.get() + 1; // current length of string 
+            if (currentLen > maxLen.get()) { 
+            //to find the maximum length of string, 
+               size increase then it will update  , keep the start at left   
+                maxLen.set(currentLen);
+                start.set(left.get());
+            }
+        });
+    }
+    public static void main(String[] args) {
+        System.out.println(longestSubstring("abcdabccc")); // abcd
+    }
+}
+
