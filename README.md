@@ -24,7 +24,7 @@ FrameworkS/tech:
   orcika
   CI/CD 
   AKS
-  design patterns like microservices(data consistency in DB , service discovery, handles external call failures, adapter, factory, saga , circuit breaker , reliance4j, single and multiple DB, virtual threads in jdk 21
+  design patterns like microservices(data consistency in DB , service discovery, handles external call failures, adapter, factory, saga , circuit breaker , reliance4j, single and multiple DB
 
 
 
