@@ -535,3 +535,217 @@ Annotation          @Entity, @Table                 @Document, @Field
 Schema              Fixed schema                    Flexible/schema-less
 Transactions        Full ACID                       Limited (since MongoDB 4.x)
 ORM                 Hibernate                       Spring Data MongoDB Converter
+
+JPA, Hibernate, and Spring Data relate to each other:
+Your code ---> ProductRepository ------->Spring Data JPA--------------->JPA (Jakarta Persistence API)--------->Hibernate--------------------->Database (MySQL / PostgreSQL / H2)
+            · @Entity · @Service          Repository abstraction        Specification only ·                 JPA implementation ·
+                                          query generation              interfaces · annotations             ORM · SQL generation · caching
+
+
+repository interface inheritance chain:
+                 extends                            extends                                                extends                        extends
+Repository<T, ID>-----------> CrudRepository<T, ID>------------------->PagingAndSortingRepository<T, ID>---------->JpaRepository<T, ID>----------------------------->ProductRepository (your interface)
+Marker only                   save · findById · findAll                 findAll(Pageable) · findAll(Sort)            flush · saveAllAndFlush                         inherits all above + derived queries + @Query
+0 methods                     delete · count · exists                                                                · deleteAllInBatch · getReferenceById
+
+JPA vs Hibernate — what exactly is each one?
+JPA (Jakarta Persistence API) is just a specification — 
+                a set of Java interfaces, annotations (@Entity, @Id, @OneToMany...),
+                and rules written in a document. 
+                It ships no executable code.
+                It defines what an ORM must do, not how.
+Hibernate is the implementation — 
+    it reads your @Entity classes,
+    maintains an in-memory cache of managed objects (the "persistence context"), 
+    generates SQL, executes it via JDBC, and maps result sets back to objects. 
+    When Spring Boot starts, it wires Hibernate as the JPA provider automatically.
+Spring Data JPA sits on top of both.
+    It reads your JpaRepository interface at startup, 
+    generates proxy classes that implement it,
+    and delegates every call down to Hibernate. 
+    You never write a single line of SQL for basic CRUD.
+The relationship in one sentence: JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
+
+All Methods — Interface by Interface
+1. CrudRepository<T, ID> — 13 methods
+        java// ── Save ──────────────────────────────────────────────
+        <S extends T> S save(S entity);
+        // INSERT if new (no ID), UPDATE if existing (has ID)
+        // Hibernate decides: new = transient, existing = managed/detached
+        <S extends T> Iterable<S> saveAll(Iterable<S> entities);
+        // Batch save — wraps each in save()
+        // ── Find ──────────────────────────────────────────────
+        Optional<T> findById(ID id);
+        // SELECT * FROM table WHERE id = ?
+        // Returns Optional — forces you to handle not-found
+        boolean existsById(ID id);
+        // SELECT COUNT(*) FROM table WHERE id = ? > 0
+        // More efficient than findById when you only need existence
+        Iterable<T> findAll();
+        // SELECT * FROM table — returns ALL rows, use with care
+        Iterable<T> findAllById(Iterable<ID> ids);
+        // SELECT * FROM table WHERE id IN (?, ?, ?)
+        long count();
+        // SELECT COUNT(*) FROM table
+        // ── Delete ────────────────────────────────────────────
+        void deleteById(ID id);
+        // First does a findById, then DELETE — throws if not found
+        void delete(T entity);
+        // DELETE WHERE id = entity.id
+        void deleteAllById(Iterable<? extends ID> ids);
+        // DELETE WHERE id IN (...)
+        void deleteAll(Iterable<? extends T> entities);
+        // Deletes each entity one by one
+        void deleteAll();
+        // DELETE FROM table — deletes EVERYTHING, use carefully
+2. PagingAndSortingRepository<T, ID> — 2 extra methods
+        javaIterable<T> findAll(Sort sort);
+        // SELECT * FROM table ORDER BY price ASC
+        Page<T> findAll(Pageable pageable);
+        // SELECT * FROM table LIMIT 10 OFFSET 0
+        // Returns a Page object with content + metadata
+        // ── How to use Pageable ───────────────────────────────
+        Pageable pageable = PageRequest.of(
+            0,                           // page number (0-indexed)
+            10,                          // page size
+            Sort.by("price").ascending() // optional sort
+        );
+        Page<Product> page = repo.findAll(pageable);
+        page.getContent();        // List<Product> — the actual data
+        page.getTotalElements();  // total rows in DB (e.g. 500)
+        page.getTotalPages();     // total pages (e.g. 50)
+        page.getNumber();         // current page number
+        page.isFirst();           // true if first page
+        page.isLast();            // true if last page
+        page.hasNext();           // true if more pages exist
+3. JpaRepository<T, ID> — 7 extra methods
+        java// ── Batch / Flush ─────────────────────────────────────
+        List<T> findAll();
+        // Overrides CrudRepository's Iterable<T> → returns List
+        List<T> findAll(Sort sort);
+        // Returns List instead of Iterable
+        List<T> findAllById(Iterable<ID> ids);
+        // Returns List
+        <S extends T> List<S> saveAll(Iterable<S> entities);
+        // Returns List
+        void flush();
+        // Forces Hibernate to immediately write pending changes to DB
+        // Normally Hibernate batches writes and flushes at commit
+        <S extends T> S saveAndFlush(S entity);
+        // save() + flush() in one call
+        // Useful when you need the DB to reflect changes immediately
+        // (e.g., before calling a stored procedure)
+        <S extends T> List<S> saveAllAndFlush(Iterable<S> entities);
+        // saveAll() + flush()
+        void deleteAllInBatch(Iterable<T> entities);
+        // DELETE FROM table WHERE id IN (?, ?, ?)
+        // ONE SQL statement — much faster than deleteAll() which loops
+        void deleteAllByIdInBatch(Iterable<ID> ids);
+        // DELETE FROM table WHERE id IN (?, ?, ?)
+        void deleteAllInBatch();
+        // DELETE FROM table — single SQL, no loading entities first
+        T getReferenceById(ID id);
+        // Returns a PROXY — does NOT hit the DB immediately
+        // Only fetches when you access a field (lazy loading)
+        // Replaces deprecated getOne() / getById()
+
+4. Derived Query Methods (your interface)
+Spring generates SQL from method names automatically:
+        javapublic interface ProductRepository extends JpaRepository<Product, Long> {
+            // ── By field value ────────────────────────────────
+            List<Product> findByCategory(Category cat);
+            // WHERE category = ?
+            Optional<Product> findByName(String name);
+            // WHERE name = ?
+            // ── Comparison operators ──────────────────────────
+            List<Product> findByPriceGreaterThan(Double price);       // price > ?
+            List<Product> findByPriceLessThan(Double price);          // price < ?
+            List<Product> findByPriceBetween(Double min, Double max); // price BETWEEN ? AND ?
+            List<Product> findByStockGreaterThanEqual(Integer qty);   // stock >= ?
+            // ── String matching ───────────────────────────────
+            List<Product> findByNameContaining(String kw);            // LIKE %?%
+            List<Product> findByNameStartingWith(String prefix);      // LIKE ?%
+            List<Product> findByNameEndingWith(String suffix);        // LIKE %?
+            List<Product> findByNameContainingIgnoreCase(String kw);  // LIKE %?% (case-insensitive)
+            // ── Null checks ───────────────────────────────────
+            List<Product> findByDescriptionIsNull();                  // WHERE description IS NULL
+            List<Product> findByDescriptionIsNotNull();               // WHERE description IS NOT NULL
+            // ── Boolean ───────────────────────────────────────
+            List<Product> findByActiveTrue();                         // WHERE active = true
+            List<Product> findByActiveFalse();                        // WHERE active = false
+            // ── Compound conditions ───────────────────────────
+            List<Product> findByNameAndCategory(String name, Category cat);
+            // WHERE name = ? AND category = ?
+            List<Product> findByCategoryOrPriceLessThan(Category cat, Double price);
+            // WHERE category = ? OR price < ?
+            // ── Sorting ───────────────────────────────────────
+            List<Product> findByCategoryOrderByPriceAsc(Category cat);
+            List<Product> findByCategoryOrderByPriceDesc(Category cat);
+            // ── Limiting results ──────────────────────────────
+            List<Product> findTop3ByOrderByPriceDesc();    // 3 most expensive
+            Optional<Product> findFirstByCategory(Category cat); // first match
+            // ── Count / Exists ────────────────────────────────
+            long countByCategory(Category cat);
+            boolean existsByName(String name);
+            // ── Delete ────────────────────────────────────────
+            void deleteByCategory(Category cat);
+            long deleteByStockLessThan(Integer qty); // returns deleted count
+        }
+
+5. @Query methods (manual JPQL / native SQL)
+        java// ── JPQL (uses entity class names, not table names) ───
+        @Query("SELECT p FROM Product p WHERE p.price < :max AND p.stock > 0")
+        List<Product> findAvailableUnder(@Param("max") Double max);
+        // ── Positional params (instead of named) ──────────────
+        @Query("SELECT p FROM Product p WHERE p.name LIKE %?1%")
+        List<Product> searchName(String keyword);
+        // ── Native SQL (actual table/column names) ─────────────
+        @Query(value = "SELECT * FROM products WHERE stock = 0", nativeQuery = true)
+        List<Product> findOutOfStock();
+        // ── Modifying query (UPDATE / DELETE) ─────────────────
+        @Modifying
+        @Transactional
+        @Query("UPDATE Product p SET p.price = p.price * :factor WHERE p.category = :cat")
+        int applyDiscount(@Param("factor") Double factor, @Param("cat") Category cat);
+        // Returns int = number of rows affected
+        // ── Projection (return only specific fields) ───────────
+        @Query("SELECT p.name, p.price FROM Product p WHERE p.category = :cat")
+        List<Object[]> findNameAndPrice(@Param("cat") Category cat);
+
+ What Hibernate Actually Does Behind the Scenes
+
+repo.save(product)
+  │
+  ▼
+Hibernate checks: does this entity have an ID?
+  │
+  ├── No ID → EntityManager.persist(entity)
+  │           → INSERT INTO products (...) VALUES (...)
+  │           → DB returns generated id
+  │           → entity.id is set automatically
+  │
+  └── Has ID → EntityManager.merge(entity)
+              → SELECT to check if exists
+              → UPDATE products SET ... WHERE id = ?
+
+repo.findById(1L)
+  │
+  ▼
+Hibernate checks 1st-level cache (EntityManager / persistence context)
+  │
+  ├── Found in cache → return immediately (no DB hit!)
+  │
+  └── Not in cache → SELECT * FROM products WHERE id = 1
+                   → map ResultSet → Product object
+                   → store in cache
+                   → return Optional<Product>
+
+
+
+
+
+
+
+
+
+
