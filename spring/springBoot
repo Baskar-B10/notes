@@ -77,4 +77,37 @@ Gradle (build.gradle) — faster builds
 When to Use Spring Boot
     It's ideal for building REST APIs, microservices, web applications, batch jobs, and event-driven systems in Java/Kotlin. 
     It's the industry standard for enterprise Java development due to its maturity, vast ecosystem, and strong community support.
-    
+
+
+Spring Data — The Umbrella Project:
+Spring Data is the parent project that provides a consistent, unified programming model for data access across different data stores:
+        Spring Data (Umbrella):
+        ├── Spring Data JPA          → Relational DBs (MySQL, PostgreSQL, Oracle)
+        ├── Spring Data MongoDB      → MongoDB (NoSQL Document Store)
+        ├── Spring Data Redis        → Redis (Key-Value Cache)
+        ├── Spring Data Elasticsearch → Elasticsearch
+        ├── Spring Data Cassandra    → Apache Cassandra
+        ├── Spring Data Neo4j        → Neo4j (Graph DB)
+        ├── Spring Data JDBC         → Lightweight JDBC
+        └── Spring Data REST         → Exposes repos as REST endpoints
+
+JPA:
+                                                                        @Entity                                        application
+                                                                        Maps to a DB table                              .properties config 
+                                                                                |                                        <
+                                                                                |                                        |        
+            Rest Call                 calls                calls                >                    sql                 |                    jdbc
+ Http cilent ------->@RestController --------->@Service-------------> @Repository / JpaRepository ------------>Hibernate (JPA Provider) -------------> Database (MySQL / PostgreSQL)                          
+                    Maps HTTP routes          Business logic           CRUD ·                                  ORM · generates SQL                      Persisted tables ·       
+                    validates request         transaction boundary     derived queries · @Query                 caching                                  indexes · relations
+                                                        
+Spring Data JPA vs Spring Data MongoDB
+Feature             Spring Data JPA                 Spring Data MongoDB
+Database Type       Relational (SQL)                NoSQL (Document)
+Dependency          spring-boot-starter-data-jpa    spring-boot-starter-data-mongodb
+Base Repository     JpaRepository                   MongoRepository
+Query Language      JPQL / SQL                      MongoDB Query / Aggregation
+Annotation          @Entity, @Table                 @Document, @Field
+Schema              Fixed schema                    Flexible/schema-less
+Transactions        Full ACID                       Limited (since MongoDB 4.x)
+ORM                 Hibernate                       Spring Data MongoDB Converter
