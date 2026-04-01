@@ -898,3 +898,4 @@ Annotation          @Entity, @Table                 @Document, @Field
 Schema              Fixed schema                    Flexible/schema-less
 Transactions        Full ACID                       Limited (since MongoDB 4.x)
 ORM                 Hibernate                       Spring Data MongoDB Converter
+
