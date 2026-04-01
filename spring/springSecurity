@@ -668,6 +668,16 @@ public class SecurityConfig {
         return config.getAuthenticationManager();
     }
 }
+@Bean SecurityFilterChain -> Register security config as Spring bean
+csrf().disable()  -> Disable CSRF — safe with JWT (no cookies)
+requestMatchers("/auth/**").permitAll() -> Public endpoints — no token needed
+hasRole("ADMIN")  -> Restrict to ADMIN role only
+hasAnyRole("USER","ADMIN")    -> Either role allowed
+anyRequest().authenticated() -> All other requests need valid JWT
+SessionCreationPolicy.STATELESS -> No server sessions — JWT carries state
+addFilterBefore(jwtAuthFilter,...) -> Plug JWT validation into filter chain
+BCryptPasswordEncoder  -> Hash passwords securely
+AuthenticationManager  -> Expose for manual auth in login endpoint
 
 Auth Controller (Login → Issue JWT)
 @RestController
@@ -904,3 +914,610 @@ HTTP Request
      │
      ▼
   Controller
+
+Filter Chain:
+    HTTP Request comes in
+            │
+            ▼
+    ┌───────────────────────────────────────────────────┐
+    │              Filter Chain (ordered)               │
+    │                                                   │
+    │  Filter 1 → Filter 2 → Filter 3 → ... → Filter N │
+    │                                                   │
+    │  Each filter can:                                 │
+    │  ✅ Pass request to next filter                   │
+    │  ✅ Modify request/response                       │
+    │  ❌ Block request (return 401/403)                │
+    └───────────────────────────────────────────────────┘
+            │
+            ▼
+      DispatcherServlet → Controller
+    Every request passes through ALL filters in order before reaching your controller.
+
+Complete Filter Chain — All Filters Explained:
+Filter 1: DisableEncodeUrlFilter
+    /*
+     PROBLEM it solves:
+     By default, Java appends session ID to URLs:
+     /profile;jsessionid=ABC123XYZ   ← security risk! session exposed in URL/logs
+     THIS FILTER: Disables that behavior completely
+    */
+    // What it does internally:
+    public class DisableEncodeUrlFilter extends OncePerRequestFilter {
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, ...) {
+            // Wraps response so encodeURL() does nothing
+            // Result: /profile  (clean, no session ID leak)
+            filterChain.doFilter(new DisableEncodeUrlResponseWrapper(response), response);
+        }
+    }
+    In JWT — essential. JWT is stateless, session IDs in URLs are meaningless and dangerous.
+
+Filter 2: WebAsyncManagerIntegrationFilter
+    /*
+     PROBLEM it solves:
+     Async requests (@Async, DeferredResult, Callable) run on DIFFERENT threads.
+     SecurityContext (who is logged in) is stored per-thread.
+     Without this filter → async thread has NO idea who the user is!
+    */
+    @GetMapping("/report")
+    public Callable<Report> generateReport() {
+        return () -> {
+            // This runs on a NEW thread
+            // WITHOUT this filter → SecurityContextHolder.getContext() = EMPTY!
+            // WITH this filter    → SecurityContextHolder.getContext() = current user ✅
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            return reportService.generate(auth.getName());
+        };
+    }
+    In JWT — critical for async endpoints. Propagates JWT-authenticated user to worker threads.
+
+Filter 3: SecurityContextHolderFilter
+    /*
+     THE MOST FUNDAMENTAL FILTER.
+     SecurityContext = a holder that stores WHO is currently logged in.
+     This filter LOADS the context at start of request and CLEARS it at end.
+     Flow:
+     Request Start  → load SecurityContext → put in SecurityContextHolder
+     Request End    → clear SecurityContextHolder (prevent memory/security leak)
+    */
+    // Think of it like:
+    public class SecurityContextHolderFilter extends OncePerRequestFilter {
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, ...) {
+            // 1. Load context (from session OR token depending on config)
+            SecurityContext context = securityContextRepository.loadContext(request);
+            SecurityContextHolder.setContext(context);
+            try {
+                filterChain.doFilter(request, response);  // process request
+            } finally {
+                // 2. ALWAYS clear after request — prevent thread reuse leaks
+                SecurityContextHolder.clearContext();
+            }
+        }
+    }
+      // JWT Usage:
+      // Since JWT is STATELESS → context is NOT loaded from session
+      // Instead our JwtAuthFilter manually sets the context:
+      SecurityContextHolder.getContext().setAuthentication(authToken); // ← we do this
+
+Filter 4: HeaderWriterFilter
+    /*
+     Automatically adds SECURITY HEADERS to every response.
+     Protects against common web attacks.
+    */
+    // Headers it adds:
+    X-Content-Type-Options: nosniff
+    // → Prevents browser from guessing content type (MIME sniffing attack)
+    X-Frame-Options: DENY
+    // → Prevents your page from being embedded in <iframe> (Clickjacking attack)
+    X-XSS-Protection: 0
+    // → Modern browsers have built-in XSS protection, this disables old filter
+    Strict-Transport-Security: max-age=31536000
+    // → Forces HTTPS for 1 year (HSTS)
+    Cache-Control: no-cache, no-store, max-age=0
+    // → Prevents sensitive pages being cached in browser
+    // Example response headers your API sends automatically:
+    HTTP/1.1 200 OK
+    X-Content-Type-Options: nosniff      ✅ auto-added
+    X-Frame-Options: DENY                ✅ auto-added
+    Cache-Control: no-cache, no-store    ✅ auto-added
+    In JWT/OAuth2 — runs always. Protects API responses even for public endpoints.
+
+Filter 5: CsrfFilter
+    /*
+     CSRF = Cross-Site Request Forgery
+     ATTACK: Evil website tricks logged-in user's browser into
+             making requests to YOUR app using their session cookie.
+     FIX: Every state-changing request must include a secret CSRF token
+          that only YOUR frontend knows.
+    */
+    // How CSRF attack works (WITHOUT protection):
+    // 1. User logs into bank.com → session cookie stored in browser
+    // 2. User visits evil.com
+    // 3. evil.com has hidden form: POST bank.com/transfer?to=hacker&amount=10000
+    // 4. Browser auto-sends session cookie → bank processes it! 😱
+    // CSRF Token fix:
+    // Server sends hidden token → client must echo it back in every POST/PUT/DELETE
+    // ┌─────────────────────────────────────────────┐
+    // │  FOR JWT APIs → DISABLE CSRF                │
+    // │                                             │
+    // │  JWT is sent in Authorization header        │
+    // │  NOT in cookies → CSRF attack impossible!   │
+    // │  Browsers don't auto-send headers ✅        │
+    // └─────────────────────────────────────────────┘
+    http.csrf(csrf -> csrf.disable());   // ← correct for JWT REST APIs
+    // FOR OAuth2 with sessions → KEEP CSRF ENABLED (default)
+
+Filter 6: LogoutFilter
+    /*
+     Intercepts requests to the logout URL (default: POST /logout)
+     Performs logout actions:
+      - Invalidates session
+      - Clears SecurityContext
+      - Clears remember-me cookies
+      - Redirects to login page
+    */
+    // Default behavior:
+    POST /logout → session invalidated → redirect to /login?logout
+    // Custom logout config:
+    http.logout(logout -> logout
+        .logoutUrl("/auth/logout")                    // custom logout URL
+        .logoutSuccessUrl("/login?logged-out=true")   // redirect after logout
+        .deleteCookies("JSESSIONID", "remember-me")   // clear cookies
+        .invalidateHttpSession(true)                  // destroy session
+        .clearAuthentication(true)                    // clear SecurityContext
+    );
+    // FOR JWT:
+    // Logout is handled CLIENT-SIDE (just delete the token from storage)
+    // Server-side: optionally maintain a token blacklist in Redis
+    @PostMapping("/auth/logout")
+    public ResponseEntity<String> logout(
+            @RequestHeader("Authorization") String token) {
+        // Add token to Redis blacklist until expiry
+        tokenBlacklist.add(token.substring(7));
+        return ResponseEntity.ok("Logged out");
+    }
+
+Filter 7: UsernamePasswordAuthenticationFilter
+    /*
+     Handles traditional form-based login:
+     POST /login with username & password in request body/form
+     Flow:
+     1. Intercepts POST /login
+     2. Extracts username + password
+     3. Creates UsernamePasswordAuthenticationToken
+     4. Passes to AuthenticationManager
+     5. AuthenticationManager calls UserDetailsService.loadUserByUsername()
+     6. Compares password with BCrypt
+     7. Success → sets SecurityContext
+     8. Failure → throws BadCredentialsException
+    */
+    // FOR JWT:
+    // We DON'T use this filter for login
+    // Instead we have our OWN /auth/login endpoint in a controller
+    // This filter is replaced by JwtAuthFilter for subsequent requests
+    // FOR OAuth2:
+    // This filter is bypassed — OAuth2LoginAuthenticationFilter handles it instead
+    // Customize if needed:
+    public class CustomAuthFilter extends UsernamePasswordAuthenticationFilter {
+        @Override
+        public Authentication attemptAuthentication(
+                HttpServletRequest request, HttpServletResponse response) {
+            // Read JSON body instead of form params
+            LoginRequest loginReq = objectMapper.readValue(request.getInputStream(),
+                                                            LoginRequest.class);
+            return authManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                    loginReq.getEmail(), loginReq.getPassword()
+                )
+            );
+        }
+    }
+
+Filter 8: BearerTokenAuthenticationFilter (OAuth2 Resource Server)
+    /*
+     Specifically for OAuth2 Resource Server setup.
+     Extracts Bearer token from Authorization header and validates it.
+     Flow:
+     1. Read "Authorization: Bearer <token>" header
+     2. Pass token to OAuth2TokenIntrospectionClient OR JwtDecoder
+     3. Validate token (signature, expiry, issuer, audience)
+     4. Extract claims → build Authentication object
+     5. Set in SecurityContext
+    */
+    // Config to activate this filter:
+    http.oauth2ResourceServer(oauth2 -> oauth2
+        .jwt(jwt -> jwt
+            .decoder(JwtDecoders.fromIssuerLocation("https://accounts.google.com"))
+        )
+    );
+    // application.yml for Resource Server:
+    spring:
+      security:
+        oauth2:
+          resourceserver:
+            jwt:
+              issuer-uri: https://accounts.google.com
+              # Spring auto-fetches public keys from Google's JWKS endpoint
+
+Filter 9: OAuth2LoginAuthenticationFilter
+    /*
+     Handles the CALLBACK after user logs in at Google/GitHub.
+     OAuth2 Flow Step:
+     1. User clicks "Login with Google"
+     2. Redirected to Google login
+     3. Google redirects back to: /login/oauth2/code/google?code=ABC
+     4. THIS FILTER intercepts that callback URL
+     5. Exchanges authorization code for access token
+     6. Fetches user info from Google
+     7. Creates/updates user in your DB
+     8. Sets SecurityContext
+    */
+    // Default callback URL pattern:
+    /login/oauth2/code/{registrationId}
+    // e.g. /login/oauth2/code/google
+    //      /login/oauth2/code/github
+    // Customize user loading:
+    @Service
+    public class CustomOAuth2UserService extends DefaultOAuth2UserService {
+        @Autowired
+        private UserRepository userRepo;
+        @Override
+        public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
+            OAuth2User oAuth2User = super.loadUser(userRequest);
+            String email = oAuth2User.getAttribute("email");
+            String name  = oAuth2User.getAttribute("name");
+            // Auto-register user on first OAuth2 login
+            userRepo.findByEmail(email).orElseGet(() -> {
+                User newUser = new User(name, email, "ROLE_USER");
+                return userRepo.save(newUser);
+            });
+    
+            return oAuth2User;
+        }
+    }
+Filter 10: ExceptionTranslationFilter
+    /*
+     Catches TWO specific security exceptions and converts them to HTTP responses:
+     1. AuthenticationException → 401 Unauthorized
+        (user is not logged in / token missing / token invalid)
+    
+     2. AccessDeniedException   → 403 Forbidden
+        (user IS logged in but doesn't have required role)
+    */
+    // Customize 401 response:
+    http.exceptionHandling(ex -> ex
+        .authenticationEntryPoint((request, response, authException) -> {
+            response.setContentType("application/json");
+            response.setStatus(401);
+            response.getWriter().write("""
+                {
+                  "status": 401,
+                  "error": "Unauthorized",
+                  "message": "Token missing or invalid"
+                }
+            """);
+        })
+        // Customize 403 response:
+        .accessDeniedHandler((request, response, accessDeniedException) -> {
+            response.setContentType("application/json");
+            response.setStatus(403);
+            response.getWriter().write("""
+                {
+                  "status": 403,
+                  "error": "Forbidden",
+                  "message": "You don't have permission to access this resource"
+                }
+            """);
+        })
+    );
+
+Filter 11: AuthorizationFilter (formerly FilterSecurityInterceptor)
+    /*
+     THE FINAL GATEKEEPER — runs last.
+     Checks if the authenticated user has permission to access the URL.
+     This is WHERE your authorizeHttpRequests() rules are enforced.
+    */
+    
+    // This filter reads your rules:
+    .authorizeHttpRequests(auth -> auth
+        .requestMatchers("/auth/**").permitAll()
+        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+        .anyRequest().authenticated()
+    )
+    
+    // And makes the final Allow/Deny decision:
+    // ✅ User has ADMIN role + hits /api/admin → ALLOW
+    // ❌ User has USER role  + hits /api/admin → AccessDeniedException → 403
+    // ❌ No token            + hits /api/user  → AuthenticationException → 401
+
+Filter                                Purpose                      JWT              OAuth2
+DisableEncodeUrlFilter                No session ID in URLs        ✅ Active      ✅ Active
+WebAsyncManagerIntegrationFilter      Async thread security        ✅ Active      ✅ Active
+SecurityContextHolderFilter           Load/clear security context  ✅ Active      ✅ Active
+HeaderWriterFilter                    Add security headers         ✅ Active      ✅ Active
+CsrfFilter                            CSRF protection              ❌ Disabled    ✅ Active
+LogoutFilter                          Handle logout                ✅ Active      ✅ Active
+JwtAuthFilter                         Validate JWT token           ✅ Custom     ➖ Optional
+OAuth2LoginAuthenticationFilter       Handle OAuth2 callback      ❌ Not used      ✅ Active
+BearerTokenAuthenticationFilter        Validate OAuth2 token      ❌ Not used      ✅ Resource server
+ExceptionTranslationFilter            401 / 403 responses          ✅ Active        ✅ Active
+AuthorizationFilter                    Enforce URL rules          ✅ Active        ✅ Active
+
+http.authorizeHttpRequests(auth -> auth
+    // ── Public Access ──────────────────────────────────────
+    .requestMatchers("/", "/login", "/register").permitAll()
+    // Anyone can access — no token needed
+    // Use for: login page, signup, public homepage, health check
+    .requestMatchers("/api/public/**").permitAll()
+    // /** means all sub-paths: /api/public/news, /api/public/prices etc.
+    // ── Role Based ─────────────────────────────────────────
+    .requestMatchers("/api/admin/**").hasRole("ADMIN")
+    // Only ROLE_ADMIN — Spring auto-prepends "ROLE_"
+    // hasRole("ADMIN") checks for "ROLE_ADMIN" in authorities
+    .requestMatchers("/api/manager/**").hasAnyRole("ADMIN", "MANAGER")
+    // Either role works
+    .requestMatchers("/api/user/**").hasAuthority("USER_READ")
+    // Exact authority string — no "ROLE_" prefix added
+    // Use for fine-grained permissions
+    // ── HTTP Method + Path Combo ───────────────────────────
+    .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+    // Anyone can READ products
+    .requestMatchers(HttpMethod.POST, "/api/products/**").hasRole("ADMIN")
+    // Only ADMIN can CREATE products
+    .requestMatchers(HttpMethod.DELETE, "/api/products/**").hasRole("ADMIN")
+    // Only ADMIN can DELETE products
+    // ── IP Address Restriction ─────────────────────────────
+    .requestMatchers("/actuator/**").access(
+        new WebExpressionAuthorizationManager("hasRole('ADMIN') and hasIpAddress('192.168.1.0/24')")
+    )
+    // Admin role AND must come from internal network
+    // ── Authenticated vs Anonymous ─────────────────────────
+    .anyRequest().authenticated()
+    // All other requests need a valid token/session — any role
+    // .anyRequest().permitAll()      ← everything public (not recommended)
+    // .anyRequest().denyAll()        ← everything blocked (whitelist approach)
+);
+
+ How Rules Are Evaluated:
+1. The Golden Rules of Authorization
+    RULE 1: TOP → BOTTOM evaluation, FIRST MATCH WINS
+    RULE 2: Most SPECIFIC rules first, GENERIC rules last
+    RULE 3: anyRequest() MUST always be LAST
+    RULE 4: Order WRONG = security holes or everything blocked
+
+2. What Happens Without Correct Order
+    // ❌ WRONG ORDER — Security Hole!
+    .authorizeHttpRequests(auth -> auth
+        .anyRequest().authenticated()           // catches EVERYTHING first
+        .requestMatchers("/auth/**").permitAll() // NEVER REACHED
+        .requestMatchers("/api/admin/**").hasRole("ADMIN") // NEVER REACHED
+    )
+    // Result: /auth/login also needs authentication → infinite loop!
+
+      // ❌ WRONG ORDER — Too Permissive!
+      .authorizeHttpRequests(auth -> auth
+          .requestMatchers("/api/**").permitAll()  // /api/admin also becomes public!
+          .requestMatchers("/api/admin/**").hasRole("ADMIN") // NEVER REACHED
+          .anyRequest().authenticated()
+      )
+      // Result: /api/admin/deleteAll is now PUBLIC! 😱
+
+      // ✅ CORRECT ORDER — Specific → Generic
+      .authorizeHttpRequests(auth -> auth
+          .requestMatchers("/auth/**").permitAll()          // most specific public
+          .requestMatchers("/api/admin/**").hasRole("ADMIN") // specific + restricted
+          .requestMatchers("/api/user/**").hasRole("USER")   // specific + restricted
+          .requestMatchers("/api/**").authenticated()        // broad API rule
+          .anyRequest().authenticated()                      // catch-all LAST
+      )
+
+3. Rule Evaluation Flow — Step by Step
+Incoming Request: DELETE /api/admin/users/5
+User roles: [ROLE_USER]
+
+┌─────────────────────────────────────────────────────────────┐
+│               AuthorizationFilter evaluates rules           │
+│                                                             │
+│  Rule 1: /auth/**              → ❌ no match → next        │
+│  Rule 2: /public/**            → ❌ no match → next        │
+│  Rule 3: /api/admin/**         → ✅ MATCH!                 │
+│           hasRole("ADMIN")     → user has ROLE_USER only   │
+│                                → 🚫 ACCESS DENIED → 403   │
+│  Rule 4,5... never evaluated                                │
+└─────────────────────────────────────────────────────────────┘
+
+Incoming Request: GET /health
+User: NOT authenticated
+
+┌─────────────────────────────────────────────────────────────┐
+│  Rule 1: /auth/**   → ❌ no match                          │
+│  Rule 2: /public/** → ❌ no match                          │
+│  Rule 3: /api/**    → ❌ no match                          │
+│  Rule 4: anyRequest → ✅ MATCH! → authenticated()         │
+│           user NOT logged in → 401 Unauthorized            │
+└─────────────────────────────────────────────────────────────┘
+Role vs Permission Based — The Difference
+
+ROLE BASED (coarse-grained):          PERMISSION BASED (fine-grained):
+─────────────────────────────         ────────────────────────────────
+ROLE_ADMIN  → can do everything       users:read
+ROLE_USER   → limited access          users:write
+ROLE_GUEST  → read only               orders:read
+                                      orders:delete
+                                      reports:view
+
+// Role-based (simple apps):
+.hasRole("ADMIN")
+// Permission-based (enterprise apps):
+.hasAuthority("orders:delete")
+// COMBINED (best practice):
+@PreAuthorize("hasRole('ADMIN') or hasAuthority('orders:delete')")
+public void deleteOrder(Long id) { }
+
+Method Level Security — @PreAuthorize
+  Used when URL rules aren't enough — secure at the method level:
+    @Configuration
+    @EnableMethodSecurity   // ← must enable this!
+    public class SecurityConfig { }
+    @RestController
+    @RequestMapping("/api/users")
+    public class UserController {
+        // ── Role checks ───────────────────────────────────────────
+        @GetMapping
+        @PreAuthorize("hasRole('ADMIN')")
+        public List<User> getAllUsers() { }
+        // Only ADMIN can list all users
+        @DeleteMapping("/{id}")
+        @PreAuthorize("hasRole('ADMIN')")
+        public void deleteUser(@PathVariable Long id) { }
+        // ── Permission checks ─────────────────────────────────────
+        @GetMapping("/reports")
+        @PreAuthorize("hasAuthority('reports:view')")
+        public List<Report> getReports() { }
+        // ── Dynamic checks using method args ─────────────────────
+        @GetMapping("/{id}")
+        @PreAuthorize("#id == authentication.principal.id or hasRole('ADMIN')")
+        public User getUser(@PathVariable Long id) { }
+        // Users can only fetch THEIR OWN profile
+        // Admins can fetch anyone's profile
+        // #id refers to the method parameter 'id'
+        @PutMapping("/{id}")
+        @PreAuthorize("#request.ownerId == authentication.principal.id")
+        public User updateUser(@PathVariable Long id,
+                               @RequestBody UpdateRequest request) { }
+        // ── Post-check on returned data ───────────────────────────
+        @GetMapping("/{id}/data")
+        @PostAuthorize("returnObject.email == authentication.name")
+        public User getUserData(@PathVariable Long id) {
+            return userService.findById(id);
+            // Even if query runs, returned object is checked
+            // If email doesn't match logged-in user → 403
+        }
+        // ── Combined conditions ───────────────────────────────────
+        @PostMapping("/promote/{id}")
+        @PreAuthorize("hasRole('SUPER_ADMIN') and #id != authentication.principal.id")
+        public void promoteToAdmin(@PathVariable Long id) { }
+        // Only SUPER_ADMIN can promote
+        // Cannot promote yourself
+        // ── Custom bean method in SpEL ────────────────────────────
+        @GetMapping("/{id}/orders")
+        @PreAuthorize("@userSecurity.isOwnerOrAdmin(authentication, #id)")
+        public List<Order> getUserOrders(@PathVariable Long id) { }
+    }
+    
+    // Custom security bean:
+    @Component("userSecurity")
+    public class UserSecurityService {
+        public boolean isOwnerOrAdmin(Authentication auth, Long userId) {
+            UserDetails user = (UserDetails) auth.getPrincipal();
+            boolean isAdmin = user.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+            boolean isOwner = user.getUsername().equals(
+                userRepository.findById(userId).get().getEmail()
+            );
+            return isAdmin || isOwner;
+        }
+    }
+
+URL Rules vs Method Rules — When to Use What
+┌────────────────────────────────────────────────────────────┐
+│         authorizeHttpRequests (URL level)                  │
+│                                                            │
+│  ✅ Use for:                                               │
+│    Broad path-based rules (/api/admin/**)                  │
+│    HTTP method restrictions (GET public, POST admin)       │
+│    Public endpoints (permitAll)                            │
+│    First line of defense                                   │
+│                                                            │
+│  ❌ Cannot do:                                             │
+│    Check method parameters                                 │
+│    Check returned object values                            │
+│    Complex business logic conditions                       │
+└────────────────────────────────────────────────────────────┘
+                          
+┌────────────────────────────────────────────────────────────┐
+│         @PreAuthorize (Method level)                       │
+│                                                            │
+│  ✅ Use for:                                               │
+│    Fine-grained control on specific methods                │
+│    Checking method arguments (#id == principal.id)         │
+│    Complex SpEL expressions                                │
+│    Custom bean logic (@myBean.check())                     │
+│    Ownership checks (can user access THIS resource?)       │
+│                                                            │
+│  ❌ Overkill for:                                          │
+│    Simple broad rules (use URL rules instead)              │
+└────────────────────────────────────────────────────────────┘
+
+Best Practice: USE BOTH TOGETHER
+URL rules = broad gatekeeper
+Method rules = fine-grained controller
+
+Role Hierarchy — Avoid Repeating Roles Everywhere
+    // WITHOUT hierarchy — tedious:
+    .hasAnyRole("ADMIN", "MANAGER", "USER")  // repeated everywhere
+    .hasAnyRole("ADMIN", "MANAGER")
+    .hasAnyRole("ADMIN")
+    
+    // WITH hierarchy — clean:
+    @Bean
+    public RoleHierarchy roleHierarchy() {
+        RoleHierarchyImpl h = new RoleHierarchyImpl();
+        h.setHierarchy("""
+            ROLE_SUPER_ADMIN > ROLE_ADMIN
+            ROLE_ADMIN       > ROLE_MANAGER
+            ROLE_MANAGER     > ROLE_USER
+            ROLE_USER        > ROLE_GUEST
+        """);
+        return h;
+    }
+    // Now just write:
+    .hasRole("USER")
+    // ROLE_USER, ROLE_MANAGER, ROLE_ADMIN, ROLE_SUPER_ADMIN all pass ✅
+    // Visual:
+    ROLE_SUPER_ADMIN
+        └── ROLE_ADMIN
+                └── ROLE_MANAGER
+                        └── ROLE_USER
+                                └── ROLE_GUEST
+
+Method           Checks            Auto ROLE_ prefix  Example
+permitAll()      Nothing                 —              Public endpoints
+denyAll()        Nothing                 —              Block all
+authenticated()  Has valid token         —              Any logged-in user
+hasRole()        Single role            ✅Yes           hasRole("ADMIN")
+hasAnyRole()      Multiple roles        ✅ Yes          hasAnyRole("USER","ADMIN")
+hasAuthority()   Single permission      ❌ No            hasAuthority("READ")
+hasAnyAuthority() Multiple permissions  ❌ No            hasAnyAuthority("READ","WRITE")
+@PreAuthorize      SpEL expression        ✅ Yes            #id == principal.id
+@PostAuthorize    Return object            ✅ Yes          returnObject.owner == principal
+
+Complete Flow Summary:
+Request Arrives
+      │
+      ▼
+JwtAuthFilter
+  ├── Valid JWT → set SecurityContext (user + roles)
+  └── No JWT   → pass through (anonymous)
+      │
+      ▼
+AuthorizationFilter reads rules TOP → BOTTOM
+  ├── First matching rule WINS
+  ├── permitAll()     → allow everyone
+  ├── hasRole(X)      → check ROLE_X in SecurityContext
+  ├── authenticated() → check if SecurityContext has user
+  └── denyAll()       → block everyone
+      │
+      ├── ✅ ALLOWED → reaches Controller
+      │        │
+      │        ▼
+      │   @PreAuthorize  (second layer check)
+      │        │
+      │        ├── ✅ passes → method executes
+      │        └── ❌ fails  → 403 Forbidden
+      │
+      └── ❌ DENIED
+               ├── Not authenticated → 401 Unauthorized
+               └── Wrong role        → 403 Forbidden
