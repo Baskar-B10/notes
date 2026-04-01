@@ -740,12 +740,66 @@ Hibernate checks 1st-level cache (EntityManager / persistence context)
                    → store in cache
                    → return Optional<Product>
 
+7 core in Hibernate
+1. ORM (Object-Relational Mapping)
+    This is the fundamental job. Hibernate maps your Java POJOs (Plain Old Java Objects) to Database Tables.
+    The Mapping: Using annotations (like @Entity, @Table, @Column) or XML,
+                Hibernate understands that a class attribute like String userName corresponds to a table column USER_NAME.
+    The Benefit: You work with objects and methods rather than manually mapping result sets to objects.
+2. SQL Generation
+    Hibernate acts as a translator. You don't have to write vendor-specific SQL for every operation.
+    Dialects: Hibernate uses a Dialect (e.g., PostgreSQLDialect, MySQL8Dialect) to know how to talk to your specific database.
+    Automatic Creation: When you call session.save(user),
+                        Hibernate automatically generates the INSERT INTO... statement for you at runtime.
+3. Persistence Context (1st-Level Cache)
+    The Session acts as the First-Level Cache. It is a mandatory, short-lived cache associated with the current unit of work.    
+    De-duplication: If you request the same User object twice in the same session, Hibernate only hits the database once. 
+                    The second time, it pulls the object from the Persistence Context.
+    Scope: It is private to the current session and is destroyed when the session closes.
+4. Second-Level Cache
+    Unlike the first-level cache, the Second-Level Cache is SessionFactory-scoped and optional.
+    Sharing: Data stored here is available across different sessions and even different users.
+    External Providers: Hibernate doesn't provide the cache itself but integrates with providers like Ehcache, Infinispan, or Redis.
+5. Dirty Checking
+    This is a "smart" feature that minimizes database updates.
+    Mechanism: When an object is loaded into the Persistence Context, Hibernate keeps a "snapshot" of its original state.
+    Automatic Update: When the transaction commits, Hibernate compares the current state of the object with the snapshot. 
+                    If you changed a field (e.g., user.setName("New Name")), Hibernate detects the "dirtiness" and automatically triggers an UPDATE statement. 
+                    You don't need to call session.update() manually.
+6. Lazy Loading via Proxies
+    To save memory and improve performance, Hibernate doesn't load everything at once.
+    Proxies: If a User has a list of Orders, Hibernate doesn't fetch the orders immediately.
+            Instead, it places a Proxy (a placeholder object) there.
+    On-Demand: The SQL query to fetch the orders is only executed the moment you actually call user.getOrders().size() or iterate through them.
+7. Transaction Management
+    Hibernate integrates with transaction APIs to ensure data integrity (ACID properties).
+    Unit of Work: It ensures that a series of operations (like withdrawing money from one account and depositing in another) either all succeed or all fail.
+    Abstraction: It abstracts the underlying JDBC transaction management, allowing you to focus on the business logic rather than connection.commit() or connection.rollback() boilerplate.
 
+Example: 
+        // 1. Start Transaction
+        Transaction tx = session.beginTransaction();
+        // 2. Fetch User (The Profile field is a Proxy at this point)
+        User user = session.get(User.class, 1L); 
+        // 3. Lazy Loading Triggered
+        // The moment we call getProfile().getBio(), Hibernate fires a SELECT for the Profile table.
+        String oldBio = user.getProfile().getBio();
+        // 4. Dirty Checking at work
+        // We simply change the Java object. We DON'T call session.update().
+        user.getProfile().setBio("Updated Bio via Dirty Checking!");
+        // 5. Transaction Management
+        // When we commit, Hibernate:
+        //   a) Performs Dirty Checking
+        //   b) Sees the Bio changed
+        //   c) Issues the SQL UPDATE
+        //   d) Finalizes the DB transaction
+        tx.commit(); 
+        session.close();
 
-
-
-
-
-
-
-
+Common Hibernate pitfalls:
+N+1 query problem — loading a list of orders and then accessing order.getItems() in a loop fires one query for orders and then one query per order for items. 
+        Fix with JOIN FETCH in your JPQL query or @EntityGraph.
+LazyInitializationException — accessing a lazy relationship outside a transaction. 
+        Fix by keeping data access inside @Transactional, or using FetchType.EAGER, or a DTO projection that doesn't need the relationship at all.
+ddl-auto=create in production — drops and recreates all tables on startup. 
+        Always use validate or none in production, and manage schema changes with Flyway or Liquibase instead.
