@@ -1,0 +1,56 @@
+
+Why Prefer MongoDB over SQL?
+1. Flexible Schema
+        json// Document 1
+        { "name": "Alice", "email": "alice@mail.com" }
+        // Document 2 — different fields, same collection. Totally fine!
+        { "name": "Bob", "email": "bob@mail.com", "age": 25, "address": { "city": "NYC" } }
+        SQL requires every row to have the **same columns**. 
+        MongoDB lets each document have its own structure — great when your data evolves frequently.
+
+ 2. Horizontal Scaling (Sharding)
+        SQL (Vertical Scaling)          MongoDB (Horizontal Scaling)
+        ┌─────────────┐                 ┌────────┐ ┌────────┐ ┌────────┐
+        │ Bigger &    │                 │ Shard1 │ │ Shard2 │ │ Shard3 │
+        │ Bigger      │       vs        │ Node   │ │ Node   │ │ Node   │
+        │ Server 💰   │                 └────────┘ └────────┘ └────────┘
+        └─────────────┘                   Distribute data across cheap nodes
+        MongoDB scales out (more servers), SQL typically scales up (bigger server) — MongoDB wins at massive scale.
+
+3. Document Model = Natural Object Mapping
+    java// In SQL — you'd need 3 tables: users, addresses, phones
+    // In MongoDB — one document, mirrors your Java object perfectly
+    @Document
+    public class User {
+        private String name;
+        private Address address;          // embedded object
+        private List<String> phoneNums;   // array — no join table needed!
+    }
+    No complex JOINs or ORM gymnastics. The document is your object.
+
+4. High Write Throughput
+    MongoDB is optimized for fast writes — ideal for:
+        Real-time analytics
+        IoT sensor data
+        Activity/event logging
+        Chat messages
+
+5. Rich, Developer-Friendly Querying
+    javascript// Nested queries, arrays, regex — all natively supported
+    db.users.find({
+      "address.city": "Mumbai",
+      "tags": { $in: ["admin", "moderator"] },
+      "age": { $gte: 18 }
+    })
+
+6. Built-in Replication
+    MongoDB's Replica Sets give you automatic failover and high availability out of the box, with minimal config.
+Feature        MongoDB                    SQL (e.g. MySQL/Postgres)
+Schema         Flexible / Dynamic         Fixed / Rigid
+Scaling        Horizontal (sharding)      Vertical (mostly)
+Relationships  Embedding / References     JOINs
+Transactions   Supported (v4.0+)          Native & mature
+Query Language MongoDB Query Language     SQL (standardized)
+Speed (writes) Very fast                   Moderate
+Data integrity App-level                    DB-level (constraints)
+Best for        Unstructured/varied data   Relational, structured data
