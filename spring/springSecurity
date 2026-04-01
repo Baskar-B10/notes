@@ -1521,3 +1521,784 @@ AuthorizationFilter reads rules TOP → BOTTOM
       └── ❌ DENIED
                ├── Not authenticated → 401 Unauthorized
                └── Wrong role        → 403 Forbidden
+
+
+Secret Rotation & Refresh:
+    Secret = the key used to SIGN and VERIFY JWT tokens
+    WITHOUT rotation:                    WITH rotation:
+    ──────────────────                   ─────────────────
+    One secret forever                   Secret changes periodically
+    If leaked → ALL tokens               If leaked → only tokens from
+    compromised forever 😱               that period are affected ✅
+    
+    secret = "mySecret123"               secret_v1 = "secret_jan_2026" (expired)
+                                         secret_v2 = "secret_feb_2026" (expired)
+                                         secret_v3 = "secret_mar_2026" (current)
+Reasons to rotate:
+┌─────────────────────────────────────────────────────────┐
+│  1. Employee leaves   → revoke their access             │
+│  2. Secret leaked     → limit blast radius              │
+│  3. Compliance        → PCI-DSS, SOC2 require rotation  │
+│  4. Scheduled policy  → rotate every 30/60/90 days      │
+│  5. Suspected breach  → emergency rotation              │
+└─────────────────────────────────────────────────────────┘
+JWT Token Lifecycle
+                    ACCESS TOKEN (short-lived)
+                    ┌────────────────────────┐
+                    │  expires: 15 mins      │
+User logs in ──►    │  carries: roles,email  │──► used for API calls
+                    │  signed: with secret   │
+                    └────────────────────────┘
+                               +
+                    REFRESH TOKEN (long-lived)
+                    ┌────────────────────────┐
+                    │  expires: 7–30 days    │
+                    │  stored: in DB/Redis   │──► used ONLY to get new access token
+                    │  one-time use (ideally)│
+                    └────────────────────────┘
+
+Flow:
+    1. Login           → get Access Token (15min) + Refresh Token (7days)
+    2. API calls       → use Access Token
+    3. Access expires  → use Refresh Token to get NEW Access Token
+    4. Refresh expires → force re-login
+
+Token Entities
+// Access Token payload (JWT - stateless)
+@Data
+public class TokenResponse {
+    private String accessToken;
+    private String refreshToken;
+    private long   accessTokenExpiry;   // 900000ms = 15 min
+    private long   refreshTokenExpiry;  // 604800000ms = 7 days
+    private String tokenType = "Bearer";
+}
+// Refresh Token stored in DB (stateful)
+@Entity
+@Table(name = "refresh_tokens")
+public class RefreshToken {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    @Column(nullable = false, unique = true)
+    private String token;                    // the refresh token string
+    @OneToOne
+    @JoinColumn(name = "user_id")
+    private User user;
+    @Column(nullable = false)
+    private Instant expiryDate;              // when it expires
+    private boolean revoked = false;         // manually revoked?
+    private boolean used = false;            // one-time use flag
+    @Column(name = "created_at")
+    private Instant createdAt = Instant.now();
+    @Column(name = "device_info")
+    private String deviceInfo;               // track which device
+}
+JWT Utility — Supporting Multiple Secrets (Rotation)
+@Component
+public class JwtUtil {
+    // Current active secret
+    @Value("${jwt.secret.current}")
+    private String currentSecret;
+    // Previous secret (still valid during rotation window)
+    @Value("${jwt.secret.previous}")
+    private String previousSecret;
+    @Value("${jwt.access-token.expiry}")   // 900000 = 15 min
+    private long accessTokenExpiry;
+    @Value("${jwt.refresh-token.expiry}")  // 604800000 = 7 days
+    private long refreshTokenExpiry;
+    // ── Generate Access Token ─────────────────────────────────
+    public String generateAccessToken(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("roles", userDetails.getAuthorities()
+            .stream()
+            .map(GrantedAuthority::getAuthority)
+            .collect(Collectors.toList()));
+        claims.put("type", "ACCESS");
+        claims.put("kid", "v3");           // key ID — which secret version
+        return buildToken(claims, userDetails.getUsername(), accessTokenExpiry);
+    }
+    // ── Generate Refresh Token ────────────────────────────────
+    public String generateRefreshToken(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("type", "REFRESH");
+        claims.put("kid", "v3");
+        return buildToken(claims, userDetails.getUsername(), refreshTokenExpiry);
+    }
+    // ── Build Token ───────────────────────────────────────────
+    private String buildToken(Map<String, Object> claims,
+                               String subject, long expiry) {
+        return Jwts.builder()
+            .setClaims(claims)
+            .setSubject(subject)
+            .setIssuedAt(new Date())
+            .setExpiration(new Date(System.currentTimeMillis() + expiry))
+            .setIssuer("my-app")                     // who issued it
+            .setAudience("my-app-clients")            // who it's for
+            .signWith(getCurrentSignKey(), SignatureAlgorithm.HS256)
+            .compact();
+    }
+    // ── Validate Token — Try Current Then Previous Secret ────
+    public Claims validateAndExtractClaims(String token) {
+        // Try current secret first
+        try {
+            return Jwts.parserBuilder()
+                .setSigningKey(getCurrentSignKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        } catch (SignatureException e) {
+            // Current secret failed → try previous secret (rotation window)
+            try {
+                return Jwts.parserBuilder()
+                    .setSigningKey(getPreviousSignKey())
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
+            } catch (SignatureException ex) {
+                throw new InvalidTokenException("Token signature invalid");
+            }
+        } catch (ExpiredJwtException e) {
+            throw new TokenExpiredException("Token has expired");
+        }
+    }
+    public String extractUsername(String token) {
+        return validateAndExtractClaims(token).getSubject();
+    }
+    public boolean isTokenExpired(String token) {
+        return validateAndExtractClaims(token)
+            .getExpiration().before(new Date());
+    }
+    private Key getCurrentSignKey() {
+        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(currentSecret));
+    }
+    private Key getPreviousSignKey() {
+        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(previousSecret));
+    }
+}
+
+Refresh Token Service
+@Service
+@Transactional
+public class RefreshTokenService {
+    @Autowired private RefreshTokenRepository refreshTokenRepo;
+    @Autowired private UserRepository userRepo;
+    @Autowired private JwtUtil jwtUtil;
+    @Value("${jwt.refresh-token.expiry}")
+    private long refreshTokenExpiry;
+    // ── Create & Store Refresh Token ──────────────────────────
+    public RefreshToken createRefreshToken(String email) {
+        // Revoke existing tokens for this user (single session)
+        refreshTokenRepo.revokeAllByUserEmail(email);
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUser(userRepo.findByEmail(email).orElseThrow());
+        refreshToken.setToken(UUID.randomUUID().toString());  // random, not JWT
+        refreshToken.setExpiryDate(Instant.now().plusMillis(refreshTokenExpiry));
+        refreshToken.setRevoked(false);
+        refreshToken.setUsed(false);
+        return refreshTokenRepo.save(refreshToken);
+    }
+    // ── Rotate: Use Refresh Token → Issue New Pair ────────────
+    public TokenResponse rotateTokens(String refreshTokenStr,
+                                       HttpServletRequest request) {
+        // 1. Find token in DB
+        RefreshToken refreshToken = refreshTokenRepo
+            .findByToken(refreshTokenStr)
+            .orElseThrow(() -> new InvalidTokenException("Refresh token not found"));
+        // 2. Check if already used (replay attack detection)
+        if (refreshToken.isUsed()) {
+            // Possible token theft! Revoke ALL tokens for this user
+            refreshTokenRepo.revokeAllByUser(refreshToken.getUser());
+            throw new SecurityException("Refresh token already used — possible theft!");
+        }
+        // 3. Check if revoked
+        if (refreshToken.isRevoked()) {
+            throw new InvalidTokenException("Refresh token has been revoked");
+        }
+        // 4. Check expiry
+        if (refreshToken.getExpiryDate().isBefore(Instant.now())) {
+            throw new TokenExpiredException("Refresh token expired — please login again");
+        }
+        // 5. Mark current refresh token as USED (one-time use)
+        refreshToken.setUsed(true);
+        refreshTokenRepo.save(refreshToken);
+        // 6. Generate NEW access token + NEW refresh token (rotation)
+        User user = refreshToken.getUser();
+        UserDetails userDetails = loadUserDetails(user);
+        String newAccessToken  = jwtUtil.generateAccessToken(userDetails);
+        RefreshToken newRefreshToken = createRefreshToken(user.getEmail());
+        return TokenResponse.builder()
+            .accessToken(newAccessToken)
+            .refreshToken(newRefreshToken.getToken())
+            .accessTokenExpiry(900000L)
+            .refreshTokenExpiry(refreshTokenExpiry)
+            .build();
+    }
+    // ── Revoke All Tokens (logout all devices) ────────────────
+    public void revokeAllUserTokens(String email) {
+        refreshTokenRepo.revokeAllByUserEmail(email);
+    }
+}
+
+Auth Controller — Full Rotation Flow
+@RestController
+@RequestMapping("/auth")
+public class AuthController {
+    @Autowired private AuthenticationManager authManager;
+    @Autowired private JwtUtil jwtUtil;
+    @Autowired private RefreshTokenService refreshTokenService;
+    @Autowired private UserDetailsService userDetailsService;
+    // ── Login → Issue Token Pair ──────────────────────────────
+    @PostMapping("/login")
+    public ResponseEntity<TokenResponse> login(
+            @Valid @RequestBody LoginRequest request) {
+        // Authenticate credentials
+        authManager.authenticate(
+            new UsernamePasswordAuthenticationToken(
+                request.getEmail(), request.getPassword()
+            )
+        );
+        UserDetails userDetails =
+            userDetailsService.loadUserByUsername(request.getEmail());
+        // Generate token pair
+        String accessToken  = jwtUtil.generateAccessToken(userDetails);
+        RefreshToken refreshToken =
+            refreshTokenService.createRefreshToken(request.getEmail());
+        return ResponseEntity.ok(TokenResponse.builder()
+            .accessToken(accessToken)
+            .refreshToken(refreshToken.getToken())
+            .accessTokenExpiry(900000L)
+            .refreshTokenExpiry(604800000L)
+            .build());
+    }
+    // ─ Refresh → Rotate Token Pair ───────────────────────────
+    @PostMapping("/refresh-token")
+    public ResponseEntity<TokenResponse> refreshToken(
+            @RequestBody RefreshRequest request,
+            HttpServletRequest httpRequest) {
+        // Validate + rotate tokens
+        TokenResponse newTokens =
+            refreshTokenService.rotateTokens(request.getRefreshToken(), httpRequest);
+        return ResponseEntity.ok(newTokens);
+    }
+    // ── Logout → Revoke Tokens ────────────────────────────────
+    @PostMapping("/logout")
+    public ResponseEntity<String> logout(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        refreshTokenService.revokeAllUserTokens(userDetails.getUsername());
+        return ResponseEntity.ok("Logged out successfully");
+    }
+    // ── Logout All Devices ────────────────────────────────────
+    @PostMapping("/logout-all")
+    public ResponseEntity<String> logoutAll(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        refreshTokenService.revokeAllUserTokens(userDetails.getUsername());
+        return ResponseEntity.ok("Logged out from all devices");
+    }
+}
+
+Token Rotation Flow — Visual
+
+CLIENT                          SERVER                        DB
+  │                                │                           │
+  │──── POST /auth/login ─────────►│                           │
+  │     { email, password }        │── verify credentials ────►│
+  │                                │◄─ user found ─────────────│
+  │                                │── save refresh token ────►│
+  │◄─── accessToken (15min) ───────│                           │
+  │     refreshToken (7days)       │                           │
+  │                                │                           │
+  │  ... 15 minutes later ...      │                           │
+  │                                │                           │
+  │──── GET /api/data ────────────►│                           │
+  │     Authorization: Bearer ...  │── token expired! ─────────│
+  │◄─── 401 Unauthorized ──────────│                           │
+  │                                │                           │
+  │──── POST /auth/refresh ───────►│                           │
+  │     { refreshToken: "abc..." } │── find token in DB ──────►│
+  │                                │◄─ found, not used ────────│
+  │                                │── mark as USED ──────────►│
+  │                                │── save NEW refresh token ►│
+  │◄─── NEW accessToken ───────────│                           │
+  │     NEW refreshToken           │                           │
+  │                                │                           │
+  │──── GET /api/data ────────────►│                           │
+  │     Authorization: Bearer NEW  │── valid! ─────────────────│
+  │◄─── 200 OK { data } ───────────│                           │
+
+
+Secret Rotation — application.yml
+yamljwt:
+  # Current active signing secret (Base64 encoded, 256-bit minimum)
+  secret:
+    current: "dGhpcyBpcyBhIHZlcnkgc2VjdXJlIHNlY3JldCBrZXkgZm9yIEpXVCB2Mw=="
+    previous: "dGhpcyBpcyBhIHZlcnkgc2VjdXJlIHNlY3JldCBrZXkgZm9yIEpXVCB2Mg=="
+  access-token:
+    expiry: 900000        # 15 minutes
+  refresh-token:
+    expiry: 604800000     # 7 days
+
+# In production — use environment variables or Vault:
+# jwt.secret.current = ${JWT_SECRET_CURRENT}
+# jwt.secret.previous = ${JWT_SECRET_PREVIOUS}
+
+Token Blacklist — Immediate Revocation (Redis)
+java// When you can't wait for token natural expiry
+@Service
+public class TokenBlacklistService {
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;
+    private static final String BLACKLIST_PREFIX = "blacklist:";
+    // Add token to blacklist until its natural expiry
+    public void blacklistToken(String token, long expiryMs) {
+        String key = BLACKLIST_PREFIX + token;
+        redisTemplate.opsForValue()
+            .set(key, "revoked", expiryMs, TimeUnit.MILLISECONDS);
+    }
+    // Check if token is blacklisted
+    public boolean isBlacklisted(String token) {
+        return Boolean.TRUE.equals(
+            redisTemplate.hasKey(BLACKLIST_PREFIX + token)
+        );
+    }
+}
+// In JwtAuthFilter — check blacklist:
+if (tokenBlacklistService.isBlacklisted(token)) {
+    response.setStatus(401);
+    return;  // reject blacklisted token
+}
+
+Resource Server Pattern:
+OAuth2 has 3 players:
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  Authorization Server  = Issues tokens (Keycloak, Okta,    │
+│                          Auth0, your own auth service)      │
+│                                                             │
+│  Resource Server       = YOUR Spring Boot API               │
+│                          Validates tokens, serves data      │
+│                          Does NOT issue tokens              │
+│                                                             │
+│  Client                = Mobile app, frontend, another      │
+│                          microservice                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+Flow:
+Client ──get token──► Auth Server
+Client ──use token──► Resource Server ──validate token──► Auth Server
+                                        (or local validation)
+┌──────────────────────────────────────────────────────────────┐
+│                    MICROSERVICES                             │
+│                                                             │
+│  ┌─────────────┐    JWT     ┌──────────────────────────┐   │
+│  │   Client    │──────────►│   API Gateway             │   │
+│  │  (Mobile/   │           │   (routes + validates)    │   │
+│  │   React)    │           └────────────┬─────────────┘   │
+│  └─────────────┘                        │ valid JWT         │
+│                                         │ forward request   │
+│                           ┌─────────────┴──────────┐       │
+│                           │                        │       │
+│                    ┌──────▼──────┐    ┌────────────▼──┐   │
+│                    │  User       │    │  Order         │   │
+│                    │  Service    │    │  Service       │   │
+│                    │ (Resource   │    │ (Resource      │   │
+│                    │  Server)    │    │  Server)       │   │
+│                    └─────────────┘    └───────────────┘   │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │           Authorization Server (Keycloak)            │  │
+│  │           Issues + signs all tokens                  │  │
+│  └──────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+
+Resource Server Dependency
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+  </dependency>
+
+Resource Server Configuration
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class ResourceServerConfig {
+    @Bean
+    public SecurityFilterChain resourceServerChain(HttpSecurity http)
+            throws Exception {
+        http
+            .csrf(csrf -> csrf.disable())
+            // ── Declare as OAuth2 Resource Server ────────────
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt
+                    .decoder(jwtDecoder())              // how to validate tokens
+                    .jwtAuthenticationConverter(        // how to extract roles
+                        jwtAuthenticationConverter()
+                    )
+                )
+                // Custom error when token is missing/invalid
+                .authenticationEntryPoint((req, res, ex) -> {
+                    res.setStatus(401);
+                    res.setContentType("application/json");
+                    res.getWriter().write("""
+                        {
+                          "error": "Unauthorized",
+                          "message": "Valid Bearer token required"
+                        }
+                    """);
+                })
+            )
+            // ── URL Authorization Rules ───────────────────────
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/user/**").hasRole("USER")
+                .anyRequest().authenticated()
+            )
+            // ── Stateless ─────────────────────────────────────
+            .sessionManagement(sess -> sess
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            );
+        return http.build();
+    }
+    // ── JWT Decoder — Validates token signature ───────────────
+    @Bean
+    public JwtDecoder jwtDecoder() {
+        // Option 1: Using Auth Server's public JWKS endpoint
+        // Auth server publishes public keys here — Spring fetches automatically
+        return JwtDecoders.fromIssuerLocation("https://auth.mycompany.com");
+        // Spring fetches https://auth.mycompany.com/.well-known/openid-configuration
+        // then fetches JWKS (public keys) and validates token signatures locally
+    }
+    // Option 2: Using symmetric secret (your own JWT)
+    @Bean
+    public JwtDecoder jwtDecoderSymmetric(
+            @Value("${jwt.secret.current}") String secret) {
+        SecretKeySpec key = new SecretKeySpec(
+            Decoders.BASE64.decode(secret), "HmacSHA256"
+        );
+        return NimbusJwtDecoder.withSecretKey(key).build();
+    }
+    // Option 3: Using RSA public key (asymmetric)
+    @Bean
+    public JwtDecoder jwtDecoderRSA(
+            @Value("classpath:public.pem") RSAPublicKey publicKey) {
+        return NimbusJwtDecoder.withPublicKey(publicKey).build();
+    }
+    // ── Role Converter — Extract roles from JWT claims ────────
+    @Bean
+    public JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter grantedAuthoritiesConverter =
+            new JwtGrantedAuthoritiesConverter();
+        // Tell Spring where roles are in the JWT
+        grantedAuthoritiesConverter.setAuthoritiesClaimName("roles");
+        // Default is "scope" or "scp" — override for custom claim
+        grantedAuthoritiesConverter.setAuthorityPrefix("ROLE_");
+        // Adds ROLE_ prefix so hasRole("ADMIN") works
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(grantedAuthoritiesConverter);
+        return converter;
+    }
+}
+
+Custom JWT Claim Extraction
+    // JWT payload from Auth Server (e.g. Keycloak):
+    {
+      "sub": "alice@mail.com",
+      "iss": "https://auth.mycompany.com",
+      "aud": "my-api",
+      "exp": 1710086400,
+      "iat": 1710000000,
+      "realm_access": {
+        "roles": ["ADMIN", "USER"]        // Keycloak puts roles here
+      },
+      "resource_access": {
+        "my-api": {
+          "roles": ["READ_ORDERS"]        // app-specific roles
+        }
+      }
+    }
+
+// Custom converter to extract Keycloak roles:
+@Component
+public class KeycloakRoleConverter
+        implements Converter<Jwt, AbstractAuthenticationToken> {
+    @Override
+    public AbstractAuthenticationToken convert(Jwt jwt) {
+        // Extract realm roles
+        Map<String, Object> realmAccess =
+            (Map<String, Object>) jwt.getClaims().get("realm_access");
+        Collection<GrantedAuthority> realmRoles =
+            ((List<String>) realmAccess.get("roles")).stream()
+                .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                .collect(Collectors.toList());
+        // Extract resource-specific roles
+        Map<String, Object> resourceAccess =
+            (Map<String, Object>) jwt.getClaims().get("resource_access");
+        Map<String, Object> myApi =
+            (Map<String, Object>) resourceAccess.get("my-api");
+        Collection<GrantedAuthority> resourceRoles =
+            ((List<String>) myApi.get("roles")).stream()
+                .map(role -> new SimpleGrantedAuthority(role))
+                .collect(Collectors.toList());
+        // Combine all authorities
+        List<GrantedAuthority> allAuthorities = new ArrayList<>();
+        allAuthorities.addAll(realmRoles);
+        allAuthorities.addAll(resourceRoles);
+        return new JwtAuthenticationToken(jwt, allAuthorities);
+    }
+}
+
+Resource Server — Controller Usage
+@RestController
+@RequestMapping("/api")
+public class ResourceController {
+    // ── Extract claims from JWT directly ──────────────────────
+    @GetMapping("/profile")
+    public ResponseEntity<Map<String, Object>> getProfile(
+            @AuthenticationPrincipal Jwt jwt) {
+        // Access any claim from the JWT directly
+        String email    = jwt.getSubject();
+        String issuer   = jwt.getIssuer().toString();
+        List<String> roles = jwt.getClaimAsStringList("roles");
+        Instant expiry  = jwt.getExpiresAt();
+        return ResponseEntity.ok(Map.of(
+            "email",  email,
+            "roles",  roles,
+            "expiry", expiry
+        ));
+    }
+    // ── Use UserDetails (standard way) ────────────────────────
+    @GetMapping("/me")
+    public ResponseEntity<String> getCurrentUser(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok("Hello " + userDetails.getUsername());
+    }
+    // ── Method-level security ─────────────────────────────────
+    @GetMapping("/admin/stats")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Stats> getAdminStats() {
+        return ResponseEntity.ok(statsService.getAll());
+    }
+    @GetMapping("/orders/{id}")
+    @PreAuthorize("hasRole('USER') and #id == authentication.token.subject")
+    public ResponseEntity<Order> getOrder(
+            @PathVariable String id,
+            @AuthenticationPrincipal Jwt jwt) {
+        // #id matches JWT subject (user can only see own orders)
+        return ResponseEntity.ok(orderService.findById(id));
+    }
+}
+
+Multi-Tenant Resource Server
+// Different tenants use different Auth Servers
+@Bean
+public JwtDecoder multiTenantJwtDecoder() {
+    return token -> {
+        // Extract issuer from token WITHOUT validating (peek at payload)
+        String issuer = JWTParser.parse(token)
+            .getJWTClaimsSet()
+            .getIssuer();
+        // Route to correct decoder based on issuer
+        JwtDecoder decoder = switch (issuer) {
+            case "https://auth.company-a.com" -> decoderForCompanyA();
+            case "https://auth.company-b.com" -> decoderForCompanyB();
+            case "https://accounts.google.com" -> decoderForGoogle();
+            default -> throw new JwtException("Unknown issuer: " + issuer);
+        };
+        return decoder.decode(token);
+    };
+}
+
+JWT vs Opaque Tokens in Resource Server
+// JWT (self-contained) — validate locally, no network call
+http.oauth2ResourceServer(oauth2 -> oauth2
+    .jwt(jwt -> jwt.decoder(jwtDecoder()))
+);
+// ✅ Fast — no network call per request
+// ❌ Cannot revoke immediately (must wait for expiry)
+
+// Opaque Token — call Auth Server to validate (introspection)
+http.oauth2ResourceServer(oauth2 -> oauth2
+    .opaqueToken(opaque -> opaque
+        .introspectionUri("https://auth.mycompany.com/introspect")
+        .introspectionClientCredentials("client-id", "client-secret")
+    )
+);
+// ✅ Can revoke immediately
+// ❌ Network call on EVERY request → latency
+
+Complete Architecture — Everything Together
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  CLIENT                                                     │
+│    │                                                        │
+│    │ 1. POST /auth/login                                    │
+│    ▼                                                        │
+│  AUTH SERVICE (issues tokens)                               │
+│    │  ├── validates credentials                             │
+│    │  ├── generates Access Token  (JWT, 15min, HS256)       │
+│    │  ├── generates Refresh Token (UUID, 7days, stored DB)  │
+│    │  └── returns token pair                                │
+│    │                                                        │
+│    │ 2. GET /api/orders  Bearer <accessToken>               │
+│    ▼                                                        │
+│  RESOURCE SERVER (your API)                                 │
+│    │  ├── BearerTokenAuthenticationFilter extracts token    │
+│    │  ├── JwtDecoder validates signature                    │
+│    │  ├── JwtAuthenticationConverter extracts roles         │
+│    │  ├── AuthorizationFilter checks URL rules              │
+│    │  └── @PreAuthorize checks method rules                 │
+│    │                                                        │
+│    │ 3. Access Token expires → 401                          │
+│    │                                                        │
+│    │ 4. POST /auth/refresh  { refreshToken }                │
+│    ▼                                                        │
+│  AUTH SERVICE                                               │
+│    │  ├── find refresh token in DB                          │
+│    │  ├── check used/revoked/expiry                         │
+│    │  ├── mark old token as used                            │
+│    │  ├── issue NEW access token + NEW refresh token        │
+│    │  └── return new token pair (ROTATION ✅)               │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+First — The Short Answer
+Resource Server ≠ API Gateway ≠ Apigee
+
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  Apigee        = FULL API Management Platform (commercial)  │
+│                  Gateway + Analytics + Portal + Policies    │
+│                                                             │
+│  API Gateway   = TRAFFIC COP — routes, throttles, secures  │
+│                  sits in FRONT of all your services         │
+│                                                             │
+│  Resource      = YOUR SPRING BOOT APP                       │
+│  Server          validates tokens, serves business data     │
+│                  sits BEHIND the gateway                    │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+1. Where Each One Sits
+Internet
+    │
+    ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Apigee / API Gateway (Kong, AWS API GW, Spring Cloud GW)   │
+│                                                              │
+│  ✅ Auth token validation (basic)                            │
+│  ✅ Rate limiting (100 req/min per user)                     │
+│  ✅ Routing (/orders → order-service)                        │
+│  ✅ Load balancing                                           │
+│  ✅ SSL termination                                          │
+│  ✅ Request/Response transformation                          │
+│  ✅ Analytics & logging                                      │
+│  ✅ API versioning                                           │
+└───────────────────────┬──────────────────────────────────────┘
+                        │ routes validated requests
+          ┌─────────────┼──────────────┐
+          ▼             ▼              ▼
+  ┌──────────────┐ ┌──────────┐ ┌──────────────┐
+  │ User Service │ │  Order   │ │  Payment     │
+  │              │ │  Service │ │  Service     │
+  │ (Resource    │ │          │ │              │
+  │  Server) ✅  │ │(Resource │ │ (Resource    │
+  │              │ │ Server)  │ │  Server)     │
+  └──────────────┘ └──────────┘ └──────────────┘
+  Each validates tokens, enforces roles, serves data
+
+2. Apigee — What It Really Is
+Apigee (Google) = Enterprise API Management Platform
+
+┌─────────────────────────────────────────────────────────────┐
+│                         APIGEE                              │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │   Gateway    │  │  Developer   │  │   Analytics      │  │
+│  │   Proxy      │  │  Portal      │  │   Dashboard      │  │
+│  │              │  │              │  │                  │  │
+│  │ - routing    │  │ - API docs   │  │ - traffic stats  │  │
+│  │ - policies   │  │ - API keys   │  │ - error rates    │  │
+│  │ - transforms │  │ - sandbox    │  │ - latency graphs │  │
+│  └──────────────┘  └──────────────┘  └──────────────────┘  │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │  Monetization│  │  Security    │  │   Versioning     │  │
+│  │              │  │              │  │                  │  │
+│  │ - charge for │  │ - OAuth2     │  │ - v1, v2, v3     │  │
+│  │   API usage  │  │ - API keys   │  │ - deprecation    │  │
+│  │ - billing    │  │ - threat prot│  │ - traffic split  │  │
+│  └──────────────┘  └──────────────┘  └──────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+
+Used by: large enterprises, telcos, banks, API-as-a-product companies
+Examples: Airtel, Flipkart, large banks exposing APIs to partners
+
+3. API Gateway Options — Comparison
+┌──────────────────┬────────────┬──────────────┬──────────────┐
+│   Gateway        │  Type      │  Best For    │  Cost        │
+├──────────────────┼────────────┼──────────────┼──────────────┤
+│ Apigee           │ Enterprise │ Large orgs,  │ 💰💰💰      │
+│ (Google)         │ Full Mgmt  │ monetization │ Very expensive│
+├──────────────────┼────────────┼──────────────┼──────────────┤
+│ AWS API Gateway  │ Cloud      │ AWS workloads│ 💰 Pay per   │
+│                  │            │ serverless   │ request      │
+├──────────────────┼────────────┼──────────────┼──────────────┤
+│ Kong             │ Open Source│ Self-hosted  │ Free / 💰    │
+│                  │ + Enterprise│ microservices│ Enterprise   │
+├──────────────────┼────────────┼──────────────┼──────────────┤
+│ Spring Cloud     │ Java/      │ Spring Boot  │ Free ✅      │
+│ Gateway          │ Open Source│ microservices│              │
+├──────────────────┼────────────┼──────────────┼──────────────┤
+│ Nginx            │ Open Source│ Simple proxy │ Free ✅      │
+│                  │            │ load balance │              │
+├──────────────────┼────────────┼──────────────┼──────────────┤
+│ Azure API Mgmt   │ Cloud      │ Azure        │ 💰💰         │
+│                  │            │ workloads    │              │
+
+ When to Use What
+Use Apigee when:
+✅ You are a large enterprise
+✅ You sell APIs to external partners/developers
+✅ You need monetization (charge per API call)
+✅ You need a developer portal
+✅ You need advanced analytics & SLA reporting
+✅ You have a dedicated API team
+Example: Bank exposing APIs to fintech partners
+
+Use AWS/Azure API Gateway when:
+✅ Already on that cloud provider
+✅ Serverless architecture (Lambda functions)
+✅ Want managed service with minimal ops
+Example: Startup on AWS with Lambda backends
+
+Use Spring Cloud Gateway when:
+✅ All services are Spring Boot
+✅ Want full code control
+✅ Self-hosted microservices
+✅ No budget for commercial gateway
+Example: In-house microservices platform
+
+Use Resource Server (Spring Security) when:
+✅ ALWAYS — every service needs this
+✅ Fine-grained role/permission checks
+✅ Business logic security (@PreAuthorize)
+✅ Works behind any gateway
+Example: Every microservice in your system
+
+## Key Takeaway
+They are NOT alternatives — they work TOGETHER:
+Apigee/Gateway  =  Security + Traffic layer    (macro level)
+Resource Server =  Business security layer     (micro level)
+Auth Server     =  Identity layer              (token issuer)
+
+Think of it like a building:
+┌──────────────────────────────────────┐
+│  Security Guard at main gate         │ ← API Gateway / Apigee
+│  (checks ID, logs visitors)          │
+├──────────────────────────────────────┤
+│  Receptionist per floor              │ ← Resource Server
+│  (checks if you can enter THIS room) │
+├──────────────────────────────────────┤
+│  HR who issued your ID card          │ ← Auth Server
+└──────────────────────────────────────┘
