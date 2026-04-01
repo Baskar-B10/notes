@@ -25,4 +25,14 @@ public class LongestSubstringAtomic {
         System.out.println(longestSubstring("abcdabccc")); // abcd
     }
 }
+Right	Char	     Window	Action	               Max
+0	     a	     a	     unique               	1
+1	     b	     ab	     unique	               2
+2	     c	     abc	     unique	               3
+3	     d	     abcd	     unique	               4 ✅
+4	     a	     bcda	     duplicate → shift left	4
+5	     b	     cdab     	duplicate → shift left	4
+6	     c	     dabc	     duplicate → shift left	4
+7	     c	     bc	     duplicate → shrink more	4
+8	     c	     c	     duplicate → shrink	     4
 
