@@ -477,3 +477,430 @@ With Okta Flow: User → Okta login → Backend → JWT → Microservices
 
 1. Why use filter instead of interceptor? 👉 Because Spring Security works before controller layer
 2. Why OncePerRequestFilter? 👉 Ensures filter runs once per request
+
+Spring Security with JWT / OAuth2 / SAML 
+  Why Do We Need Spring Security?
+  Without Security:                    With Spring Security:
+  ─────────────────                    ─────────────────────
+  /api/admin/users  ← Anyone can hit   /api/admin/users  ← Only ADMIN role
+  /api/payments     ← No protection    /api/payments     ← Authenticated users only
+  /api/user/profile ← Data exposed     /api/user/profile ← Owner only
+  passwords in plain text              passwords BCrypt hashed
+  no token validation                  JWT/OAuth2/SAML verified
+
+Core problems it solves:
+  Authentication — WHO are you? (login, token verification)
+  Authorization — WHAT can you do? (roles, permissions)
+  Protection — CSRF, session fixation, brute force, header injection
+
+The Big Picture — 3 Approaches
+  ┌─────────────────────────────────────────────────────────────┐
+  │                    Spring Security                          │
+  ├─────────────────┬───────────────────┬───────────────────────┤
+  │      JWT        │      OAuth2       │        SAML           │
+  │                 │                   │                       │
+  │ Stateless token │ Third-party login │ Enterprise SSO        │
+  │ Your own auth   │ Google/GitHub/etc │ Active Directory      │
+  │ Microservices   │ Social login      │ Corporate login       │
+  │ Mobile APIs     │ Delegated access  │ ADFS, Okta, Ping      │
+  └─────────────────┴───────────────────┴───────────────────────┘
+
+JWT (JSON Web Token):
+    JWT Token = 3 parts separated by dots
+    eyJhbGciOiJIUzI1NiJ9  .  eyJ1c2VyIjoiQWxpY2UifQ  .  SflKxwRJSMeKKF2QT4f
+    ──────────────────────    ──────────────────────────   ──────────────────────
+          HEADER                      PAYLOAD                   SIGNATURE
+      (algo + type)             (claims: user, roles,        (verify integrity)
+                                 expiry, issuer)
+Decoded Payload:
+  json{
+    "sub": "alice@mail.com",
+    "roles": ["ROLE_USER", "ROLE_ADMIN"],
+    "iat": 1710000000,
+    "exp": 1710086400
+  }
+JWT is **stateless** — server doesn't store sessions, token carries all info.
+  1. LOGIN
+     Client ──POST /auth/login──► Server
+             { email, password }
+                                   Server verifies credentials
+     Client ◄── JWT Token ─────── Server signs token with secret key
+  2. ACCESS PROTECTED RESOURCE
+     Client ──GET /api/profile──► Server
+             Authorization:        Server:
+             Bearer eyJhbG...       1. Extract token from header
+                                    2. Verify signature
+                                    3. Check expiry
+                                    4. Extract roles
+                                    5. Allow/Deny ✅/❌
+  3. TOKEN EXPIRED
+     Client ──POST /auth/refresh──► Server (using Refresh Token)
+     Client ◄── New JWT Token ───── Server
+
+Dependencies
+ <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+  </dependency>
+  <!-- JWT library -->
+  <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+      <version>0.11.5</version>
+  </dependency>
+  <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <version>0.11.5</version>
+  </dependency>
+  <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <version>0.11.5</version>
+  </dependency>
+
+JWT Utility Class:
+@Component
+public class JwtUtil {
+    @Value("${jwt.secret}")
+    private String secret;
+    @Value("${jwt.expiration}")   // e.g. 86400000 = 24 hours
+    private long expiration;
+    // Generate token
+    public String generateToken(UserDetails userDetails) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("roles", userDetails.getAuthorities()
+            .stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList()));
+        return Jwts.builder()
+            .setClaims(claims)
+            .setSubject(userDetails.getUsername())
+            .setIssuedAt(new Date())
+            .setExpiration(new Date(System.currentTimeMillis() + expiration))
+            .signWith(getSignKey(), SignatureAlgorithm.HS256)
+            .compact();
+    }
+    // Validate token
+    public boolean validateToken(String token, UserDetails userDetails) {
+        String username = extractUsername(token);
+        return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+    }
+    // Extract username
+    public String extractUsername(String token) {
+        return extractClaim(token, Claims::getSubject);
+    }
+    private boolean isTokenExpired(String token) {
+        return extractClaim(token, Claims::getExpiration).before(new Date());
+    }
+    private <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+        Claims claims = Jwts.parserBuilder()
+            .setSigningKey(getSignKey()).build()
+            .parseClaimsJws(token).getBody();
+        return claimsResolver.apply(claims);
+    }
+    private Key getSignKey() {
+        return Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
+    }
+}
+
+JWT Filter
+@Component
+public class JwtAuthFilter extends OncePerRequestFilter {
+    @Autowired private JwtUtil jwtUtil;
+    @Autowired private UserDetailsService userDetailsService;
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                    HttpServletResponse response,
+                                    FilterChain filterChain)
+                                    throws ServletException, IOException {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            filterChain.doFilter(request, response);   // no token → skip
+            return;
+        }
+        String token = authHeader.substring(7);        // strip "Bearer "
+        String username = jwtUtil.extractUsername(token);
+        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            if (jwtUtil.validateToken(token, userDetails)) {
+                // Set authentication in SecurityContext
+                UsernamePasswordAuthenticationToken authToken =
+                    new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities()
+                    );
+                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+            }
+        }
+        filterChain.doFilter(request, response);
+    }
+}
+
+Security Config (JWT)
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity          // enables @PreAuthorize, @PostAuthorize
+public class SecurityConfig {
+    @Autowired private JwtAuthFilter jwtAuthFilter;
+    @Autowired private UserDetailsService userDetailsService;
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(csrf -> csrf.disable())               // JWT = stateless, no CSRF needed
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/auth/**").permitAll()        // public endpoints
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
+                .anyRequest().authenticated()                   // everything else needs auth
+            )
+            .sessionManagement(sess -> sess
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)  // no sessions!
+            )
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+        return http.build();
+    }
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();    // always hash passwords!
+    }
+    @Bean
+    public AuthenticationManager authManager(AuthenticationConfiguration config)
+            throws Exception {
+        return config.getAuthenticationManager();
+    }
+}
+
+Auth Controller (Login → Issue JWT)
+@RestController
+@RequestMapping("/auth")
+public class AuthController {
+    @Autowired private AuthenticationManager authManager;
+    @Autowired private JwtUtil jwtUtil;
+    @Autowired private UserDetailsService userDetailsService;
+    @PostMapping("/login")
+    public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
+        // 1. Authenticate credentials
+        authManager.authenticate(
+            new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
+        );
+        // 2. Load user & generate token
+        UserDetails user = userDetailsService.loadUserByUsername(request.getEmail());
+        String token = jwtUtil.generateToken(user);
+        return ResponseEntity.ok(new AuthResponse(token));
+    }
+}
+ 
+OAuth2
+Auth2 lets users **log in via a third party** (Google, GitHub, Facebook) without sharing their password with your app.
+User clicks "Login with Google"
+        │
+        ▼
+Your App ──redirect──► Google Login Page
+                              │ user logs in
+                              ▼
+                        Google issues Authorization Code
+        │◄─────────────────────
+        │
+Your App exchanges code for Access Token (server-to-server)
+        │
+        ▼
+Your App calls Google API to get user info (email, name, picture)
+        │
+        ▼
+Your App creates session / issues JWT to user ✅
+
+ OAuth2 Roles
+┌─────────────────────────────────────────────────────┐
+│  Resource Owner  = The User                         │
+│  Client          = Your Spring Boot App             │
+│  Authorization   = Google / GitHub / Okta           │
+│    Server                                           │
+│  Resource Server = API that holds protected data    │
+└─────────────────────────────────────────────────────┘
+
+Dependency
+  <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-oauth2-client</artifactId>
+  </dependency>
+
+Config (application.yml)
+    yamlspring:
+      security:
+        oauth2:
+          client:
+            registration:
+              google:
+                client-id: YOUR_GOOGLE_CLIENT_ID
+                client-secret: YOUR_GOOGLE_SECRET
+                scope: email, profile
+    
+              github:
+                client-id: YOUR_GITHUB_CLIENT_ID
+                client-secret: YOUR_GITHUB_SECRET
+
+OAuth2 Security Config
+@Configuration
+@EnableWebSecurity
+public class OAuth2SecurityConfig {
+    @Autowired
+    private OAuth2SuccessHandler successHandler;    // custom handler
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/", "/login").permitAll()
+                .anyRequest().authenticated()
+            )
+            .oauth2Login(oauth2 -> oauth2
+                .loginPage("/login")                          // custom login page
+                .successHandler(successHandler)               // after login success
+                .failureUrl("/login?error=true")
+                .userInfoEndpoint(userInfo -> userInfo
+                    .userService(customOAuth2UserService())   // customize user loading
+                )
+            );
+        return http.build();
+    }
+}
+
+Custom OAuth2 Success Handler
+@Component
+public class OAuth2SuccessHandler implements AuthenticationSuccessHandler {
+    @Autowired private JwtUtil jwtUtil;
+    @Override
+    public void onAuthenticationSuccess(HttpServletRequest request,
+                                        HttpServletResponse response,
+                                        Authentication authentication)
+                                        throws IOException {
+        OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
+        String email = oAuth2User.getAttribute("email");
+        // Issue your own JWT after OAuth2 login
+        String token = jwtUtil.generateTokenFromEmail(email);
+        // Redirect with token
+        response.sendRedirect("/dashboard?token=" + token);
+    }
+}
+
+SAML:
+SAML (Security Assertion Markup Language)** is used for **enterprise SSO** — employees log in once via their company Identity Provider (Okta, ADFS, Azure AD) and access multiple apps.
+Employee opens Your App
+        │
+        ▼
+Your App (Service Provider) ──redirect──► Company IdP (Okta/ADFS)
+                                                │ employee already logged in
+                                                ▼
+                                          IdP issues SAML Assertion (XML)
+        │◄──────────────────────────────────────
+        │
+Your App validates assertion signature
+        │
+        ▼
+Employee is logged in ✅ (Single Sign-On)
+
+ SAML vs OAuth2 vs JWT
+
+┌──────────────┬────────────────┬────────────────┬─────────────────┐
+│  Feature     │     JWT        │    OAuth2      │      SAML       │
+├──────────────┼────────────────┼────────────────┼─────────────────┤
+│ Format       │ JSON token     │ JSON token     │ XML assertion   │
+│ Use case     │ Stateless API  │ Social login   │ Enterprise SSO  │
+│ Protocol     │ Custom/HTTP    │ HTTP           │ HTTP/POST       │
+│ Complexity   │ Low            │ Medium         │ High            │
+│ Best for     │ Microservices  │ Public apps    │ Corporate apps  │
+│ Provider     │ Your own       │ Google/GitHub  │ Okta/ADFS/Azure │
+└──────────────┴────────────────┴────────────────┴─────────────────┘
+
+Key Annotations — Complete Reference
+@EnableWebSecurity
+  @Configuration
+  @EnableWebSecurity          // activates Spring Security
+  public class SecurityConfig { }
+  Activates the entire Spring Security framework.
+
+@EnableMethodSecurity
+  @Configuration
+  @EnableMethodSecurity       // enables method-level security annotations
+  public class SecurityConfig { }
+  Unlocks @PreAuthorize, @PostAuthorize, @Secured on methods.
+
+@PreAuthorize
+  // Evaluated BEFORE method executes
+  @PreAuthorize("hasRole('ADMIN')")
+  public void deleteUser(Long id) { }
+
+  @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+  public User getProfile(Long id) { }
+  
+  @PreAuthorize("isAuthenticated()")
+  public List<Order> getMyOrders() { }
+  
+  // SpEL expressions — access method arguments
+  @PreAuthorize("#userId == authentication.principal.id or hasRole('ADMIN')")
+  public User getUserById(Long userId) { }
+
+@PostAuthorize
+  // Evaluated AFTER method executes — check return value
+  @PostAuthorize("returnObject.email == authentication.name")
+  public User getUser(Long id) {
+      return userRepository.findById(id).orElseThrow();
+      // if returned user's email ≠ logged-in user → throw AccessDeniedException
+  }
+
+@Secured
+    // Simpler, older annotation — role names only, no SpEL
+    @Secured("ROLE_ADMIN")
+    public void deleteAll() { }
+    @Secured({"ROLE_USER", "ROLE_ADMIN"})
+    public List<Product> getProducts() { }
+    @AuthenticationPrincipal
+    java// Inject currently logged-in user directly into controller method
+    @GetMapping("/profile")
+    public ResponseEntity<User> getProfile(
+            @AuthenticationPrincipal UserDetails currentUser) {
+        return ResponseEntity.ok(userService.findByEmail(currentUser.getUsername()));
+    }
+
+@WithMockUser (Testing)
+  @Test
+  @WithMockUser(username = "alice", roles = {"ADMIN"})
+  public void testAdminEndpoint() throws Exception {
+      mockMvc.perform(get("/api/admin/users"))
+             .andExpect(status().isOk());
+  }
+
+JWT — best for stateless REST APIs and microservices, you manage tokens yourself
+OAuth2 — best for social login (Google, GitHub) or delegated access to third-party APIs
+SAML — best for enterprise SSO with corporate identity providers (Okta, ADFS, Azure AD)
+Always use BCryptPasswordEncoder — never store plain passwords
+Use @PreAuthorize with SpEL for fine-grained method-level access control
+SessionCreationPolicy.STATELESS is essential for JWT — disables server-side sessions
+
+Security Filter Chain — How It All Works
+
+HTTP Request
+     │
+     ▼
+┌─────────────────────────────────────────────────────┐
+│              Security Filter Chain                  │
+│                                                     │
+│  1. SecurityContextPersistenceFilter                │
+│     └── loads SecurityContext from session/token    │
+│                                                     │
+│  2. JwtAuthFilter (custom)                          │
+│     └── extract token → validate → set context      │
+│                                                     │
+│  3. UsernamePasswordAuthenticationFilter            │
+│     └── handles form login                         │
+│                                                     │
+│  4. ExceptionTranslationFilter                      │
+│     └── handles AuthenticationException            │
+│         → 401 Unauthorized                         │
+│     └── handles AccessDeniedException              │
+│         → 403 Forbidden                            │
+│                                                     │
+│  5. FilterSecurityInterceptor                       │
+│     └── checks roles/authorities → Allow/Deny      │
+└─────────────────────────────────────────────────────┘
+     │
+     ▼
+  Controller
