@@ -1,7 +1,5 @@
 Spring Data Access:
   Data Access layer provides a consistent way to interact with databases.
-
-Why Spring Data Access?
 Before Spring :
       JDBC → too much boilerplate
       Hibernate → complex setup
@@ -43,13 +41,6 @@ Modules in Spring Data Access:
         Key Components :Session and SessionFactory and HQL (Hibernate Query Language)
         ✔ Features: Automatic SQL generation , Caching (1st & 2nd level) , Lazy loading  and Dirty checking
     
-    Hibernate vs JPA 
-      Feature	          JPA	            Hibernate
-      Type	            Specification	  Implementation
-      Dependency	      Interface	      Framework
-      Portability	      High	          Low
-      Extra Features   	No	            Yes
-      Query	            JPQL	          HQL + JPQL
   Relationship (Core Concept):
         JPA → Specification
         Hibernate → Implementation of JPA
@@ -375,6 +366,95 @@ These annotations map Java objects ↔ Database tables
   9. Only public methods ✔ @Transactional works only on public methods
   10. Self-invocation problem -> this.method(); // ❌ no transaction
 
+JPA, Hibernate, and Spring Data relate to each other:
+Your code ---> ProductRepository ------->Spring Data JPA--------------->JPA (Jakarta Persistence API)--------->Hibernate--------------------->Database (MySQL / PostgreSQL / H2)
+            · @Entity · @Service          Repository abstraction        Specification only ·                 JPA implementation ·
+                                          query generation              interfaces · annotations             ORM · SQL generation · caching
+
+
+
+JPA vs Hibernate — what exactly is each one?
+JPA (Jakarta Persistence API) is just a specification — 
+                a set of Java interfaces, annotations (@Entity, @Id, @OneToMany...),
+                and rules written in a document. 
+                It ships no executable code.
+                It defines what an ORM must do, not how.
+Hibernate is the implementation — 
+    it reads your @Entity classes,
+    maintains an in-memory cache of managed objects (the "persistence context"), 
+    generates SQL, executes it via JDBC, and maps result sets back to objects. 
+    When Spring Boot starts, it wires Hibernate as the JPA provider automatically.
+Spring Data JPA sits on top of both.
+    It reads your JpaRepository interface at startup, 
+    generates proxy classes that implement it,
+    and delegates every call down to Hibernate. 
+    You never write a single line of SQL for basic CRUD.
+The relationship in one sentence: JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
+
+7 core in Hibernate
+1. ORM (Object-Relational Mapping)
+    This is the fundamental job. Hibernate maps your Java POJOs (Plain Old Java Objects) to Database Tables.
+    The Mapping: Using annotations (like @Entity, @Table, @Column) or XML,
+                Hibernate understands that a class attribute like String userName corresponds to a table column USER_NAME.
+    The Benefit: You work with objects and methods rather than manually mapping result sets to objects.
+2. SQL Generation
+    Hibernate acts as a translator. You don't have to write vendor-specific SQL for every operation.
+    Dialects: Hibernate uses a Dialect (e.g., PostgreSQLDialect, MySQL8Dialect) to know how to talk to your specific database.
+    Automatic Creation: When you call session.save(user),
+                        Hibernate automatically generates the INSERT INTO... statement for you at runtime.
+3. Persistence Context (1st-Level Cache)
+    The Session acts as the First-Level Cache. It is a mandatory, short-lived cache associated with the current unit of work.    
+    De-duplication: If you request the same User object twice in the same session, Hibernate only hits the database once. 
+                    The second time, it pulls the object from the Persistence Context.
+    Scope: It is private to the current session and is destroyed when the session closes.
+4. Second-Level Cache
+    Unlike the first-level cache, the Second-Level Cache is SessionFactory-scoped and optional.
+    Sharing: Data stored here is available across different sessions and even different users.
+    External Providers: Hibernate doesn't provide the cache itself but integrates with providers like Ehcache, Infinispan, or Redis.
+5. Dirty Checking
+    This is a "smart" feature that minimizes database updates.
+    Mechanism: When an object is loaded into the Persistence Context, Hibernate keeps a "snapshot" of its original state.
+    Automatic Update: When the transaction commits, Hibernate compares the current state of the object with the snapshot. 
+                    If you changed a field (e.g., user.setName("New Name")), Hibernate detects the "dirtiness" and automatically triggers an UPDATE statement. 
+                    You don't need to call session.update() manually.
+6. Lazy Loading via Proxies
+    To save memory and improve performance, Hibernate doesn't load everything at once.
+    Proxies: If a User has a list of Orders, Hibernate doesn't fetch the orders immediately.
+            Instead, it places a Proxy (a placeholder object) there.
+    On-Demand: The SQL query to fetch the orders is only executed the moment you actually call user.getOrders().size() or iterate through them.
+7. Transaction Management
+    Hibernate integrates with transaction APIs to ensure data integrity (ACID properties).
+    Unit of Work: It ensures that a series of operations (like withdrawing money from one account and depositing in another) either all succeed or all fail.
+    Abstraction: It abstracts the underlying JDBC transaction management, allowing you to focus on the business logic rather than connection.commit() or connection.rollback() boilerplate.
+
+Example: 
+        // 1. Start Transaction
+        Transaction tx = session.beginTransaction();
+        // 2. Fetch User (The Profile field is a Proxy at this point)
+        User user = session.get(User.class, 1L); 
+        // 3. Lazy Loading Triggered
+        // The moment we call getProfile().getBio(), Hibernate fires a SELECT for the Profile table.
+        String oldBio = user.getProfile().getBio();
+        // 4. Dirty Checking at work
+        // We simply change the Java object. We DON'T call session.update().
+        user.getProfile().setBio("Updated Bio via Dirty Checking!");
+        // 5. Transaction Management
+        // When we commit, Hibernate:
+        //   a) Performs Dirty Checking
+        //   b) Sees the Bio changed
+        //   c) Issues the SQL UPDATE
+        //   d) Finalizes the DB transaction
+        tx.commit(); 
+        session.close();
+
+Common Hibernate pitfalls:
+N+1 query problem — loading a list of orders and then accessing order.getItems() in a loop fires one query for orders and then one query per order for items. 
+        Fix with JOIN FETCH in your JPQL query or @EntityGraph.
+LazyInitializationException — accessing a lazy relationship outside a transaction. 
+        Fix by keeping data access inside @Transactional, or using FetchType.EAGER, or a DTO projection that doesn't need the relationship at all.
+ddl-auto=create in production — drops and recreates all tables on startup. 
+        Always use validate or none in production, and manage schema changes with Flyway or Liquibase instead.
+
 4. Spring Data:
   It is an extension layer built on top of the data access features of the Spring Framework.
   👉 Instead of writing DAO classes manually ❌
@@ -405,292 +485,6 @@ These annotations map Java objects ↔ Database tables
     🔹 Others
           Elasticsearch
           Neo4j
-  Core Components
-    🔹 1. Repository Interface- Each level adds more features.
-            Repository
-               ↓
-            CrudRepository
-               ↓
-            PagingAndSortingRepository
-               ↓
-            JpaRepository
-         1. Repository (Marker Interface) -public interface UserRepo extends Repository<User, Long> {}
-                  Marker interface (empty)
-                  Used by Spring to detect repositories
-                  No methods provided ❌
-                ⚠️ Use Case 👉 Rarely used directly
-         2. CrudRepository - public interface UserRepo extends CrudRepository<User, Long> {}
-                  ✔ Provides Basic CRUD
-                  save()
-                  findById()
-                  findAll()
-                  delete()
-              Return Types - Iterable<T> (not List)
-              Limitation - No pagination ❌ No sorting ❌
-         3. PagingAndSortingRepository - public interface UserRepo extends PagingAndSortingRepository<User, Long> {}
-                  ✔ Adds Features
-                  findAll(Pageable pageable)
-                  findAll(Sort sort)
-                 Use Case: Pagination &Sorting
-         4. JpaRepository ⭐ (Most Used) -public interface UserRepo extends JpaRepository<User, Long> {}
-                ✔ Includes Everything + More
-                CRUD
-                Pagination
-                Sorting
-                Extra Methods: flush(), saveAndFlush(), deleteInBatch() and findAll(Pageable pageable)
-                Return Types: List<T> (better than Iterable)
-                ✔ Advanced Features: Batch operations and JPA-specific optimizations
-    🔹 2. Query Methods (Magic Feature 🔥)
-     👉 Method name = Query 
-          List<User> findByName(String name);
-          Advanced
-          findByAgeGreaterThan(int age)
-          findByEmailContaining(String email)
-          findByNameAndAge(String name, int age)
-     How It Works: Method name parsing →  Generate JPQL → Execute
-    🔹 3. Custom Queries - Using @Query
-          @Query("SELECT u FROM User u WHERE u.name = :name")
-          List<User> findUsers(@Param("name") String name);
-          Native Query
-          @Query(value = "SELECT * FROM users", nativeQuery = true)
-    🔹 4. Pagination & Sorting - 
-          Pagination Page<User> findAll(Pageable pageable);
-          Sorting - findAll(Sort.by("name"));
-    🔹 5. Projections 👉 Fetch only required fields
-          Interface Projection
-          public interface UserView {
-              String getName();
-          }
-    🔹 6. Specifications (Dynamic Queries) 👉 Uses Criteria API internally
-          Specification<User> spec = (root, query, cb) ->
-              cb.equal(root.get("name"), "Baskar");
-    🔹 7. Auditing - ✔ Automatically tracks timestamps
-            @CreatedDate
-            @LastModifiedDate
-   🔹 8. Transactions
-            @Transactional
-            
-            ✔ Integrated with Spring
-    
-   Key Features Summary:
-        Feature	                    Benefit
-        Repository abstraction	    No DAO code
-        Query generation	          Less SQL
-        Pagination	                Easy data handling
-        Auditing	                  Auto tracking
-        Multi-DB support	          Flexible
-  
-    Key Classes
-          RepositoryFactory
-          SimpleJpaRepository
-          Proxy (AOP)
-    ⚠️ Limitations
-          Complex queries → difficult
-          Method naming can become long
-          Performance issues if misused
- 
-   1. Is Spring Data part of Spring Core? ❌ No → Separate project
-   2. Does Spring Data replace Hibernate? ❌ No → Uses JPA/Hibernate
-   3.  How query methods work? ✔ Method name parsing
-   4.  What is JpaRepository? ✔ Interface with CRUD + pagination
-   5. Can we write custom implementation? ✔ Yes
-   6. Why JpaRepository returns List? ✔ Easier to use than Iterable
-   7.  Which supports batch operations? ✔ JpaRepository
-   8.  Can we create custom methods? ✔ Yes (in all repositories)
-
-5.  Java Message Service (JMS) 
-    It is a Java API for sending messages between systems asynchronously.
-      👉 Instead of direct communication: Service A → Service B (tight coupling ❌)
-      👉 Use messaging: Service A → Message Queue → Service B (loose coupling ✅)
-
-  What does “Asynchronous” mean? Sender does NOT wait for receiver
-    Synchronous (REST style) -Service A → Service B → Response (wait)
-        ❌ Blocking
-        ❌ Slower under load
-    Asynchronous (JMS) - Service A → Queue → (continues immediately)
-                        ↓
-                     Service B processes later
-    
-        ✔ Non-blocking
-        ✔ Faster
-        ✔ Decoupled
-    jmsTemplate.convertAndSend("orderQueue", order);
-    System.out.println("Order sent"); // runs immediately👉 No waiting for consumer
-
-  Why JMS?
-        Decouples systems
-        Enables async processing
-        Improves scalability
-        Handles high load
- 
-  JMS Architecture
-    Producer → Message Broker → Consumer
-    🔹 1. Producer -Sends message
-    🔹 2. Consumer - Receives message
-    🔹 3. Message - Data being sent
-    🔹 4. Destination -Where message goes Queue/Topic
-    🔹 5. Message Broker -  Manages messages like ActiveMQ/RabbitMQ
-
-   Message Types:
-      🔹 TextMessage -"Hello World"
-      🔹 ObjectMessage-Serializable object
-      🔹 MapMessage - Key-value pairs
-      🔹 BytesMessage -Binary data
-  
-  Messaging Models
-      🔹 1. Queue (Point-to-Point) :Producer → Queue → ONE Consumer   
-                          ✔ One consumer gets message
-                          ✔ Load balancing
-      🔹 2. Topic (Publish-Subscribe) : Producer → Topic → MANY Consumers
-                          ✔ All subscribers receive message
-  JMS with Spring:
-    In the Spring Framework, JMS is simplified using: JmsTemplate  Like JdbcTemplate (for DB)
-      🔹 Sending Message
-            @Autowired
-            private JmsTemplate jmsTemplate;
-      
-            jmsTemplate.convertAndSend("queue", "Hello JMS");
-      🔹 Receiving Message
-            @JmsListener(destination = "queue")
-            public void receive(String message) {
-                System.out.println(message);
-            }
-      Internal Working: convertAndSend → MessageConverter → Broker → Listener → Method execution
-      Message ConversionL Spring converts Java object ↔ JMS message
-            jmsTemplate.convertAndSend("queue", user);  ✔ Automatically serialized
-
-    Transactions in JMS👉 Ensure message reliability
-        @Transactional
-        public void send() {
-            jmsTemplate.convertAndSend("queue", "msg");
-        }
-        ✔ If transaction fails → message not sent
-    
-    Handling Timeouts in JMS
-      Timeouts can happen when: Waiting for message, Broker delay and Consumer slow
-      🔹 A. Receive Timeout - jmsTemplate.setReceiveTimeout(5000); // 5 seconds 👉 If no message → returns null
-      🔹 B. Request-Reply Timeout - If using request-response pattern: jmsTemplate.setReceiveTimeout(3000);
-      🔹 C. Connection Timeout - Configured in broker/client: ActiveMQ connection URL/ ConnectionFactory config
-      Best Practices :Set proper timeout values, Avoid infinite waits and  Use retry mechanism
-
-    What if Queue / Broker is NOT UP?
-    ❌ Problem :App → JMS → Broker DOWN → Exception
-     Handling Strategies
-        ✔ 1. Retry Mechanism
-              try {
-                  jmsTemplate.convertAndSend("queue", msg);
-              } catch (Exception e) {
-                  // retry logic
-              }
-        Use: RetryTemplate (Spring),  Custom retry loop
-        ✔ 2. Circuit Breaker (Advanced) 👉 Stop sending temporarily Tools: Resilience4j
-        ✔ 3. Message Persistence👉 If broker is up but consumer down: ✔ Messages stored in broker ✔ Delivered later 
-        ✔ 4. Failover Configuration: For brokers like ActiveMQ: failover:(tcp://host1:61616,tcp://host2:61616) ✔ Switches to backup broker
-        ✔ 5. Dead Letter Queue (DLQ): 👉 Failed messages go here : queue → failure → DLQ ✔ Prevents data loss    
-        ✔ 6. Logging & Alerting ✔ Monitor broker health ✔ Send alerts
-    
-     Acknowledgement Modes👉 Defines when message is considered successfully consumed
-      🔹 1. AUTO_ACKNOWLEDGE- Session.AUTO_ACKNOWLEDGE 
-                  ✔ Automatically acknowledged after processing
-                  Receive → Process → Auto ACK
-                  ⚠️ Risk If failure during processing → message lost
-      🔹 2. CLIENT_ACKNOWLEDGE - Session.CLIENT_ACKNOWLEDGE
-                  ✔ Manual acknowledgment
-                  message.acknowledge();
-                  Receive → Process → ACK manually
-                  ✔ Advantage- Better control, Retry possible
-      🔹 3. DUPS_OK_ACKNOWLEDGE -Session.DUPS_OK_ACKNOWLEDGE
-                  ✔ Lazy acknowledgment
-                  May deliver duplicates
-                  Faster performance
-                  ⚠️ Requirement👉 Consumer must handle duplicates
-      🔹 4. TRANSACTED SESSION 
-                  session.commit();
-                  session.rollback();
-                  Receive →Process →Commit → ACK
-                  Rollback → message redelivered
-                  ✔ Best for reliability
-                  Ensures no data loss
-                  Supports rollback
-  Delivery Modes:
-  🔹 Persistent - ✔ Saved to disk✔ Reliable
-  🔹 Non-Persistent -✔ Faster ❌ Risk of loss
-  
-  🔥 Real-Time Example
-  Order System: Order Service → Queue → Email Service
-      ✔ Decoupled
-      ✔ Async
-  
-  ⚠️ Common Problems
-  ❗ Duplicate messages👉 Need idempotent handling
-  ❗ Message loss 👉 Use persistent mode
-  ❗ Ordering issues 👉 Depends on queue
-  
-  1. Is JMS synchronous? ❌ No → async
-  2. Queue vs Topic?✔ Queue → one consumer✔ Topic → multiple
-  3. What is JmsTemplate? ✔ Helper class
-  4. What is broker? ✔ Message manager
-  5. Does JMS guarantee delivery? ✔ Yes (with persistent mode)
-
-
-6. OXM Module (Object XML Mapping)
-    👉 OXM = Object ↔ XML mapping
-    ✔ Converts Java objects → XML
-    ✔ Converts XML → Java objects
-
-    🧠 Why Needed? 
-    Before OXM ❌:
-      Manual XML parsing (DOM/SAX)
-      Complex and error-prone
-    ✅ With OXM
-    ✔ Simplifies XML handling
-    ✔ Provides abstraction over multiple frameworks
-
-    Supported Technologies: JAXB (most common), XStream and Castor
-
-    Jaxb2Marshaller marshaller = new Jaxb2Marshaller();
-    marshaller.setClassesToBeBound(User.class);
-    marshaller.marshal(user, new StreamResult(System.out));
-
-    Java Object → Marshaller → XML
-    Use Cases: SOAP web services, XML-based integrations and Legacy systems
-
-7 . DAO Support Module
-    👉 Provides base/helper classes to simplify DAO layer
-     Purpose: Reduce boilerplate, Provide templates and Simplify integration
-    Key Classes: JdbcDaoSupport,  HibernateDaoSupport and JpaDaoSupport
-    public class UserDao extends JdbcDaoSupport {
-        public List<User> getUsers() {
-            return getJdbcTemplate().query("SELECT * FROM users", ...);
-        }
-    }
-    ✔ Benefits :Easy access to templates and Cleaner DAO code
-    ⚠️ Current Trend 👉 Mostly replaced by: Spring Data repositories
-
- 8. Exception Translation Module ⭐
-    Converts database-specific exceptions → unified Spring exceptions
-    ❌ Problem Without Spring - Different DBs throw different exceptions:SQL Exception and Hibernate Exception
-    ✅ Spring Solution 👉 Unified exception hierarchy:  DataAccessException
-    @Repository
-    public class UserRepo {}
-    ✔ Enables automatic translation
-
-    try {
-        repo.save(user);
-    } catch (DataAccessException e) {
-        // handle all DB errors here
-    }
-    Internal Working: DB Exception → Exception Translator → DataAccessException
-   
-    Common Exceptions:
-    Exception	                            Meaning
-    DuplicateKeyException	                Unique constraint
-    DataIntegrityViolationException	      Constraint issue
-    EmptyResultDataAccessException	      No data
-
-    Why Important? ✔ DB-independent error handling ✔ Clean architecture
-
-    What enables exception translation? ✔ @Repository
 
 Spring Data — The Umbrella Project:
 Spring Data is the parent project that provides a consistent, unified programming model for data access across different data stores:
@@ -705,6 +499,186 @@ Spring Data is the parent project that provides a consistent, unified programmin
         └── Spring Data REST         → Exposes repos as REST endpoints
 
 Spring Data JPA:
+repository interface inheritance chain:
+                 extends                            extends                                                extends                        extends
+Repository<T, ID>-----------> CrudRepository<T, ID>------------------->PagingAndSortingRepository<T, ID>---------->JpaRepository<T, ID>----------------------------->ProductRepository (your interface)
+Marker only                   save · findById · findAll                 findAll(Pageable) · findAll(Sort)            flush · saveAllAndFlush                         inherits all above + derived queries + @Query
+0 methods                     delete · count · exists                                                                · deleteAllInBatch · getReferenceById
+
+All Methods — Interface by Interface
+1. CrudRepository<T, ID> — 13 methods
+        java// ── Save ──────────────────────────────────────────────
+        <S extends T> S save(S entity);
+        // INSERT if new (no ID), UPDATE if existing (has ID)
+        // Hibernate decides: new = transient, existing = managed/detached
+        <S extends T> Iterable<S> saveAll(Iterable<S> entities);
+        // Batch save — wraps each in save()
+        // ── Find ──────────────────────────────────────────────
+        Optional<T> findById(ID id);
+        // SELECT * FROM table WHERE id = ?
+        // Returns Optional — forces you to handle not-found
+        boolean existsById(ID id);
+        // SELECT COUNT(*) FROM table WHERE id = ? > 0
+        // More efficient than findById when you only need existence
+        Iterable<T> findAll();
+        // SELECT * FROM table — returns ALL rows, use with care
+        Iterable<T> findAllById(Iterable<ID> ids);
+        // SELECT * FROM table WHERE id IN (?, ?, ?)
+        long count();
+        // SELECT COUNT(*) FROM table
+        // ── Delete ────────────────────────────────────────────
+        void deleteById(ID id);
+        // First does a findById, then DELETE — throws if not found
+        void delete(T entity);
+        // DELETE WHERE id = entity.id
+        void deleteAllById(Iterable<? extends ID> ids);
+        // DELETE WHERE id IN (...)
+        void deleteAll(Iterable<? extends T> entities);
+        // Deletes each entity one by one
+        void deleteAll();
+        // DELETE FROM table — deletes EVERYTHING, use carefully
+2. PagingAndSortingRepository<T, ID> — 2 extra methods
+        javaIterable<T> findAll(Sort sort);
+        // SELECT * FROM table ORDER BY price ASC
+        Page<T> findAll(Pageable pageable);
+        // SELECT * FROM table LIMIT 10 OFFSET 0
+        // Returns a Page object with content + metadata
+        // ── How to use Pageable ───────────────────────────────
+        Pageable pageable = PageRequest.of(
+            0,                           // page number (0-indexed)
+            10,                          // page size
+            Sort.by("price").ascending() // optional sort
+        );
+        Page<Product> page = repo.findAll(pageable);
+        page.getContent();        // List<Product> — the actual data
+        page.getTotalElements();  // total rows in DB (e.g. 500)
+        page.getTotalPages();     // total pages (e.g. 50)
+        page.getNumber();         // current page number
+        page.isFirst();           // true if first page
+        page.isLast();            // true if last page
+        page.hasNext();           // true if more pages exist
+3. JpaRepository<T, ID> — 7 extra methods
+        java// ── Batch / Flush ─────────────────────────────────────
+        List<T> findAll();
+        // Overrides CrudRepository's Iterable<T> → returns List
+        List<T> findAll(Sort sort);
+        // Returns List instead of Iterable
+        List<T> findAllById(Iterable<ID> ids);
+        // Returns List
+        <S extends T> List<S> saveAll(Iterable<S> entities);
+        // Returns List
+        void flush();
+        // Forces Hibernate to immediately write pending changes to DB
+        // Normally Hibernate batches writes and flushes at commit
+        <S extends T> S saveAndFlush(S entity);
+        // save() + flush() in one call
+        // Useful when you need the DB to reflect changes immediately
+        // (e.g., before calling a stored procedure)
+        <S extends T> List<S> saveAllAndFlush(Iterable<S> entities);
+        // saveAll() + flush()
+        void deleteAllInBatch(Iterable<T> entities);
+        // DELETE FROM table WHERE id IN (?, ?, ?)
+        // ONE SQL statement — much faster than deleteAll() which loops
+        void deleteAllByIdInBatch(Iterable<ID> ids);
+        // DELETE FROM table WHERE id IN (?, ?, ?)
+        void deleteAllInBatch();
+        // DELETE FROM table — single SQL, no loading entities first
+        T getReferenceById(ID id);
+        // Returns a PROXY — does NOT hit the DB immediately
+        // Only fetches when you access a field (lazy loading)
+        // Replaces deprecated getOne() / getById()
+
+4. Derived Query Methods (your interface)
+Spring generates SQL from method names automatically:
+        javapublic interface ProductRepository extends JpaRepository<Product, Long> {
+            // ── By field value ────────────────────────────────
+            List<Product> findByCategory(Category cat);
+            // WHERE category = ?
+            Optional<Product> findByName(String name);
+            // WHERE name = ?
+            // ── Comparison operators ──────────────────────────
+            List<Product> findByPriceGreaterThan(Double price);       // price > ?
+            List<Product> findByPriceLessThan(Double price);          // price < ?
+            List<Product> findByPriceBetween(Double min, Double max); // price BETWEEN ? AND ?
+            List<Product> findByStockGreaterThanEqual(Integer qty);   // stock >= ?
+            // ── String matching ───────────────────────────────
+            List<Product> findByNameContaining(String kw);            // LIKE %?%
+            List<Product> findByNameStartingWith(String prefix);      // LIKE ?%
+            List<Product> findByNameEndingWith(String suffix);        // LIKE %?
+            List<Product> findByNameContainingIgnoreCase(String kw);  // LIKE %?% (case-insensitive)
+            // ── Null checks ───────────────────────────────────
+            List<Product> findByDescriptionIsNull();                  // WHERE description IS NULL
+            List<Product> findByDescriptionIsNotNull();               // WHERE description IS NOT NULL
+            // ── Boolean ───────────────────────────────────────
+            List<Product> findByActiveTrue();                         // WHERE active = true
+            List<Product> findByActiveFalse();                        // WHERE active = false
+            // ── Compound conditions ───────────────────────────
+            List<Product> findByNameAndCategory(String name, Category cat);
+            // WHERE name = ? AND category = ?
+            List<Product> findByCategoryOrPriceLessThan(Category cat, Double price);
+            // WHERE category = ? OR price < ?
+            // ── Sorting ───────────────────────────────────────
+            List<Product> findByCategoryOrderByPriceAsc(Category cat);
+            List<Product> findByCategoryOrderByPriceDesc(Category cat);
+            // ── Limiting results ──────────────────────────────
+            List<Product> findTop3ByOrderByPriceDesc();    // 3 most expensive
+            Optional<Product> findFirstByCategory(Category cat); // first match
+            // ── Count / Exists ────────────────────────────────
+            long countByCategory(Category cat);
+            boolean existsByName(String name);
+            // ── Delete ────────────────────────────────────────
+            void deleteByCategory(Category cat);
+            long deleteByStockLessThan(Integer qty); // returns deleted count
+        }
+
+5. @Query methods (manual JPQL / native SQL)
+        java// ── JPQL (uses entity class names, not table names) ───
+        @Query("SELECT p FROM Product p WHERE p.price < :max AND p.stock > 0")
+        List<Product> findAvailableUnder(@Param("max") Double max);
+        // ── Positional params (instead of named) ──────────────
+        @Query("SELECT p FROM Product p WHERE p.name LIKE %?1%")
+        List<Product> searchName(String keyword);
+        // ── Native SQL (actual table/column names) ─────────────
+        @Query(value = "SELECT * FROM products WHERE stock = 0", nativeQuery = true)
+        List<Product> findOutOfStock();
+        // ── Modifying query (UPDATE / DELETE) ─────────────────
+        @Modifying
+        @Transactional
+        @Query("UPDATE Product p SET p.price = p.price * :factor WHERE p.category = :cat")
+        int applyDiscount(@Param("factor") Double factor, @Param("cat") Category cat);
+        // Returns int = number of rows affected
+        // ── Projection (return only specific fields) ───────────
+        @Query("SELECT p.name, p.price FROM Product p WHERE p.category = :cat")
+        List<Object[]> findNameAndPrice(@Param("cat") Category cat);
+
+ What Hibernate Actually Does Behind the Scenes
+
+repo.save(product)
+  │
+  ▼
+Hibernate checks: does this entity have an ID?
+  │
+  ├── No ID → EntityManager.persist(entity)
+  │           → INSERT INTO products (...) VALUES (...)
+  │           → DB returns generated id
+  │           → entity.id is set automatically
+  │
+  └── Has ID → EntityManager.merge(entity)
+              → SELECT to check if exists
+              → UPDATE products SET ... WHERE id = ?
+
+repo.findById(1L)
+  │
+  ▼
+Hibernate checks 1st-level cache (EntityManager / persistence context)
+  │
+  ├── Found in cache → return immediately (no DB hit!)
+  │
+  └── Not in cache → SELECT * FROM products WHERE id = 1
+                   → map ResultSet → Product object
+                   → store in cache
+                   → return Optional<Product>
+
 
 Flow:
                                                                         @Entity                                        application
@@ -1138,274 +1112,6 @@ PUT         /api/products/{id}                    Full update
 DELETE      /api/products/{id}                    Delete
 PATCH       /api/products/{id}/restock?qty=       Restock
 
-JPA, Hibernate, and Spring Data relate to each other:
-Your code ---> ProductRepository ------->Spring Data JPA--------------->JPA (Jakarta Persistence API)--------->Hibernate--------------------->Database (MySQL / PostgreSQL / H2)
-            · @Entity · @Service          Repository abstraction        Specification only ·                 JPA implementation ·
-                                          query generation              interfaces · annotations             ORM · SQL generation · caching
-
-
-repository interface inheritance chain:
-                 extends                            extends                                                extends                        extends
-Repository<T, ID>-----------> CrudRepository<T, ID>------------------->PagingAndSortingRepository<T, ID>---------->JpaRepository<T, ID>----------------------------->ProductRepository (your interface)
-Marker only                   save · findById · findAll                 findAll(Pageable) · findAll(Sort)            flush · saveAllAndFlush                         inherits all above + derived queries + @Query
-0 methods                     delete · count · exists                                                                · deleteAllInBatch · getReferenceById
-
-JPA vs Hibernate — what exactly is each one?
-JPA (Jakarta Persistence API) is just a specification — 
-                a set of Java interfaces, annotations (@Entity, @Id, @OneToMany...),
-                and rules written in a document. 
-                It ships no executable code.
-                It defines what an ORM must do, not how.
-Hibernate is the implementation — 
-    it reads your @Entity classes,
-    maintains an in-memory cache of managed objects (the "persistence context"), 
-    generates SQL, executes it via JDBC, and maps result sets back to objects. 
-    When Spring Boot starts, it wires Hibernate as the JPA provider automatically.
-Spring Data JPA sits on top of both.
-    It reads your JpaRepository interface at startup, 
-    generates proxy classes that implement it,
-    and delegates every call down to Hibernate. 
-    You never write a single line of SQL for basic CRUD.
-The relationship in one sentence: JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
-
-All Methods — Interface by Interface
-1. CrudRepository<T, ID> — 13 methods
-        java// ── Save ──────────────────────────────────────────────
-        <S extends T> S save(S entity);
-        // INSERT if new (no ID), UPDATE if existing (has ID)
-        // Hibernate decides: new = transient, existing = managed/detached
-        <S extends T> Iterable<S> saveAll(Iterable<S> entities);
-        // Batch save — wraps each in save()
-        // ── Find ──────────────────────────────────────────────
-        Optional<T> findById(ID id);
-        // SELECT * FROM table WHERE id = ?
-        // Returns Optional — forces you to handle not-found
-        boolean existsById(ID id);
-        // SELECT COUNT(*) FROM table WHERE id = ? > 0
-        // More efficient than findById when you only need existence
-        Iterable<T> findAll();
-        // SELECT * FROM table — returns ALL rows, use with care
-        Iterable<T> findAllById(Iterable<ID> ids);
-        // SELECT * FROM table WHERE id IN (?, ?, ?)
-        long count();
-        // SELECT COUNT(*) FROM table
-        // ── Delete ────────────────────────────────────────────
-        void deleteById(ID id);
-        // First does a findById, then DELETE — throws if not found
-        void delete(T entity);
-        // DELETE WHERE id = entity.id
-        void deleteAllById(Iterable<? extends ID> ids);
-        // DELETE WHERE id IN (...)
-        void deleteAll(Iterable<? extends T> entities);
-        // Deletes each entity one by one
-        void deleteAll();
-        // DELETE FROM table — deletes EVERYTHING, use carefully
-2. PagingAndSortingRepository<T, ID> — 2 extra methods
-        javaIterable<T> findAll(Sort sort);
-        // SELECT * FROM table ORDER BY price ASC
-        Page<T> findAll(Pageable pageable);
-        // SELECT * FROM table LIMIT 10 OFFSET 0
-        // Returns a Page object with content + metadata
-        // ── How to use Pageable ───────────────────────────────
-        Pageable pageable = PageRequest.of(
-            0,                           // page number (0-indexed)
-            10,                          // page size
-            Sort.by("price").ascending() // optional sort
-        );
-        Page<Product> page = repo.findAll(pageable);
-        page.getContent();        // List<Product> — the actual data
-        page.getTotalElements();  // total rows in DB (e.g. 500)
-        page.getTotalPages();     // total pages (e.g. 50)
-        page.getNumber();         // current page number
-        page.isFirst();           // true if first page
-        page.isLast();            // true if last page
-        page.hasNext();           // true if more pages exist
-3. JpaRepository<T, ID> — 7 extra methods
-        java// ── Batch / Flush ─────────────────────────────────────
-        List<T> findAll();
-        // Overrides CrudRepository's Iterable<T> → returns List
-        List<T> findAll(Sort sort);
-        // Returns List instead of Iterable
-        List<T> findAllById(Iterable<ID> ids);
-        // Returns List
-        <S extends T> List<S> saveAll(Iterable<S> entities);
-        // Returns List
-        void flush();
-        // Forces Hibernate to immediately write pending changes to DB
-        // Normally Hibernate batches writes and flushes at commit
-        <S extends T> S saveAndFlush(S entity);
-        // save() + flush() in one call
-        // Useful when you need the DB to reflect changes immediately
-        // (e.g., before calling a stored procedure)
-        <S extends T> List<S> saveAllAndFlush(Iterable<S> entities);
-        // saveAll() + flush()
-        void deleteAllInBatch(Iterable<T> entities);
-        // DELETE FROM table WHERE id IN (?, ?, ?)
-        // ONE SQL statement — much faster than deleteAll() which loops
-        void deleteAllByIdInBatch(Iterable<ID> ids);
-        // DELETE FROM table WHERE id IN (?, ?, ?)
-        void deleteAllInBatch();
-        // DELETE FROM table — single SQL, no loading entities first
-        T getReferenceById(ID id);
-        // Returns a PROXY — does NOT hit the DB immediately
-        // Only fetches when you access a field (lazy loading)
-        // Replaces deprecated getOne() / getById()
-
-4. Derived Query Methods (your interface)
-Spring generates SQL from method names automatically:
-        javapublic interface ProductRepository extends JpaRepository<Product, Long> {
-            // ── By field value ────────────────────────────────
-            List<Product> findByCategory(Category cat);
-            // WHERE category = ?
-            Optional<Product> findByName(String name);
-            // WHERE name = ?
-            // ── Comparison operators ──────────────────────────
-            List<Product> findByPriceGreaterThan(Double price);       // price > ?
-            List<Product> findByPriceLessThan(Double price);          // price < ?
-            List<Product> findByPriceBetween(Double min, Double max); // price BETWEEN ? AND ?
-            List<Product> findByStockGreaterThanEqual(Integer qty);   // stock >= ?
-            // ── String matching ───────────────────────────────
-            List<Product> findByNameContaining(String kw);            // LIKE %?%
-            List<Product> findByNameStartingWith(String prefix);      // LIKE ?%
-            List<Product> findByNameEndingWith(String suffix);        // LIKE %?
-            List<Product> findByNameContainingIgnoreCase(String kw);  // LIKE %?% (case-insensitive)
-            // ── Null checks ───────────────────────────────────
-            List<Product> findByDescriptionIsNull();                  // WHERE description IS NULL
-            List<Product> findByDescriptionIsNotNull();               // WHERE description IS NOT NULL
-            // ── Boolean ───────────────────────────────────────
-            List<Product> findByActiveTrue();                         // WHERE active = true
-            List<Product> findByActiveFalse();                        // WHERE active = false
-            // ── Compound conditions ───────────────────────────
-            List<Product> findByNameAndCategory(String name, Category cat);
-            // WHERE name = ? AND category = ?
-            List<Product> findByCategoryOrPriceLessThan(Category cat, Double price);
-            // WHERE category = ? OR price < ?
-            // ── Sorting ───────────────────────────────────────
-            List<Product> findByCategoryOrderByPriceAsc(Category cat);
-            List<Product> findByCategoryOrderByPriceDesc(Category cat);
-            // ── Limiting results ──────────────────────────────
-            List<Product> findTop3ByOrderByPriceDesc();    // 3 most expensive
-            Optional<Product> findFirstByCategory(Category cat); // first match
-            // ── Count / Exists ────────────────────────────────
-            long countByCategory(Category cat);
-            boolean existsByName(String name);
-            // ── Delete ────────────────────────────────────────
-            void deleteByCategory(Category cat);
-            long deleteByStockLessThan(Integer qty); // returns deleted count
-        }
-
-5. @Query methods (manual JPQL / native SQL)
-        java// ── JPQL (uses entity class names, not table names) ───
-        @Query("SELECT p FROM Product p WHERE p.price < :max AND p.stock > 0")
-        List<Product> findAvailableUnder(@Param("max") Double max);
-        // ── Positional params (instead of named) ──────────────
-        @Query("SELECT p FROM Product p WHERE p.name LIKE %?1%")
-        List<Product> searchName(String keyword);
-        // ── Native SQL (actual table/column names) ─────────────
-        @Query(value = "SELECT * FROM products WHERE stock = 0", nativeQuery = true)
-        List<Product> findOutOfStock();
-        // ── Modifying query (UPDATE / DELETE) ─────────────────
-        @Modifying
-        @Transactional
-        @Query("UPDATE Product p SET p.price = p.price * :factor WHERE p.category = :cat")
-        int applyDiscount(@Param("factor") Double factor, @Param("cat") Category cat);
-        // Returns int = number of rows affected
-        // ── Projection (return only specific fields) ───────────
-        @Query("SELECT p.name, p.price FROM Product p WHERE p.category = :cat")
-        List<Object[]> findNameAndPrice(@Param("cat") Category cat);
-
- What Hibernate Actually Does Behind the Scenes
-
-repo.save(product)
-  │
-  ▼
-Hibernate checks: does this entity have an ID?
-  │
-  ├── No ID → EntityManager.persist(entity)
-  │           → INSERT INTO products (...) VALUES (...)
-  │           → DB returns generated id
-  │           → entity.id is set automatically
-  │
-  └── Has ID → EntityManager.merge(entity)
-              → SELECT to check if exists
-              → UPDATE products SET ... WHERE id = ?
-
-repo.findById(1L)
-  │
-  ▼
-Hibernate checks 1st-level cache (EntityManager / persistence context)
-  │
-  ├── Found in cache → return immediately (no DB hit!)
-  │
-  └── Not in cache → SELECT * FROM products WHERE id = 1
-                   → map ResultSet → Product object
-                   → store in cache
-                   → return Optional<Product>
-
-7 core in Hibernate
-1. ORM (Object-Relational Mapping)
-    This is the fundamental job. Hibernate maps your Java POJOs (Plain Old Java Objects) to Database Tables.
-    The Mapping: Using annotations (like @Entity, @Table, @Column) or XML,
-                Hibernate understands that a class attribute like String userName corresponds to a table column USER_NAME.
-    The Benefit: You work with objects and methods rather than manually mapping result sets to objects.
-2. SQL Generation
-    Hibernate acts as a translator. You don't have to write vendor-specific SQL for every operation.
-    Dialects: Hibernate uses a Dialect (e.g., PostgreSQLDialect, MySQL8Dialect) to know how to talk to your specific database.
-    Automatic Creation: When you call session.save(user),
-                        Hibernate automatically generates the INSERT INTO... statement for you at runtime.
-3. Persistence Context (1st-Level Cache)
-    The Session acts as the First-Level Cache. It is a mandatory, short-lived cache associated with the current unit of work.    
-    De-duplication: If you request the same User object twice in the same session, Hibernate only hits the database once. 
-                    The second time, it pulls the object from the Persistence Context.
-    Scope: It is private to the current session and is destroyed when the session closes.
-4. Second-Level Cache
-    Unlike the first-level cache, the Second-Level Cache is SessionFactory-scoped and optional.
-    Sharing: Data stored here is available across different sessions and even different users.
-    External Providers: Hibernate doesn't provide the cache itself but integrates with providers like Ehcache, Infinispan, or Redis.
-5. Dirty Checking
-    This is a "smart" feature that minimizes database updates.
-    Mechanism: When an object is loaded into the Persistence Context, Hibernate keeps a "snapshot" of its original state.
-    Automatic Update: When the transaction commits, Hibernate compares the current state of the object with the snapshot. 
-                    If you changed a field (e.g., user.setName("New Name")), Hibernate detects the "dirtiness" and automatically triggers an UPDATE statement. 
-                    You don't need to call session.update() manually.
-6. Lazy Loading via Proxies
-    To save memory and improve performance, Hibernate doesn't load everything at once.
-    Proxies: If a User has a list of Orders, Hibernate doesn't fetch the orders immediately.
-            Instead, it places a Proxy (a placeholder object) there.
-    On-Demand: The SQL query to fetch the orders is only executed the moment you actually call user.getOrders().size() or iterate through them.
-7. Transaction Management
-    Hibernate integrates with transaction APIs to ensure data integrity (ACID properties).
-    Unit of Work: It ensures that a series of operations (like withdrawing money from one account and depositing in another) either all succeed or all fail.
-    Abstraction: It abstracts the underlying JDBC transaction management, allowing you to focus on the business logic rather than connection.commit() or connection.rollback() boilerplate.
-
-Example: 
-        // 1. Start Transaction
-        Transaction tx = session.beginTransaction();
-        // 2. Fetch User (The Profile field is a Proxy at this point)
-        User user = session.get(User.class, 1L); 
-        // 3. Lazy Loading Triggered
-        // The moment we call getProfile().getBio(), Hibernate fires a SELECT for the Profile table.
-        String oldBio = user.getProfile().getBio();
-        // 4. Dirty Checking at work
-        // We simply change the Java object. We DON'T call session.update().
-        user.getProfile().setBio("Updated Bio via Dirty Checking!");
-        // 5. Transaction Management
-        // When we commit, Hibernate:
-        //   a) Performs Dirty Checking
-        //   b) Sees the Bio changed
-        //   c) Issues the SQL UPDATE
-        //   d) Finalizes the DB transaction
-        tx.commit(); 
-        session.close();
-
-Common Hibernate pitfalls:
-N+1 query problem — loading a list of orders and then accessing order.getItems() in a loop fires one query for orders and then one query per order for items. 
-        Fix with JOIN FETCH in your JPQL query or @EntityGraph.
-LazyInitializationException — accessing a lazy relationship outside a transaction. 
-        Fix by keeping data access inside @Transactional, or using FetchType.EAGER, or a DTO projection that doesn't need the relationship at all.
-ddl-auto=create in production — drops and recreates all tables on startup. 
-        Always use validate or none in production, and manage schema changes with Flyway or Liquibase instead.
-
 MongoDB Repository with Spring Boot:
 Spring Boot integrates with MongoDB through Spring Data MongoDB,
 which provides a powerful repository abstraction that eliminates boilerplate code for database operations.
@@ -1512,239 +1218,205 @@ Schema              Fixed schema                    Flexible/schema-less
 Transactions        Full ACID                       Limited (since MongoDB 4.x)
 ORM                 Hibernate                       Spring Data MongoDB Converter
 
-Exception Handling in Spring Boot:
-Why Exception Handling Matters
-    Without proper handling:          With proper handling:
-    ─────────────────────             ─────────────────────
-    500 Internal Server Error         { 
-    java.lang.NullPointerException      "status": 404,
-       at com.app.Service.java:45        "error": "User Not Found",
-       at com.app.Controller.java:12     "message": "No user with id 99",
-       ...stack trace exposed 😱         "timestamp": "2026-04-01T10:00:00"
-                                       }  ✅ Clean & safe
-@ExceptionHandler- Handles exceptions within a single controller:
-@RestController
-public class UserController {
-    @GetMapping("/users/{id}")
-    public User getUser(@PathVariable Long id) {
-        return userService.findById(id); // may throw UserNotFoundException
-    }
-    // Handles ONLY within this controller
-    @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<String> handleNotFound(UserNotFoundException ex) {
-        return ResponseEntity.status(404).body(ex.getMessage());
-    }
-}
-Limitation — only works in the controller it's defined in. Not reusable.
+   1. Is Spring Data part of Spring Core? ❌ No → Separate project
+   2. Does Spring Data replace Hibernate? ❌ No → Uses JPA/Hibernate
+   3.  How query methods work? ✔ Method name parsing
+   4.  What is JpaRepository? ✔ Interface with CRUD + pagination
+   5. Can we write custom implementation? ✔ Yes
+   6. Why JpaRepository returns List? ✔ Easier to use than Iterable
+   7.  Which supports batch operations? ✔ JpaRepository
+   8.  Can we create custom methods? ✔ Yes (in all repositories)
 
-@ControllerAdvice / @RestControllerAdvice -Handles exceptions globally across ALL controllers:
+5.  Java Message Service (JMS) 
+    It is a Java API for sending messages between systems asynchronously.
+      👉 Instead of direct communication: Service A → Service B (tight coupling ❌)
+      👉 Use messaging: Service A → Message Queue → Service B (loose coupling ✅)
 
-@ControllerAdvice       = @Component + global exception handling (returns View)
-@RestControllerAdvice   = @ControllerAdvice + @ResponseBody (returns JSON)
+  What does “Asynchronous” mean? Sender does NOT wait for receiver
+    Synchronous (REST style) -Service A → Service B → Response (wait)
+        ❌ Blocking
+        ❌ Slower under load
+    Asynchronous (JMS) - Service A → Queue → (continues immediately)
+                        ↓
+                     Service B processes later
+    
+        ✔ Non-blocking
+        ✔ Faster
+        ✔ Decoupled
+    jmsTemplate.convertAndSend("orderQueue", order);
+    System.out.println("Order sent"); // runs immediately👉 No waiting for consumer
 
-@ResponseStatus
-Directly maps an exception class to an HTTP status code:
-@ResponseStatus(HttpStatus.NOT_FOUND)           // ← auto returns 404
-public class UserNotFoundException extends RuntimeException {
-    public UserNotFoundException(String message) {
-        super(message);
-    }
-}
-Custom Error Response Model:
-Always return a consistent error structure:
-public class ErrorResponse {
-    private int status;
-    private String error;
-    private String message;
-    private String path;
-    private LocalDateTime timestamp;
-    // Constructor
-    public ErrorResponse(int status, String error, String message, String path) {
-        this.status    = status;
-        this.error     = error;
-        this.message   = message;
-        this.path      = path;
-        this.timestamp = LocalDateTime.now();
-    }
-    // getters...
-}
-Custom Exceptions
-// Base custom exception
-public class AppException extends RuntimeException {
-    private final HttpStatus status;
-    public AppException(String message, HttpStatus status) {
-        super(message);
-        this.status = status;
-    }
-    public HttpStatus getStatus() { return status; }
-}
-// Specific exceptions
-public class UserNotFoundException extends AppException {
-    public UserNotFoundException(Long id) {
-        super("User not found with id: " + id, HttpStatus.NOT_FOUND);
-    }
-}
-public class EmailAlreadyExistsException extends AppException {
-    public EmailAlreadyExistsException(String email) {
-        super("Email already registered: " + email, HttpStatus.CONFLICT);
-    }
-}
-public class UnauthorizedException extends AppException {
-    public UnauthorizedException() {
-        super("You are not authorized to perform this action", HttpStatus.UNAUTHORIZED);
-    }
-}
+  Why JMS?
+        Decouples systems
+        Enables async processing
+        Improves scalability
+        Handles high load
+ 
+  JMS Architecture
+    Producer → Message Broker → Consumer
+    🔹 1. Producer -Sends message
+    🔹 2. Consumer - Receives message
+    🔹 3. Message - Data being sent
+    🔹 4. Destination -Where message goes Queue/Topic
+    🔹 5. Message Broker -  Manages messages like ActiveMQ/RabbitMQ
 
- Global Exception Handler — Full Example
-@RestControllerAdvice
-public class GlobalExceptionHandler {
-    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
-    // ── Custom App Exceptions ──────────────────────────────────────────
-    @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleUserNotFound(
-            UserNotFoundException ex, HttpServletRequest request) {
+   Message Types:
+      🔹 TextMessage -"Hello World"
+      🔹 ObjectMessage-Serializable object
+      🔹 MapMessage - Key-value pairs
+      🔹 BytesMessage -Binary data
+  
+  Messaging Models
+      🔹 1. Queue (Point-to-Point) :Producer → Queue → ONE Consumer   
+                          ✔ One consumer gets message
+                          ✔ Load balancing
+      🔹 2. Topic (Publish-Subscribe) : Producer → Topic → MANY Consumers
+                          ✔ All subscribers receive message
+  JMS with Spring:
+    In the Spring Framework, JMS is simplified using: JmsTemplate  Like JdbcTemplate (for DB)
+      🔹 Sending Message
+            @Autowired
+            private JmsTemplate jmsTemplate;
+      
+            jmsTemplate.convertAndSend("queue", "Hello JMS");
+      🔹 Receiving Message
+            @JmsListener(destination = "queue")
+            public void receive(String message) {
+                System.out.println(message);
+            }
+      Internal Working: convertAndSend → MessageConverter → Broker → Listener → Method execution
+      Message ConversionL Spring converts Java object ↔ JMS message
+            jmsTemplate.convertAndSend("queue", user);  ✔ Automatically serialized
 
-        log.warn("User not found: {}", ex.getMessage());
-        ErrorResponse error = new ErrorResponse(
-            404, "Not Found", ex.getMessage(), request.getRequestURI()
-        );
-        return ResponseEntity.status(404).body(error);
-    }
-    @ExceptionHandler(EmailAlreadyExistsException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicateEmail(
-            EmailAlreadyExistsException ex, HttpServletRequest request) {
+    Transactions in JMS👉 Ensure message reliability
+        @Transactional
+        public void send() {
+            jmsTemplate.convertAndSend("queue", "msg");
+        }
+        ✔ If transaction fails → message not sent
+    
+    Handling Timeouts in JMS
+      Timeouts can happen when: Waiting for message, Broker delay and Consumer slow
+      🔹 A. Receive Timeout - jmsTemplate.setReceiveTimeout(5000); // 5 seconds 👉 If no message → returns null
+      🔹 B. Request-Reply Timeout - If using request-response pattern: jmsTemplate.setReceiveTimeout(3000);
+      🔹 C. Connection Timeout - Configured in broker/client: ActiveMQ connection URL/ ConnectionFactory config
+      Best Practices :Set proper timeout values, Avoid infinite waits and  Use retry mechanism
 
-        ErrorResponse error = new ErrorResponse(
-            409, "Conflict", ex.getMessage(), request.getRequestURI()
-        );
-        return ResponseEntity.status(409).body(error);
-    }
-    // ── Validation Exceptions ──────────────────────────────────────────
-    @ExceptionHandler(MethodArgumentNotValidException.class)   // @Valid failures
-    public ResponseEntity<ErrorResponse> handleValidation(
-            MethodArgumentNotValidException ex, HttpServletRequest request) {
-        // Collect all field errors
-        Map<String, String> fieldErrors = new HashMap<>();
-        ex.getBindingResult().getFieldErrors().forEach(err ->
-            fieldErrors.put(err.getField(), err.getDefaultMessage())
-        );
-        ErrorResponse error = new ErrorResponse(
-            400, "Validation Failed", fieldErrors.toString(), request.getRequestURI()
-        );
-        return ResponseEntity.status(400).body(error);
-    }
-    @ExceptionHandler(ConstraintViolationException.class)      // @Validated failures
-    public ResponseEntity<ErrorResponse> handleConstraintViolation(
-            ConstraintViolationException ex, HttpServletRequest request) {
+    What if Queue / Broker is NOT UP?
+    ❌ Problem :App → JMS → Broker DOWN → Exception
+     Handling Strategies
+        ✔ 1. Retry Mechanism
+              try {
+                  jmsTemplate.convertAndSend("queue", msg);
+              } catch (Exception e) {
+                  // retry logic
+              }
+        Use: RetryTemplate (Spring),  Custom retry loop
+        ✔ 2. Circuit Breaker (Advanced) 👉 Stop sending temporarily Tools: Resilience4j
+        ✔ 3. Message Persistence👉 If broker is up but consumer down: ✔ Messages stored in broker ✔ Delivered later 
+        ✔ 4. Failover Configuration: For brokers like ActiveMQ: failover:(tcp://host1:61616,tcp://host2:61616) ✔ Switches to backup broker
+        ✔ 5. Dead Letter Queue (DLQ): 👉 Failed messages go here : queue → failure → DLQ ✔ Prevents data loss    
+        ✔ 6. Logging & Alerting ✔ Monitor broker health ✔ Send alerts
+    
+     Acknowledgement Modes👉 Defines when message is considered successfully consumed
+      🔹 1. AUTO_ACKNOWLEDGE- Session.AUTO_ACKNOWLEDGE 
+                  ✔ Automatically acknowledged after processing
+                  Receive → Process → Auto ACK
+                  ⚠️ Risk If failure during processing → message lost
+      🔹 2. CLIENT_ACKNOWLEDGE - Session.CLIENT_ACKNOWLEDGE
+                  ✔ Manual acknowledgment
+                  message.acknowledge();
+                  Receive → Process → ACK manually
+                  ✔ Advantage- Better control, Retry possible
+      🔹 3. DUPS_OK_ACKNOWLEDGE -Session.DUPS_OK_ACKNOWLEDGE
+                  ✔ Lazy acknowledgment
+                  May deliver duplicates
+                  Faster performance
+                  ⚠️ Requirement👉 Consumer must handle duplicates
+      🔹 4. TRANSACTED SESSION 
+                  session.commit();
+                  session.rollback();
+                  Receive →Process →Commit → ACK
+                  Rollback → message redelivered
+                  ✔ Best for reliability
+                  Ensures no data loss
+                  Supports rollback
+  Delivery Modes:
+  🔹 Persistent - ✔ Saved to disk✔ Reliable
+  🔹 Non-Persistent -✔ Faster ❌ Risk of loss
+  
+  🔥 Real-Time Example
+  Order System: Order Service → Queue → Email Service
+      ✔ Decoupled
+      ✔ Async
+  
+  ⚠️ Common Problems
+  ❗ Duplicate messages👉 Need idempotent handling
+  ❗ Message loss 👉 Use persistent mode
+  ❗ Ordering issues 👉 Depends on queue
+  
+  1. Is JMS synchronous? ❌ No → async
+  2. Queue vs Topic?✔ Queue → one consumer✔ Topic → multiple
+  3. What is JmsTemplate? ✔ Helper class
+  4. What is broker? ✔ Message manager
+  5. Does JMS guarantee delivery? ✔ Yes (with persistent mode)
 
-        ErrorResponse error = new ErrorResponse(
-            400, "Bad Request", ex.getMessage(), request.getRequestURI()
-        );
-        return ResponseEntity.status(400).body(error);
-    }
-    // ── Spring MVC Exceptions ──────────────────────────────────────────
-    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)  // wrong HTTP method
-    public ResponseEntity<ErrorResponse> handleMethodNotAllowed(
-            HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
 
-        ErrorResponse error = new ErrorResponse(
-            405, "Method Not Allowed", ex.getMessage(), request.getRequestURI()
-        );
-        return ResponseEntity.status(405).body(error);
-    }
-    @ExceptionHandler(HttpMessageNotReadableException.class)    // malformed JSON body
-    public ResponseEntity<ErrorResponse> handleBadJson(
-            HttpMessageNotReadableException ex, HttpServletRequest request) {
+6. OXM Module (Object XML Mapping)
+    👉 OXM = Object ↔ XML mapping
+    ✔ Converts Java objects → XML
+    ✔ Converts XML → Java objects
 
-        ErrorResponse error = new ErrorResponse(
-            400, "Bad Request", "Malformed JSON request body", request.getRequestURI()
-        );
-        return ResponseEntity.status(400).body(error);
-    }
-    // ── Fallback for Everything Else ───────────────────────────────────
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleAll(
-            Exception ex, HttpServletRequest request) {
+    🧠 Why Needed? 
+    Before OXM ❌:
+      Manual XML parsing (DOM/SAX)
+      Complex and error-prone
+    ✅ With OXM
+    ✔ Simplifies XML handling
+    ✔ Provides abstraction over multiple frameworks
 
-        log.error("Unexpected error at {}: {}", request.getRequestURI(), ex.getMessage(), ex);
-        ErrorResponse error = new ErrorResponse(
-            500, "Internal Server Error", "An unexpected error occurred", request.getRequestURI()
-        );
-        return ResponseEntity.status(500).body(error);
-    }
-}
-Validation with Exception Handling
-// DTO with validation annotations
-public class UserRequest {
-    @NotBlank(message = "Name is required")
-    private String name;
-    @Email(message = "Invalid email format")
-    @NotBlank(message = "Email is required")
-    private String email;
-    @Min(value = 18, message = "Age must be at least 18")
-    private int age;
-    @NotNull(message = "Role cannot be null")
-    private String role;
-}
-// Controller — trigger validation with @Valid
-@RestController
-@RequestMapping("/users")
-public class UserController {
-    @PostMapping
-    public ResponseEntity<User> createUser(@Valid @RequestBody UserRequest request) {
-        // if validation fails → MethodArgumentNotValidException is thrown
-        // → caught by GlobalExceptionHandler automatically ✅
-        return ResponseEntity.status(201).body(userService.create(request));
-    }
-}
-Response when validation fails:
-json{
-  "status": 400,
-  "error": "Validation Failed",
-  "message": { "email": "Invalid email format", "age": "Age must be at least 18" },
-  "path": "/users",
-  "timestamp": "2026-04-01T10:00:00"
-}
+    Supported Technologies: JAXB (most common), XStream and Castor
 
-ResponseEntityExceptionHandler — Extend for Full Control
-Spring provides a base class that already handles common Spring MVC exceptions:
-@RestControllerAdvice
-public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
-    //Override specific Spring MVC handlers
-    @Override
-    protected ResponseEntity<Object> handleMethodArgumentNotValid(
-            MethodArgumentNotValidException ex,
-            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getFieldErrors()
-            .forEach(e -> errors.put(e.getField(), e.getDefaultMessage()));
-        return ResponseEntity.badRequest().body(errors);
+    Jaxb2Marshaller marshaller = new Jaxb2Marshaller();
+    marshaller.setClassesToBeBound(User.class);
+    marshaller.marshal(user, new StreamResult(System.out));
+
+    Java Object → Marshaller → XML
+    Use Cases: SOAP web services, XML-based integrations and Legacy systems
+
+7 . DAO Support Module
+    👉 Provides base/helper classes to simplify DAO layer
+     Purpose: Reduce boilerplate, Provide templates and Simplify integration
+    Key Classes: JdbcDaoSupport,  HibernateDaoSupport and JpaDaoSupport
+    public class UserDao extends JdbcDaoSupport {
+        public List<User> getUsers() {
+            return getJdbcTemplate().query("SELECT * FROM users", ...);
+        }
     }
-    // Add your custom handlers below
-    @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleNotFound(UserNotFoundException ex) {
-        return ResponseEntity.status(404)
-            .body(new ErrorResponse(404, "Not Found", ex.getMessage(), ""));
+    ✔ Benefits :Easy access to templates and Cleaner DAO code
+    ⚠️ Current Trend 👉 Mostly replaced by: Spring Data repositories
+
+ 8. Exception Translation Module ⭐
+    Converts database-specific exceptions → unified Spring exceptions
+    ❌ Problem Without Spring - Different DBs throw different exceptions:SQL Exception and Hibernate Exception
+    ✅ Spring Solution 👉 Unified exception hierarchy:  DataAccessException
+    @Repository
+    public class UserRepo {}
+    ✔ Enables automatic translation
+
+    try {
+        repo.save(user);
+    } catch (DataAccessException e) {
+        // handle all DB errors here
     }
-}
+    Internal Working: DB Exception → Exception Translator → DataAccessException
+   
+    Common Exceptions:
+    Exception	                            Meaning
+    DuplicateKeyException	                Unique constraint
+    DataIntegrityViolationException	      Constraint issue
+    EmptyResultDataAccessException	      No data
 
- Exception Handling Flow
+    Why Important? ✔ DB-independent error handling ✔ Clean architecture
 
-HTTP Request
-     │
-     ▼
- Controller  ──throws──►  @ExceptionHandler (local) ──► Response
-     │                           │ not found
-     │                           ▼
-     │                  @RestControllerAdvice (global)
-     │                  GlobalExceptionHandler
-     │                           │
-     │              ┌────────────┼────────────┐
-     │              ▼            ▼            ▼
-     │        UserNotFound  Validation    Exception
-     │        Handler       Handler       (fallback)
-     │              │            │            │
-     └──────────────▼────────────▼────────────▼
-                        JSON Error Response
-                   { status, error, message, path }
-
+    What enables exception translation? ✔ @Repository
