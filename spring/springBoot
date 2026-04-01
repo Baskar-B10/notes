@@ -899,3 +899,238 @@ Schema              Fixed schema                    Flexible/schema-less
 Transactions        Full ACID                       Limited (since MongoDB 4.x)
 ORM                 Hibernate                       Spring Data MongoDB Converter
 
+Exception Handling in Spring Boot:
+Why Exception Handling Matters
+    Without proper handling:          With proper handling:
+    ─────────────────────             ─────────────────────
+    500 Internal Server Error         { 
+    java.lang.NullPointerException      "status": 404,
+       at com.app.Service.java:45        "error": "User Not Found",
+       at com.app.Controller.java:12     "message": "No user with id 99",
+       ...stack trace exposed 😱         "timestamp": "2026-04-01T10:00:00"
+                                       }  ✅ Clean & safe
+@ExceptionHandler- Handles exceptions within a single controller:
+@RestController
+public class UserController {
+    @GetMapping("/users/{id}")
+    public User getUser(@PathVariable Long id) {
+        return userService.findById(id); // may throw UserNotFoundException
+    }
+    // Handles ONLY within this controller
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<String> handleNotFound(UserNotFoundException ex) {
+        return ResponseEntity.status(404).body(ex.getMessage());
+    }
+}
+Limitation — only works in the controller it's defined in. Not reusable.
+
+@ControllerAdvice / @RestControllerAdvice -Handles exceptions globally across ALL controllers:
+
+@ControllerAdvice       = @Component + global exception handling (returns View)
+@RestControllerAdvice   = @ControllerAdvice + @ResponseBody (returns JSON)
+
+@ResponseStatus
+Directly maps an exception class to an HTTP status code:
+@ResponseStatus(HttpStatus.NOT_FOUND)           // ← auto returns 404
+public class UserNotFoundException extends RuntimeException {
+    public UserNotFoundException(String message) {
+        super(message);
+    }
+}
+Custom Error Response Model:
+Always return a consistent error structure:
+public class ErrorResponse {
+    private int status;
+    private String error;
+    private String message;
+    private String path;
+    private LocalDateTime timestamp;
+    // Constructor
+    public ErrorResponse(int status, String error, String message, String path) {
+        this.status    = status;
+        this.error     = error;
+        this.message   = message;
+        this.path      = path;
+        this.timestamp = LocalDateTime.now();
+    }
+    // getters...
+}
+Custom Exceptions
+// Base custom exception
+public class AppException extends RuntimeException {
+    private final HttpStatus status;
+    public AppException(String message, HttpStatus status) {
+        super(message);
+        this.status = status;
+    }
+    public HttpStatus getStatus() { return status; }
+}
+// Specific exceptions
+public class UserNotFoundException extends AppException {
+    public UserNotFoundException(Long id) {
+        super("User not found with id: " + id, HttpStatus.NOT_FOUND);
+    }
+}
+public class EmailAlreadyExistsException extends AppException {
+    public EmailAlreadyExistsException(String email) {
+        super("Email already registered: " + email, HttpStatus.CONFLICT);
+    }
+}
+public class UnauthorizedException extends AppException {
+    public UnauthorizedException() {
+        super("You are not authorized to perform this action", HttpStatus.UNAUTHORIZED);
+    }
+}
+
+ Global Exception Handler — Full Example
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    // ── Custom App Exceptions ──────────────────────────────────────────
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(
+            UserNotFoundException ex, HttpServletRequest request) {
+
+        log.warn("User not found: {}", ex.getMessage());
+        ErrorResponse error = new ErrorResponse(
+            404, "Not Found", ex.getMessage(), request.getRequestURI()
+        );
+        return ResponseEntity.status(404).body(error);
+    }
+    @ExceptionHandler(EmailAlreadyExistsException.class)
+    public ResponseEntity<ErrorResponse> handleDuplicateEmail(
+            EmailAlreadyExistsException ex, HttpServletRequest request) {
+
+        ErrorResponse error = new ErrorResponse(
+            409, "Conflict", ex.getMessage(), request.getRequestURI()
+        );
+        return ResponseEntity.status(409).body(error);
+    }
+    // ── Validation Exceptions ──────────────────────────────────────────
+    @ExceptionHandler(MethodArgumentNotValidException.class)   // @Valid failures
+    public ResponseEntity<ErrorResponse> handleValidation(
+            MethodArgumentNotValidException ex, HttpServletRequest request) {
+        // Collect all field errors
+        Map<String, String> fieldErrors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(err ->
+            fieldErrors.put(err.getField(), err.getDefaultMessage())
+        );
+        ErrorResponse error = new ErrorResponse(
+            400, "Validation Failed", fieldErrors.toString(), request.getRequestURI()
+        );
+        return ResponseEntity.status(400).body(error);
+    }
+    @ExceptionHandler(ConstraintViolationException.class)      // @Validated failures
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(
+            ConstraintViolationException ex, HttpServletRequest request) {
+
+        ErrorResponse error = new ErrorResponse(
+            400, "Bad Request", ex.getMessage(), request.getRequestURI()
+        );
+        return ResponseEntity.status(400).body(error);
+    }
+    // ── Spring MVC Exceptions ──────────────────────────────────────────
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)  // wrong HTTP method
+    public ResponseEntity<ErrorResponse> handleMethodNotAllowed(
+            HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+
+        ErrorResponse error = new ErrorResponse(
+            405, "Method Not Allowed", ex.getMessage(), request.getRequestURI()
+        );
+        return ResponseEntity.status(405).body(error);
+    }
+    @ExceptionHandler(HttpMessageNotReadableException.class)    // malformed JSON body
+    public ResponseEntity<ErrorResponse> handleBadJson(
+            HttpMessageNotReadableException ex, HttpServletRequest request) {
+
+        ErrorResponse error = new ErrorResponse(
+            400, "Bad Request", "Malformed JSON request body", request.getRequestURI()
+        );
+        return ResponseEntity.status(400).body(error);
+    }
+    // ── Fallback for Everything Else ───────────────────────────────────
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleAll(
+            Exception ex, HttpServletRequest request) {
+
+        log.error("Unexpected error at {}: {}", request.getRequestURI(), ex.getMessage(), ex);
+        ErrorResponse error = new ErrorResponse(
+            500, "Internal Server Error", "An unexpected error occurred", request.getRequestURI()
+        );
+        return ResponseEntity.status(500).body(error);
+    }
+}
+Validation with Exception Handling
+// DTO with validation annotations
+public class UserRequest {
+    @NotBlank(message = "Name is required")
+    private String name;
+    @Email(message = "Invalid email format")
+    @NotBlank(message = "Email is required")
+    private String email;
+    @Min(value = 18, message = "Age must be at least 18")
+    private int age;
+    @NotNull(message = "Role cannot be null")
+    private String role;
+}
+// Controller — trigger validation with @Valid
+@RestController
+@RequestMapping("/users")
+public class UserController {
+    @PostMapping
+    public ResponseEntity<User> createUser(@Valid @RequestBody UserRequest request) {
+        // if validation fails → MethodArgumentNotValidException is thrown
+        // → caught by GlobalExceptionHandler automatically ✅
+        return ResponseEntity.status(201).body(userService.create(request));
+    }
+}
+Response when validation fails:
+json{
+  "status": 400,
+  "error": "Validation Failed",
+  "message": { "email": "Invalid email format", "age": "Age must be at least 18" },
+  "path": "/users",
+  "timestamp": "2026-04-01T10:00:00"
+}
+
+ResponseEntityExceptionHandler — Extend for Full Control
+Spring provides a base class that already handles common Spring MVC exceptions:
+@RestControllerAdvice
+public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+    //Override specific Spring MVC handlers
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors()
+            .forEach(e -> errors.put(e.getField(), e.getDefaultMessage()));
+        return ResponseEntity.badRequest().body(errors);
+    }
+    // Add your custom handlers below
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFound(UserNotFoundException ex) {
+        return ResponseEntity.status(404)
+            .body(new ErrorResponse(404, "Not Found", ex.getMessage(), ""));
+    }
+}
+
+ Exception Handling Flow
+
+HTTP Request
+     │
+     ▼
+ Controller  ──throws──►  @ExceptionHandler (local) ──► Response
+     │                           │ not found
+     │                           ▼
+     │                  @RestControllerAdvice (global)
+     │                  GlobalExceptionHandler
+     │                           │
+     │              ┌────────────┼────────────┐
+     │              ▼            ▼            ▼
+     │        UserNotFound  Validation    Exception
+     │        Handler       Handler       (fallback)
+     │              │            │            │
+     └──────────────▼────────────▼────────────▼
+                        JSON Error Response
+                   { status, error, message, path }
