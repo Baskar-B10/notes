@@ -1065,3 +1065,54 @@ Java 21 (LTS 🔥) features:
           Replace JNI complexity
           Better performance
       
+Virtual threads:
+  Virtual threads are arguably the most significant addition to Java since Lambda expressions. 
+  Introduced in Java 21, they allow you to run millions of concurrent tasks without the massive memory overhead of traditional Operating System (OS) threads.
+1. How to Implement (The Syntax)
+There are three primary ways to create virtual threads depending on your use case.
+A. Using the ExecutorService (Recommended for most apps)
+      This is the cleanest way to run tasks. Unlike fixed thread pools, this executor creates a brand-new virtual thread for every single task and destroys it when finished. Do not pool virtual threads.
+      +1 
+      try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+          executor.submit(() -> {
+              // Your I/O-bound code here (DB call, API call)
+              System.out.println("Running in: " + Thread.currentThread());
+          });
+      } // Executor automatically waits for tasks to finish (AutoCloseable)
+B. Using the Thread Builder (For more control)
+      If you need to name the thread or set a custom inheritance policy:
+      Thread vThread = Thread.ofVirtual()
+          .name("worker-", 1)
+          .start(() -> {
+              System.out.println("Doing work...");
+          });
+C. Static Factory Method (Quick & Dirty)
+      Thread.startVirtualThread(() -> {
+          System.out.println("Hello from a lightweight thread!");
+      });
+2. Enabling in Spring Boot 3.2+
+    Since you are working with AKS and microservices, you likely use Spring Boot.
+    You don't need complex Java code to enable this; just one property:
+    application.properties
+    Properties
+    spring.threads.virtual.enabled=true
+ What this does:
+    Configures Tomcat to use virtual threads for every incoming HTTP request.
+    Configures TaskExecutors (for @Async) and TaskSchedulers (for @Scheduled) to use virtual threads.
+    Effectively allows your service to handle thousands of concurrent requests with just a few megabytes of RAM.
+3. Usage & Use Cases: When to go "Virtual"
+    Virtual threads are not a magic "speed up" button for everything. They are designed for I/O-bound tasks, not CPU-bound tasks.
+    I/O Bound (The Sweet Spot): Database queries, calling other microservices (REST/gRPC), file system operations. When a virtual thread "blocks" (waits for a response), it unmounts from the OS thread, allowing another virtual thread to take its place.
+    CPU Bound (The Trap): If you are doing heavy math, image processing, or video encoding, virtual threads offer zero benefit and might even be slightly slower due to context-switching overhead. 
+                        Use standard platform threads or Parallel Streams for these.
+4. "Hidden" Pitfalls (The Gotchas)
+To keep your AKS pods healthy, avoid these common mistakes:
+A. Thread Pinning (The synchronized problem)
+    If you use the synchronized keyword around a blocking operation (like a DB call), the virtual thread becomes "pinned" to the OS thread. 
+    It cannot unmount, which defeats the entire purpose.
+    Fix: Replace synchronized with java.util.concurrent.locks.ReentrantLock.
+B. ThreadLocals
+    Virtual threads are cheap and short-lived. If you store large objects in ThreadLocal, you might end up with millions of them in memory simultaneously, leading to an OutOfMemoryError.
+    Fix: Use Scoped Values (another Java 21+ feature) if you just need to pass data down the call stack.
+C. Don't Pool Them
+    In the past, we used FixedThreadPool(200) to prevent the OS from crashing. With virtual threads, the limit is your Heap Memory, not the OS. Just create a new one for every task.
