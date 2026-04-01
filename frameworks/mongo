@@ -54,3 +54,152 @@ Query Language MongoDB Query Language     SQL (standardized)
 Speed (writes) Very fast                   Moderate
 Data integrity App-level                    DB-level (constraints)
 Best for        Unstructured/varied data   Relational, structured data
+
+⚠️ Limitations of MongoDB:
+1. No True JOIN Support
+        javascript// MongoDB has $lookup, but it's clunky compared to SQL JOIN
+        // And it's NOT optimized for deeply relational data
+        db.orders.aggregate([
+          { $lookup: {
+              from: "users",
+              localField: "userId",
+              foreignField: "_id",
+              as: "userDetails"
+          }}
+        ])
+        If your data is highly relational (many foreign keys, many joins), SQL is far superior.
+
+2. Transactions Are Limited
+        Multi-document ACID transactions were only added in v4.0 (2018)
+        They work, but are slower and more complex than SQL transactions
+        SQL databases have had battle-tested transactions for decades
+
+3. Data Duplication (Denormalization)
+        json// You often embed data instead of referencing
+        // If "city" changes, you may need to update THOUSANDS of documents
+        { "name": "Alice", "city": "Mumbai" }
+        { "name": "Bob",   "city": "Mumbai" }  // duplicated!
+        { "name": "Carol", "city": "Mumbai" }  // duplicated!
+        This leads to data inconsistency risks if not managed carefully.
+
+4. No Enforced Schema = Risk
+        MongoDB won't stop bad data from entering:
+        json// All valid in MongoDB — nightmare for your application!
+        { "age": 25 }
+        { "age": "twenty-five" }
+        { "age": null }
+        { "AGE": 25 }
+        You must enforce validation at the application level (or use MongoDB Schema Validation).
+
+5. Memory Usage
+        MongoDB keeps working data in RAM for performance. 
+        Large datasets with many concurrent queries can be memory-hungry compared to SQL databases.
+
+6. Aggregation Complexity
+        Complex reporting and analytics (GROUP BY, HAVING, window functions) are much simpler in SQL:
+        sql-- SQL: Clean and readable
+        SELECT department, AVG(salary) FROM employees
+        GROUP BY department HAVING AVG(salary) > 50000;
+        javascript// MongoDB: Verbose pipeline
+        db.employees.aggregate([
+          { $group: { _id: "$department", avgSalary: { $avg: "$salary" } } },
+          { $match: { avgSalary: { $gt: 50000 } } }
+        ])
+
+When to Use What
+Use MongoDB when:                    Use SQL when:
+✅ Schema changes frequently         ✅ Data is highly relational
+✅ Massive scale / high writes       ✅ Financial/banking systems
+✅ Hierarchical/nested data          ✅ Complex reporting & analytics
+✅ Rapid prototyping                 ✅ Strong ACID compliance needed
+✅ Real-time apps, IoT, logs         ✅ Data integrity is critical
+✅ Content management systems        ✅ Legacy enterprise systems
+
+Sharding:
+Sharding is MongoDB's way of splitting data across multiple machines (called shards) to handle datasets too large for a single server.
+WITHOUT Sharding                    WITH Sharding
+┌─────────────────┐                ┌──────────┐ ┌──────────┐ ┌──────────┐
+│   Single Server │                │  Shard 1 │ │  Shard 2 │ │  Shard 3 │
+│                 │                │ Users    │ │ Users    │ │ Users    │
+│  100M documents │      →         │ A–H      │ │  I–Q     │ │  R–Z     │
+│  💥 Too slow!   │                │ 33M docs │ │ 33M docs │ │ 34M docs │
+└─────────────────┘                └──────────┘ └──────────┘ └──────────┘
+Sharding Architecture
+                        ┌─────────────┐
+     App / Client  ───► │   mongos    │  ← Query Router (entry point)
+                        │  (Router)   │
+                        └──────┬──────┘
+                               │  reads config
+                        ┌──────▼──────┐
+                        │Config Server│  ← Stores shard metadata & chunk map
+                        └──────┬──────┘
+                               │ routes to correct shard
+              ┌────────────────┼────────────────┐
+              ▼                ▼                 ▼
+        ┌──────────┐    ┌──────────┐      ┌──────────┐
+        │ Shard 1  │    │ Shard 2  │      │ Shard 3  │
+        │(Replica  │    │(Replica  │      │(Replica  │
+        │  Set)    │    │  Set)    │      │  Set)    │
+        └──────────┘    └──────────┘      └──────────┘
+3 Core Components:
+Component        Role
+mongos           Query router — your app talks to this
+Config Server    Stores chunk-to-shard mapping
+Shards           Actual data storage (each is a replica set)
+
+Shard Key — The Most Important Decision
+        The shard key is the field MongoDB uses to decide which shard a document goes to.
+                javascript// Enable sharding on database
+                sh.enableSharding("mydb")
+                // Shard a collection by "userId"
+                sh.shardCollection("mydb.orders", { "userId": 1 })
+
+Types of Sharding:
+1. Range-Based Sharding    
+        Shard Key: age
+        ┌─────────────┬─────────────┬─────────────┐
+        │   Shard 1   │   Shard 2   │   Shard 3   │
+        │  age: 1–30  │  age: 31–60 │  age: 61–90 │
+        └─────────────┴─────────────┴─────────────┘
+        ✅ Good for range queries (age > 20 AND age < 40)
+        ❌ Risk of hotspots if most users are in one range
+ 2. Hashed Sharding
+        Shard Key: hash(userId)
+        ┌──────────────┬──────────────┬──────────────┐
+        │    Shard 1   │    Shard 2   │    Shard 3   │
+        │ hash 0–333   │ hash 334–666 │ hash 667–999 │
+        └──────────────┴──────────────┴──────────────┘
+        ✅ Evenly distributes data — no hotspots
+        ❌ Bad for range queries (data is scattered)
+ 3. Zone-Based Sharding
+        // Route data by geography
+        sh.addShardToZone("shard1", "ASIA")
+        sh.addShardToZone("shard2", "US")
+        // Mumbai users → Shard 1, NY users → Shard 2
+        ✅ Great for compliance (data residency laws)
+        ✅ Reduces latency for regional users
+Good vs Bad Shard Keys
+❌ BAD Shard Keys              ✅ GOOD Shard Keys
+─────────────────────          ──────────────────────
+_id (ObjectId — monotonic)     { userId: "hashed" }
+timestamp (always increasing)  { country: 1, userId: 1 }  ← compound
+status ("active"/"inactive")   { email: "hashed" }
+low cardinality fields         high cardinality + random
+
+A bad shard key causes a **hotspot** — all writes pile onto one shard, defeating the purpose.
+
+### Chunks — How Data is Distributed
+
+MongoDB splits shard data into **chunks** (default 128MB each):
+Shard 1:  [A ──── D] [D ──── G]
+Shard 2:  [G ──── M] [M ──── R]
+Shard 3:  [R ──── Z]
+// When a chunk gets too big → MongoDB splits & rebalances automatically
+
+When to Use Sharding?
+✅ Use Sharding when:               ❌ Don't Shard when:
+Data > single server capacity       Data fits comfortably in one server
+Write throughput is the bottleneck  Read-heavy workloads (use replicas)
+Need geographic data distribution   You need complex multi-shard txns
+Horizontal scale is required        App is still in early stage
+
