@@ -525,17 +525,6 @@ PUT         /api/products/{id}                    Full update
 DELETE      /api/products/{id}                    Delete
 PATCH       /api/products/{id}/restock?qty=       Restock
 
-Spring Data JPA vs Spring Data MongoDB
-Feature             Spring Data JPA                 Spring Data MongoDB
-Database Type       Relational (SQL)                NoSQL (Document)
-Dependency          spring-boot-starter-data-jpa    spring-boot-starter-data-mongodb
-Base Repository     JpaRepository                   MongoRepository
-Query Language      JPQL / SQL                      MongoDB Query / Aggregation
-Annotation          @Entity, @Table                 @Document, @Field
-Schema              Fixed schema                    Flexible/schema-less
-Transactions        Full ACID                       Limited (since MongoDB 4.x)
-ORM                 Hibernate                       Spring Data MongoDB Converter
-
 JPA, Hibernate, and Spring Data relate to each other:
 Your code ---> ProductRepository ------->Spring Data JPA--------------->JPA (Jakarta Persistence API)--------->Hibernate--------------------->Database (MySQL / PostgreSQL / H2)
             · @Entity · @Service          Repository abstraction        Specification only ·                 JPA implementation ·
@@ -803,3 +792,109 @@ LazyInitializationException — accessing a lazy relationship outside a transact
         Fix by keeping data access inside @Transactional, or using FetchType.EAGER, or a DTO projection that doesn't need the relationship at all.
 ddl-auto=create in production — drops and recreates all tables on startup. 
         Always use validate or none in production, and manage schema changes with Flyway or Liquibase instead.
+
+MongoDB Repository with Spring Boot:
+Spring Boot integrates with MongoDB through Spring Data MongoDB,
+which provides a powerful repository abstraction that eliminates boilerplate code for database operations.
+
+1. Dependencies
+Add to your pom.xml:
+xml<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-mongodb</artifactId>
+</dependency>
+2. Configuration
+In application.properties: propertiesspring.data.mongodb.uri=mongodb://localhost:27017/mydb
+# or individually:
+spring.data.mongodb.host=localhost
+spring.data.mongodb.port=27017
+spring.data.mongodb.database=mydb
+3. Document (Entity)
+@Document(collection = "users")
+public class User {
+    @Id
+    private String id;
+    @Field("full_name")
+    private String name;
+    private String email;
+    private int age;
+    // getters, setters, constructors
+}
+Key annotations: @Document maps the class to a collection, @Id marks the primary key, @Field customizes the field name in MongoDB.
+4. Repository Interface
+java@Repository
+public interface UserRepository extends MongoRepository<User, String> {
+    // Spring Data auto-generates queries from method names
+    List<User> findByName(String name);
+    List<User> findByAgeGreaterThan(int age);
+    Optional<User> findByEmail(String email);
+    List<User> findByNameAndAge(String name, int age);
+    void deleteByEmail(String email);
+}
+MongoRepository<T, ID> gives you CRUD + pagination out of the box.
+5. Built-in Methods (from MongoRepository)
+Method                Description
+save(entity)          Insert or update
+findById(id)          Find by ID
+findAll()             Get all documents
+deleteById(id)        Delete by ID
+count()               Count all
+existsById(id)        Check existence
+findAll(Pageable)      Paginated results
+6. Custom Queries with @Query
+@Query("{ 'age': { $gte: ?0, $lte: ?1 } }")
+List<User> findByAgeRange(int min, int max);
+@Query(value = "{ 'email': ?0 }", fields = "{ 'name': 1, 'email': 1 }")
+User findEmailProjection(String email);
+7. Service Layer Example
+@Service
+public class UserService {
+    @Autowired
+    private UserRepository userRepository;
+    public User createUser(User user) {
+        return userRepository.save(user);
+    }
+    public List<User> getAdults() {
+        return userRepository.findByAgeGreaterThan(17);
+    }
+    public Optional<User> findByEmail(String email) {
+        return userRepository.findByEmail(email);
+    }
+
+    public void deleteUser(String id) {
+        userRepository.deleteById(id);
+    }
+}
+8. Advanced: MongoTemplate (for complex queries)
+@Autowired
+private MongoTemplate mongoTemplate;
+public List<User> searchUsers(String name, int minAge) {
+    Query query = new Query();
+    query.addCriteria(Criteria.where("name").regex(name, "i")
+                              .and("age").gte(minAge));
+    query.with(Sort.by(Sort.Direction.ASC, "name"));
+    return mongoTemplate.find(query, User.class);
+}
+
+### Repository Hierarchy
+Repository
+    └── CrudRepository          (basic CRUD)
+            └── PagingAndSortingRepository   (+ pagination)
+                    └── MongoRepository      (+ MongoDB-specific ops)
+
+Key Takeaways:
+Derived queries — Spring auto-generates MongoDB queries from method names (findBy, deleteBy, countBy, etc.)
+@Query — write raw MongoDB JSON queries for complex cases
+MongoTemplate — full programmatic control for dynamic/aggregation queries
+No SQL needed — everything maps naturally to MongoDB's document model
+
+Spring Data JPA vs Spring Data MongoDB
+Feature             Spring Data JPA                 Spring Data MongoDB
+Database Type       Relational (SQL)                NoSQL (Document)
+Dependency          spring-boot-starter-data-jpa    spring-boot-starter-data-mongodb
+Base Repository     JpaRepository                   MongoRepository
+Query Language      JPQL / SQL                      MongoDB Query / Aggregation
+Annotation          @Entity, @Table                 @Document, @Field
+Schema              Fixed schema                    Flexible/schema-less
+Transactions        Full ACID                       Limited (since MongoDB 4.x)
+ORM                 Hibernate                       Spring Data MongoDB Converter
