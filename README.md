@@ -13,7 +13,7 @@ Spring:
   spring Data access (ORM, Hiberate , JPA) - read write spliting and soft delete,Projection Optimization,N+1 Detection in Tests, modify content
   Web (Spring MVC)
   AOP
-  Security (Secret Rotation & Refresh and Resource Server Pattern)
+  Security 
   Testing
   spring boot - integrate with security, exception handler, mongo and sql , caching and its implementation 
                 batch, cloud , AI , jms(kafka/rabitmq)
