@@ -315,3 +315,119 @@ HTTP Request
                    { status, error, message, path }
 
 
+Implement RFC 9457 (Problem Details):
+In Spring Boot 3, you no longer need custom Error DTOs. You use the built-in ProblemDetail class.
+RFC 9457 (which superseded RFC 7807) is a standard for carrying machine-readable error details in HTTP responses to avoid the need to define new error response formats for HTTP APIs.
+Instead of a custom JSON structure, your Spring Boot 3+ microservice returns a standardized application/problem+json body:
+    {
+      "type": "https://api.yourdomain.com/errors/insufficient-funds",
+      "title": "You do not have enough credit.",
+      "status": 403,
+      "detail": "Your current balance is 30, but the item costs 50.",
+      "instance": "/account/12345/msgs/abc",
+      "balance": 30
+    }
+Why it matters: 
+It allows generic clients (like a mobile app or a monitoring tool) to understand the error without custom parsing logic for every single service in your cluster.
+1. Enable Problem Details in application.yml:
+        spring:
+          mvc:
+            problem-details:
+              enabled: true
+2. Create a Global Exception Handler:
+        Use @RestControllerAdvice to catch specific exceptions and map them to the standard format.
+        Java
+        @RestControllerAdvice
+        public class GlobalExceptionHandler {
+            @ExceptionHandler(OrderNotFoundException.class)
+            public ProblemDetail handleOrderNotFound(OrderNotFoundException ex, WebRequest request) {
+                // Standard RFC 9457 fields
+                ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                    HttpStatus.NOT_FOUND, ex.getMessage());
+                problem.setTitle("Order Resource Not Found");
+                problem.setType(URI.create("https://api.yourdomain.com/errors/not-found"));
+                // Custom Extensions (The "hidden" trick for observability)
+                problem.setProperty("timestamp", Instant.now());
+                // Trace ID is automatically added if Micrometer is configured
+                return problem;
+            }
+        }
+
+Error Mapping in Spring Cloud Gateway:
+Since the Gateway is the "front door" of your AKS cluster, it must handle downstream failures gracefully.
+     It acts as a "Circuit Breaker" and "Translator" between your internal chaos and the external user.
+        The Job: If a downstream Java microservice fails with a timeout or a 503,
+        the Gateway shouldn't just pass that raw technical error to the user.
+    Aggregation: If Service A is down, the Gateway can map that specific failure to a "Graceful Degradation" response (e.g., returning cached data instead of an error).
+    Global Exception Handling: You can implement a GlobalErrorWebExceptionHandler in the Gateway to ensure that even if a service is unreachable, the response still follows the RFC 9457 format mentioned above.
+    Security: It strips out sensitive internal stack traces before the error leaves the cluster.
+1. Define a Fallback Route:
+    If a service is down or slow, use the Circuit Breaker filter to redirect to a local error endpoint.
+            @Bean
+            public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
+                return builder.routes()
+                    .route("order_service", r -> r.path("/orders/**")
+                        .filters(f -> f.circuitBreaker(c -> c.setName("orderCB")
+                                      .setFallbackUri("forward:/fallback/order-error")))
+                        .uri("lb://order-service"))
+                    .build();
+            }
+2. Create the Fallback Controller:
+        This ensures the user gets a consistent RFC 9457 response even if the microservice is completely unreachable.
+        @RestController
+        @RequestMapping("/fallback")
+        public class FallbackController {
+            @GetMapping("/order-error")
+            public ProblemDetail handleOrderServiceFailure() {
+                ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE);
+                problem.setTitle("Order Service is currently unavailable");
+                problem.setDetail("The system is under heavy load or maintenance. Please try again later.");
+                return problem;
+            }
+        }
+
+Observability Integration (Micrometer + OTel):
+    Observability turns "I think there's an error" into "I know exactly which line of code failed for User X." 
+    In 2026, this is done via OpenTelemetry (OTel) and Micrometer.
+Correlation IDs (Trace IDs): 
+        When an exception is caught in your @ControllerAdvice, 
+        you extract the traceId from the current span and inject it into the RFC 9457 instance or a custom traceId field.
+Log Exemplars: 
+        Modern observability tools (like Azure Monitor/Grafana) use "Exemplars."
+        When you see a spike in a "4xx Error" metric graph, you can click a single data point and immediately see the specific logs and traces that caused that specific spike.
+Automated Metrics: Instead of manual logging, you use Micrometer to tag exceptions:
+    http.server.requests metric gets tagged with exception=UserNotFoundException and status=404. 
+    This allows you to set an Alert in Prometheus if the "UserNotFound" rate exceeds 5% (which might indicate a database sync issue).
+
+To make your errors useful, they must be linked to Traces (where it happened) and Metrics (how often it happens).
+1. Add Dependencies:
+    <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-observation</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-tracing-bridge-otel</artifactId>
+    </dependency>
+2. Use Observations in Service Layer:
+    Instead of just logging, "observe" the code block. If an exception occurs inside, Micrometer automatically tags the metric and trace with the error.
+        public void processOrder(String orderId) {
+            Observation.createNotStarted("order.process", observationRegistry)
+                .lowCardinalityKeyValue("order.id", orderId) // For metrics
+                .observe(() -> {
+                    // Your business logic here
+                    // If an exception is thrown, it's automatically recorded
+                    repository.save(orderId);
+                });
+        }
+
+The "Hidden" Step—AKS Log Correlation
+    To see these errors in your Azure Monitor/Grafana dashboard, you need to ensure your logs contain the Trace ID.
+1. Logback Pattern:
+Update your logback-spring.xml to include the span and trace IDs automatically provided by Micrometer Tracing:
+<property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [traceId=%X{traceId}, spanId=%X{spanId}] %logger{36} - %msg%n"/>
+Summary Checklist for Implementation:
+[ ] Standardize: Are all services returning ProblemDetail?
+[ ] Correlate: Does every error response include a traceId extension?
+[ ] Shield: Does the Gateway have a fallback for every critical route?
+[ ] Alert: Do you have a Prometheus alert for http_server_requests_seconds_count{exception="OrderNotFoundException"}?
