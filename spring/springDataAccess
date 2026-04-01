@@ -76,8 +76,140 @@ Modules in Spring Data Access:
    Common Problems:
   ❗ N+1 Problem- Multiple queries due to lazy loading
   ❗ LazyInitializationException- Access lazy data outside session
+
+JPA, Hibernate, and Spring Data relate to each other:
+Your code ---> ProductRepository ------->Spring Data JPA--------------->JPA (Jakarta Persistence API)--------->Hibernate--------------------->Database (MySQL / PostgreSQL / H2)
+            · @Entity · @Service          Repository abstraction        Specification only ·                 JPA implementation ·
+                                          query generation              interfaces · annotations             ORM · SQL generation · caching
+
+
+
+JPA vs Hibernate — what exactly is each one?
+JPA (Jakarta Persistence API) is just a specification — 
+                a set of Java interfaces, annotations (@Entity, @Id, @OneToMany...),
+                and rules written in a document. 
+                It ships no executable code.
+                It defines what an ORM must do, not how.
+Hibernate is the implementation — 
+    it reads your @Entity classes,
+    maintains an in-memory cache of managed objects (the "persistence context"), 
+    generates SQL, executes it via JDBC, and maps result sets back to objects. 
+    When Spring Boot starts, it wires Hibernate as the JPA provider automatically.
+Spring Data JPA sits on top of both.
+    It reads your JpaRepository interface at startup, 
+    generates proxy classes that implement it,
+    and delegates every call down to Hibernate. 
+    You never write a single line of SQL for basic CRUD.
+The relationship in one sentence: JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
+
+7 core in Hibernate
+1. ORM (Object-Relational Mapping)
+    This is the fundamental job. Hibernate maps your Java POJOs (Plain Old Java Objects) to Database Tables.
+    The Mapping: Using annotations (like @Entity, @Table, @Column) or XML,
+                Hibernate understands that a class attribute like String userName corresponds to a table column USER_NAME.
+    The Benefit: You work with objects and methods rather than manually mapping result sets to objects.
+2. SQL Generation
+    Hibernate acts as a translator. You don't have to write vendor-specific SQL for every operation.
+    Dialects: Hibernate uses a Dialect (e.g., PostgreSQLDialect, MySQL8Dialect) to know how to talk to your specific database.
+    Automatic Creation: When you call session.save(user),
+                        Hibernate automatically generates the INSERT INTO... statement for you at runtime.
+3. Persistence Context (1st-Level Cache)
+    The Session acts as the First-Level Cache. It is a mandatory, short-lived cache associated with the current unit of work.    
+    De-duplication: If you request the same User object twice in the same session, Hibernate only hits the database once. 
+                    The second time, it pulls the object from the Persistence Context.
+    Scope: It is private to the current session and is destroyed when the session closes.
+4. Second-Level Cache
+    Unlike the first-level cache, the Second-Level Cache is SessionFactory-scoped and optional.
+    Sharing: Data stored here is available across different sessions and even different users.
+    External Providers: Hibernate doesn't provide the cache itself but integrates with providers like Ehcache, Infinispan, or Redis.
+5. Dirty Checking
+    This is a "smart" feature that minimizes database updates.
+    Mechanism: When an object is loaded into the Persistence Context, Hibernate keeps a "snapshot" of its original state.
+    Automatic Update: When the transaction commits, Hibernate compares the current state of the object with the snapshot. 
+                    If you changed a field (e.g., user.setName("New Name")), Hibernate detects the "dirtiness" and automatically triggers an UPDATE statement. 
+                    You don't need to call session.update() manually.
+6. Lazy Loading via Proxies
+    To save memory and improve performance, Hibernate doesn't load everything at once.
+    Proxies: If a User has a list of Orders, Hibernate doesn't fetch the orders immediately.
+            Instead, it places a Proxy (a placeholder object) there.
+    On-Demand: The SQL query to fetch the orders is only executed the moment you actually call user.getOrders().size() or iterate through them.
+7. Transaction Management
+    Hibernate integrates with transaction APIs to ensure data integrity (ACID properties).
+    Unit of Work: It ensures that a series of operations (like withdrawing money from one account and depositing in another) either all succeed or all fail.
+    Abstraction: It abstracts the underlying JDBC transaction management, allowing you to focus on the business logic rather than connection.commit() or connection.rollback() boilerplate.
+
+Example: 
+        // 1. Start Transaction
+        Transaction tx = session.beginTransaction();
+        // 2. Fetch User (The Profile field is a Proxy at this point)
+        User user = session.get(User.class, 1L); 
+        // 3. Lazy Loading Triggered
+        // The moment we call getProfile().getBio(), Hibernate fires a SELECT for the Profile table.
+        String oldBio = user.getProfile().getBio();
+        // 4. Dirty Checking at work
+        // We simply change the Java object. We DON'T call session.update().
+        user.getProfile().setBio("Updated Bio via Dirty Checking!");
+        // 5. Transaction Management
+        // When we commit, Hibernate:
+        //   a) Performs Dirty Checking
+        //   b) Sees the Bio changed
+        //   c) Issues the SQL UPDATE
+        //   d) Finalizes the DB transaction
+        tx.commit(); 
+        session.close();
+
+Common Hibernate pitfalls:
+N+1 query problem — loading a list of orders and then accessing order.getItems() in a loop fires one query for orders and then one query per order for items. 
+        Fix with JOIN FETCH in your JPQL query or @EntityGraph.
+LazyInitializationException — accessing a lazy relationship outside a transaction. 
+        Fix by keeping data access inside @Transactional, or using FetchType.EAGER, or a DTO projection that doesn't need the relationship at all.
+ddl-auto=create in production — drops and recreates all tables on startup. 
+        Always use validate or none in production, and manage schema changes with Flyway or Liquibase instead.
+
+4. Spring Data:
+  It is an extension layer built on top of the data access features of the Spring Framework.
+  👉 Instead of writing DAO classes manually ❌
+  👉 You just define interfaces ✅
+  ✔ Spring generates implementation at runtime
+
+  Before Spring Data:
+    public class UserDAO {
+        public User findById(Long id) {
+            // boilerplate code
+        }
+    }
+  After Spring Data:
+    public interface UserRepository extends JpaRepository<User, Long> {} ✔ No implementation needed
+
+   Architecture of Spring Data
+    Controller → Service → Repository (interface) → Spring Data → JPA → Hibernate → JDBC → Database
+    Internally:  Repository Interface → Proxy Object → Query Generation → Execution via EntityManager
   
-  What is “Criteria” in ORM?
+  Modules in Spring Data: Spring Data supports multiple databases:
+    🔹 Relational DB
+          Spring Data JPA
+          Spring Data JDBC
+    🔹 NoSQL
+          MongoDB
+          Redis
+          Cassandra
+    🔹 Others
+          Elasticsearch
+          Neo4j
+
+Spring Data — The Umbrella Project:
+Spring Data is the parent project that provides a consistent, unified programming model for data access across different data stores:
+        Spring Data (Umbrella):
+        ├── Spring Data JPA          → Relational DBs (MySQL, PostgreSQL, Oracle)
+        ├── Spring Data MongoDB      → MongoDB (NoSQL Document Store)
+        ├── Spring Data Redis        → Redis (Key-Value Cache)
+        ├── Spring Data Elasticsearch → Elasticsearch
+        ├── Spring Data Cassandra    → Apache Cassandra
+        ├── Spring Data Neo4j        → Neo4j (Graph DB)
+        ├── Spring Data JDBC         → Lightweight JDBC
+        └── Spring Data REST         → Exposes repos as REST endpoints
+
+ What is “Criteria” in ORM?
     Criteria = a programmatic way to build queries dynamically (instead of writing SQL/JPQL strings)
   Why use Criteria?
       Dynamic queries (conditions at runtime)
@@ -234,7 +366,6 @@ These annotations map Java objects ↔ Database tables
 7. Can we use JPA without Hibernate? ✔ Yes (EclipseLink, etc.)
 8. Does Hibernate use JDBC? ✔ Yes internally
 
-
 3. Transaction Management:
   What is Transaction? Group of DB operations that must be atomic ✔ All succeed OR all fail
       🔧 Without Spring (Manual)
@@ -365,139 +496,6 @@ These annotations map Java objects ↔ Database tables
   8. Does each method get new session? ✔ Depends on propagation
   9. Only public methods ✔ @Transactional works only on public methods
   10. Self-invocation problem -> this.method(); // ❌ no transaction
-
-JPA, Hibernate, and Spring Data relate to each other:
-Your code ---> ProductRepository ------->Spring Data JPA--------------->JPA (Jakarta Persistence API)--------->Hibernate--------------------->Database (MySQL / PostgreSQL / H2)
-            · @Entity · @Service          Repository abstraction        Specification only ·                 JPA implementation ·
-                                          query generation              interfaces · annotations             ORM · SQL generation · caching
-
-
-
-JPA vs Hibernate — what exactly is each one?
-JPA (Jakarta Persistence API) is just a specification — 
-                a set of Java interfaces, annotations (@Entity, @Id, @OneToMany...),
-                and rules written in a document. 
-                It ships no executable code.
-                It defines what an ORM must do, not how.
-Hibernate is the implementation — 
-    it reads your @Entity classes,
-    maintains an in-memory cache of managed objects (the "persistence context"), 
-    generates SQL, executes it via JDBC, and maps result sets back to objects. 
-    When Spring Boot starts, it wires Hibernate as the JPA provider automatically.
-Spring Data JPA sits on top of both.
-    It reads your JpaRepository interface at startup, 
-    generates proxy classes that implement it,
-    and delegates every call down to Hibernate. 
-    You never write a single line of SQL for basic CRUD.
-The relationship in one sentence: JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
-
-7 core in Hibernate
-1. ORM (Object-Relational Mapping)
-    This is the fundamental job. Hibernate maps your Java POJOs (Plain Old Java Objects) to Database Tables.
-    The Mapping: Using annotations (like @Entity, @Table, @Column) or XML,
-                Hibernate understands that a class attribute like String userName corresponds to a table column USER_NAME.
-    The Benefit: You work with objects and methods rather than manually mapping result sets to objects.
-2. SQL Generation
-    Hibernate acts as a translator. You don't have to write vendor-specific SQL for every operation.
-    Dialects: Hibernate uses a Dialect (e.g., PostgreSQLDialect, MySQL8Dialect) to know how to talk to your specific database.
-    Automatic Creation: When you call session.save(user),
-                        Hibernate automatically generates the INSERT INTO... statement for you at runtime.
-3. Persistence Context (1st-Level Cache)
-    The Session acts as the First-Level Cache. It is a mandatory, short-lived cache associated with the current unit of work.    
-    De-duplication: If you request the same User object twice in the same session, Hibernate only hits the database once. 
-                    The second time, it pulls the object from the Persistence Context.
-    Scope: It is private to the current session and is destroyed when the session closes.
-4. Second-Level Cache
-    Unlike the first-level cache, the Second-Level Cache is SessionFactory-scoped and optional.
-    Sharing: Data stored here is available across different sessions and even different users.
-    External Providers: Hibernate doesn't provide the cache itself but integrates with providers like Ehcache, Infinispan, or Redis.
-5. Dirty Checking
-    This is a "smart" feature that minimizes database updates.
-    Mechanism: When an object is loaded into the Persistence Context, Hibernate keeps a "snapshot" of its original state.
-    Automatic Update: When the transaction commits, Hibernate compares the current state of the object with the snapshot. 
-                    If you changed a field (e.g., user.setName("New Name")), Hibernate detects the "dirtiness" and automatically triggers an UPDATE statement. 
-                    You don't need to call session.update() manually.
-6. Lazy Loading via Proxies
-    To save memory and improve performance, Hibernate doesn't load everything at once.
-    Proxies: If a User has a list of Orders, Hibernate doesn't fetch the orders immediately.
-            Instead, it places a Proxy (a placeholder object) there.
-    On-Demand: The SQL query to fetch the orders is only executed the moment you actually call user.getOrders().size() or iterate through them.
-7. Transaction Management
-    Hibernate integrates with transaction APIs to ensure data integrity (ACID properties).
-    Unit of Work: It ensures that a series of operations (like withdrawing money from one account and depositing in another) either all succeed or all fail.
-    Abstraction: It abstracts the underlying JDBC transaction management, allowing you to focus on the business logic rather than connection.commit() or connection.rollback() boilerplate.
-
-Example: 
-        // 1. Start Transaction
-        Transaction tx = session.beginTransaction();
-        // 2. Fetch User (The Profile field is a Proxy at this point)
-        User user = session.get(User.class, 1L); 
-        // 3. Lazy Loading Triggered
-        // The moment we call getProfile().getBio(), Hibernate fires a SELECT for the Profile table.
-        String oldBio = user.getProfile().getBio();
-        // 4. Dirty Checking at work
-        // We simply change the Java object. We DON'T call session.update().
-        user.getProfile().setBio("Updated Bio via Dirty Checking!");
-        // 5. Transaction Management
-        // When we commit, Hibernate:
-        //   a) Performs Dirty Checking
-        //   b) Sees the Bio changed
-        //   c) Issues the SQL UPDATE
-        //   d) Finalizes the DB transaction
-        tx.commit(); 
-        session.close();
-
-Common Hibernate pitfalls:
-N+1 query problem — loading a list of orders and then accessing order.getItems() in a loop fires one query for orders and then one query per order for items. 
-        Fix with JOIN FETCH in your JPQL query or @EntityGraph.
-LazyInitializationException — accessing a lazy relationship outside a transaction. 
-        Fix by keeping data access inside @Transactional, or using FetchType.EAGER, or a DTO projection that doesn't need the relationship at all.
-ddl-auto=create in production — drops and recreates all tables on startup. 
-        Always use validate or none in production, and manage schema changes with Flyway or Liquibase instead.
-
-4. Spring Data:
-  It is an extension layer built on top of the data access features of the Spring Framework.
-  👉 Instead of writing DAO classes manually ❌
-  👉 You just define interfaces ✅
-  ✔ Spring generates implementation at runtime
-
-  Before Spring Data:
-    public class UserDAO {
-        public User findById(Long id) {
-            // boilerplate code
-        }
-    }
-  After Spring Data:
-    public interface UserRepository extends JpaRepository<User, Long> {} ✔ No implementation needed
-
-   Architecture of Spring Data
-    Controller → Service → Repository (interface) → Spring Data → JPA → Hibernate → JDBC → Database
-    Internally:  Repository Interface → Proxy Object → Query Generation → Execution via EntityManager
-  
-  Modules in Spring Data: Spring Data supports multiple databases:
-    🔹 Relational DB
-          Spring Data JPA
-          Spring Data JDBC
-    🔹 NoSQL
-          MongoDB
-          Redis
-          Cassandra
-    🔹 Others
-          Elasticsearch
-          Neo4j
-
-Spring Data — The Umbrella Project:
-Spring Data is the parent project that provides a consistent, unified programming model for data access across different data stores:
-        Spring Data (Umbrella):
-        ├── Spring Data JPA          → Relational DBs (MySQL, PostgreSQL, Oracle)
-        ├── Spring Data MongoDB      → MongoDB (NoSQL Document Store)
-        ├── Spring Data Redis        → Redis (Key-Value Cache)
-        ├── Spring Data Elasticsearch → Elasticsearch
-        ├── Spring Data Cassandra    → Apache Cassandra
-        ├── Spring Data Neo4j        → Neo4j (Graph DB)
-        ├── Spring Data JDBC         → Lightweight JDBC
-        └── Spring Data REST         → Exposes repos as REST endpoints
-
 Spring Data JPA:
 repository interface inheritance chain:
                  extends                            extends                                                extends                        extends
