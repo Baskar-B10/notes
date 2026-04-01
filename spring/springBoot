@@ -91,7 +91,9 @@ Spring Data is the parent project that provides a consistent, unified programmin
         ├── Spring Data JDBC         → Lightweight JDBC
         └── Spring Data REST         → Exposes repos as REST endpoints
 
-JPA:
+Spring Data JPA:
+
+Flow:
                                                                         @Entity                                        application
                                                                         Maps to a DB table                              .properties config 
                                                                                 |                                        <
@@ -100,7 +102,429 @@ JPA:
  Http cilent ------->@RestController --------->@Service-------------> @Repository / JpaRepository ------------>Hibernate (JPA Provider) -------------> Database (MySQL / PostgreSQL)                          
                     Maps HTTP routes          Business logic           CRUD ·                                  ORM · generates SQL                      Persisted tables ·       
                     validates request         transaction boundary     derived queries · @Query                 caching                                  indexes · relations
-                                                        
+
+Step 1 — Project Setup (pom.xml)
+    <dependencies>
+        <!-- Spring Web (REST API) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- Spring Data JPA -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <!-- MySQL Driver -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Validation -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- Lombok (reduces boilerplate) -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+Step 2 — application.properties
+        properties# ── Database Connection ──────────────────────────────────
+        spring.datasource.url=jdbc:mysql://localhost:3306/shopdb
+        spring.datasource.username=root
+        spring.datasource.password=your_password
+        spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+        # ── JPA / Hibernate ──────────────────────────────────────
+        spring.jpa.hibernate.ddl-auto=update        # auto-creates/updates tables
+        spring.jpa.show-sql=true                    # prints SQL to console
+        spring.jpa.properties.hibernate.format_sql=true
+        spring.jpa.database-platform=org.hibernate.dialect.MySQL8Dialect
+        # ── Server ───────────────────────────────────────────────
+        server.port=8080
+ddl-auto values explained:
+ Value        Behaviour
+create        Drop and recreate tables on startup
+update        Apply only missing changes
+validate      Validate schema, throw if mismatch
+none          Do nothing (production default)
+
+Step 3 — Entity (@Entity)
+The entity maps a Java class to a database table.
+javapackage com.example.shop.entity;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.*;
+import lombok.*;
+import java.time.LocalDateTime;
+@Entity
+@Table(name = "products")          // table name in DB
+@Data                               // Lombok: getters, setters, toString
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)   // AUTO_INCREMENT
+    private Long id;
+    @NotBlank(message = "Name is required")
+    @Column(nullable = false, length = 100)
+    private String name;
+    @Column(columnDefinition = "TEXT")
+    private String description;
+    @NotNull
+    @DecimalMin("0.0")
+    @Column(nullable = false, precision = 10, scale = 2)
+    private Double price;
+    @Column(nullable = false)
+    private Integer stock = 0;
+    @Enumerated(EnumType.STRING)     // stores "ELECTRONICS" not 0
+    private Category category;
+    @Column(updatable = false)       // set only on create
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    @PrePersist                      // lifecycle hook — auto-set on insert
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+    @PreUpdate                       // lifecycle hook — auto-set on update
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+    public enum Category {
+        ELECTRONICS, CLOTHING, FOOD, SPORTS
+    }
+}
+
+Annotation                 Purpose
+@Entity                    Marks the class as a JPA-managed entity
+@Table                     Customizes table name and constraints
+@Id                        Primary key
+@GeneratedValue            Auto-increment strategy
+@Column                    Customizes column properties
+@EnumeratedMaps            enum to STRING or ORDINAL
+@PrePersist/ @PreUpdate    Lifecycle callbacks
+
+Step 4 — Repository (JpaRepository)
+package com.example.shop.repository;
+import com.example.shop.entity.Product;
+import com.example.shop.entity.Product.Category;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+import java.util.Optional;
+@Repository
+public interface ProductRepository extends JpaRepository<Product, Long> {
+    // ── 1. Derived Query Methods (Spring auto-generates SQL) ──────────
+    List<Product> findByCategory(Category category);
+    List<Product> findByNameContainingIgnoreCase(String keyword);
+    List<Product> findByPriceBetween(Double min, Double max);
+    List<Product> findByStockGreaterThan(Integer quantity);
+    Optional<Product> findByName(String name);
+    boolean existsByName(String name);
+    long countByCategory(Category category);
+    // ── 2. JPQL Query (@Query with entity class names) ────────────────
+    @Query("SELECT p FROM Product p WHERE p.price < :maxPrice AND p.stock > 0")
+    List<Product> findAvailableUnder(@Param("maxPrice") Double maxPrice);
+    @Query("SELECT p FROM Product p WHERE p.category = :cat ORDER BY p.price ASC")
+    List<Product> findByCategoryOrderedByPrice(@Param("cat") Category cat);
+    // ── 3. Native SQL Query ───────────────────────────────────────────
+    @Query(value = "SELECT * FROM products WHERE stock = 0", nativeQuery = true)
+    List<Product> findOutOfStock();
+    // ── 4. Modifying Query (UPDATE / DELETE) ──────────────────────────
+    @Modifying
+    @Query("UPDATE Product p SET p.stock = p.stock + :qty WHERE p.id = :id")
+    int restockProduct(@Param("id") Long id, @Param("qty") Integer qty);
+    // ── 5. Pagination-ready (method returns Page or Slice) ────────────
+    // Used with: repo.findByCategory(cat, PageRequest.of(0, 10))
+    org.springframework.data.domain.Page<Product>
+        findByCategory(Category cat, org.springframework.data.domain.Pageable pageable);
+}
+Derived query keyword cheat sheet:
+
+Keyword      Example                        SQL equivalent
+findBy       findByName                      WHERE name = ?
+Containing   findByNameContaining            WHERE name LIKE %?%
+Between      findByPriceBetween              WHERE price BETWEEN ? AND ?
+GreaterThan  findByStockGreaterThan          WHERE stock > ?
+IgnoreCase   findByNameIgnoreCase            WHERE UPPER(name) = UPPER(?)
+OrderBy      findByCategoryOrderByPrice      ORDER BY price
+And / Or     findByNameAndCategory           WHERE name=? AND category=?
+
+Step 5 — DTO (Data Transfer Object)
+DTOs decouple what the API exposes from what the database stores.
+package com.example.shop.dto;
+import com.example.shop.entity.Product.Category;
+import jakarta.validation.constraints.*;
+import lombok.*;
+// ── Request DTO (what client SENDS) ──────────────────────────────────
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ProductRequest {
+    @NotBlank(message = "Name is required")
+    @Size(max = 100)
+    private String name;
+    private String description;
+    @NotNull
+    @DecimalMin(value = "0.0", message = "Price must be positive")
+    private Double price;
+    @NotNull
+    @Min(0)
+    private Integer stock;
+    @NotNull
+    private Category category;
+}
+// ── Response DTO (what client RECEIVES) ──────────────────────────────
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ProductResponse {
+    private Long id;
+    private String name;
+    private String description;
+    private Double price;
+    private Integer stock;
+    private String category;
+    private String createdAt;
+}
+Step 6 — Service Layer (@Service)
+package com.example.shop.service;
+import com.example.shop.dto.*;
+import com.example.shop.entity.Product;
+import com.example.shop.entity.Product.Category;
+import com.example.shop.repository.ProductRepository;
+import jakarta.transaction.Transactional;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.*;
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.stream.Collectors;
+@Service
+@RequiredArgsConstructor               // Lombok: constructor injection for final fields
+public class ProductService {
+    private final ProductRepository productRepository;
+    // ── REATE ────────────────────────────────────────────────────────
+    @Transactional
+    public ProductResponse createProduct(ProductRequest request) {
+        if (productRepository.existsByName(request.getName())) {
+            throw new RuntimeException("Product already exists: " + request.getName());
+        }
+        Product product = Product.builder()
+                .name(request.getName())
+                .description(request.getDescription())
+                .price(request.getPrice())
+                .stock(request.getStock())
+                .category(request.getCategory())
+                .build();
+        Product aved = productRepository.save(product);
+        return toResponse(saved);
+    }
+    // ── READ ALL ──────────────────────────────────────────────────────
+    public List<ProductResponse> getAllProducts() {
+        return productRepository.findAll()
+                .stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+    // ── READ BY ID ────────────────────────────────────────────────────
+    public ProductResponse getProductById(Long id) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found: " + id));
+        return toResponse(product);
+    }
+    // ── SEARCH ────────────────────────────────────────────────────────
+    public List<ProductResponse> searchByName(String keyword) {
+        return productRepository.findByNameContainingIgnoreCase(keyword)
+                .stream().map(this::toResponse).collect(Collectors.toList());
+    }
+    // ── PAGINATED LIST ────────────────────────────────────────────────
+    public Page<ProductResponse> getProductsPaged(int page, int size, String sortBy) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(sortBy).ascending());
+        return productRepository.findAll(pageable).map(this::toResponse);
+    }
+    // ── UPDATE ────────────────────────────────────────────────────────
+    @Transactional
+    public ProductResponse updateProduct(Long id, ProductRequest request) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Product not found: " + id));
+        product.setName(request.getName());
+        product.setDescription(request.getDescription());
+        product.setPrice(request.getPrice());
+        product.setStock(request.getStock());
+        product.setCategory(request.getCategory());
+        return toResponse(productRepository.save(product));  // save triggers @PreUpdate
+    }
+    // ── DELETE ────────────────────────────────────────────────────────
+    @Transactional
+    public void deleteProduct(Long id) {
+        if (!productRepository.existsById(id)) {
+            throw new RuntimeException("Product not found: " + id);
+        }
+        productRepository.deleteById(id);
+    }
+    // ── RESTOCK ───────────────────────────────────────────────────────
+    @Transactional
+    public void restock(Long id, Integer qty) {
+        int updated = productRepository.restockProduct(id, qty);
+        if (updated == 0) throw new RuntimeException("Product not found: " + id);
+    }
+    // ── MAPPER ───────────────────────────────────────────────────────
+    private ProductResponse toResponse(Product p) {
+        return ProductResponse.builder()
+                .id(p.getId())
+                .name(p.getName())
+                .description(p.getDescription())
+                .price(p.getPrice())
+                .stock(p.getStock())
+                .category(p.getCategory().name())
+                .createdAt(p.getCreatedAt() != null ? p.getCreatedAt().toString() : null)
+                .build();
+    }
+}
+
+Step 7 — Controller (@RestController)
+javapackage com.example.shop.controller;
+import com.example.shop.dto.*;
+import com.example.shop.service.ProductService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+@RestController
+@RequestMapping("/api/products")
+@RequiredArgsConstructor
+public class ProductController {
+    private final ProductService productService;
+    // POST /api/products
+    @PostMapping
+    public ResponseEntity<ProductResponse> create(@Valid @RequestBody ProductRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                             .body(productService.createProduct(request));
+    }
+    // GET /api/products
+    @GetMapping
+    public ResponseEntity<List<ProductResponse>> getAll() {
+        return ResponseEntity.ok(productService.getAllProducts());
+    }
+    // GET /api/products/1
+    @GetMapping("/{id}")
+    public ResponseEntity<ProductResponse> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(productService.getProductById(id));
+    }
+    // GET /api/products/search?keyword=phone
+    @GetMapping("/search")
+    public ResponseEntity<List<ProductResponse>> search(@RequestParam String keyword) {
+        return ResponseEntity.ok(productService.searchByName(keyword));
+    }
+    // GET /api/products/paged?page=0&size=10&sortBy=price
+    @GetMapping("/paged")
+    public ResponseEntity<Page<ProductResponse>> getPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "id") String sortBy) {
+        return ResponseEntity.ok(productService.getProductsPaged(page, size, sortBy));
+    }
+    // PUT /api/products/1
+    @PutMapping("/{id}")
+    public ResponseEntity<ProductResponse> update(
+            @PathVariable Long id,
+            @Valid @RequestBody ProductRequest request) {
+        return ResponseEntity.ok(productService.updateProduct(id, request));
+    }
+    // DELETE /api/products/1
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
+    }
+    // PATCH /api/products/1/restock?qty=50
+    @PatchMapping("/{id}/restock")
+    public ResponseEntity<String> restock(@PathVariable Long id, @RequestParam Integer qty) {
+        productService.restock(id, qty);
+        return ResponseEntity.ok("Restocked successfully");
+    }
+}
+Step 8 — Global Exception Handler
+javapackage com.example.shop.exception;
+import org.springframework.http.*;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.*;
+import java.util.*;
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    // Handles @Valid validation failures
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidation(
+            MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors()
+          .forEach(e -> errors.put(e.getField(), e.getDefaultMessage()));
+        return ResponseEntity.badRequest().body(errors);
+    }
+    // Handles business logic errors
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<Map<String, String>> handleRuntime(RuntimeException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+               .body(Map.of("error", ex.getMessage()));
+    }
+}
+Step 9 — Entity Relationships (Bonus)
+For a Product that belongs to a Category entity:
+java// One-to-Many: one Category has many Products
+@Entity
+public class Category {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    @OneToMany(mappedBy = "category", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<Product> products;
+}
+// Many-to-One side in Product
+@ManyToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "category_id")       // FK column in products table
+private Category category;
+// Many-to-Many: Product ↔ Tag
+@ManyToMany
+@JoinTable(
+    name = "product_tags",
+    joinColumns = @JoinColumn(name = "product_id"),
+    inverseJoinColumns = @JoinColumn(name = "tag_id")
+)
+private Set<Tag> tags;
+## Full Request/Response Flow
+POST /api/products
+Body: { "name": "iPhone 15", "price": 79999, "stock": 100, "category": "ELECTRONICS" }
+  1. Controller     receives JSON → validates with @Valid
+  2. Service        checks duplicate → builds Product entity
+  3. Repository     calls save(product)
+  4. Hibernate      generates: INSERT INTO products (name, price, stock, category) VALUES (...)
+  5. MySQL          executes INSERT → returns generated id=1
+  6. Hibernate      sets product.id = 1
+  7. Service        maps Product → ProductResponse DTO
+  8. Controller     returns HTTP 201 Created + JSON body
+
+Method      URL                                   Action
+POST        /api/products                         Create product
+GET         /api/products                         Get all products
+GET         /api/products/{id}                    Get by ID
+GET         /api/products/search?keyword=         Search by name
+GET         /api/products/paged?page=0&size=10    Paginated list
+PUT         /api/products/{id}                    Full update
+DELETE      /api/products/{id}                    Delete
+PATCH       /api/products/{id}/restock?qty=       Restock
+
 Spring Data JPA vs Spring Data MongoDB
 Feature             Spring Data JPA                 Spring Data MongoDB
 Database Type       Relational (SQL)                NoSQL (Document)
