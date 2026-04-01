@@ -16,7 +16,7 @@ Spring:
   Security (Secret Rotation & Refresh and Resource Server Pattern)
   Testing
   spring boot - integrate with security, exception handler, mongo and sql , caching and its implementation 
-                batch, cloud , AI , 
+                batch, cloud , AI , jms(kafka/rabitmq)
 
 FrameworkS/tech:
   Apache camel
