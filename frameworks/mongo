@@ -203,3 +203,108 @@ Write throughput is the bottleneck  Read-heavy workloads (use replicas)
 Need geographic data distribution   You need complex multi-shard txns
 Horizontal scale is required        App is still in early stage
 
+BSON:
+BSON = Binary JSON
+it's the binary-encoded format MongoDB uses internally to store and transfer documents.
+JSON  →  Human readable text
+BSON  →  Binary representation of JSON (what MongoDB actually stores)
+
+JSON vs BSON
+JSON (what you write)              BSON (what MongoDB stores)
+──────────────────────             ──────────────────────────
+{                                  \x16\x00\x00\x00          ← doc size
+  "name": "Alice",                 \x02 name\x00 \x06Alice\x00
+  "age": 25                        \x10 age\x00 \x19\x00\x00\x00
+}                                  \x00                      ← terminator
+
+Plain text, ~28 bytes              Binary, faster to parse, type-aware
+
+ Key Advantages:
+ 1. Rich Data Types Beyond JSON
+JSON Types (only 6):        BSON Extra Types:
+─────────────────           ──────────────────────────────
+String                      ✅ Date         (not in JSON!)
+Number                      ✅ ObjectId     (unique IDs)
+Boolean                     ✅ Binary Data  (images, files)
+Array                       ✅ Int32 / Int64 (typed integers)
+Object                      ✅ Decimal128   (precise decimals)
+Null                        ✅ Regex        (stored patterns)
+                            ✅ Timestamp    (internal use)
+                            ✅ JavaScript code
+
+2. Faster to Parse:
+JSON → must scan character by character to find field boundaries
+BSON → stores field LENGTH upfront → jump directly to any field
+
+JSON:  { "name": "Alice" }  → parse char by char
+BSON:  [5]["name"][5]["Alice"] → skip directly to value ⚡
+
+3. Traversable — Skip Fields Efficiently
+BSON document: [totalSize][type+name+valueSize+value][type+name+valueSize+value]...
+To skip "address" and get "age":
+→ Read valueSize of "address" → jump over it → read "age" directly
+→ No need to parse the entire document!
+
+BSON ObjectId — The Default `_id`
+
+Every MongoDB document gets an `_id` of type **ObjectId** by default:
+ObjectId("507f1f77bcf86cd799439011")
+          └────────────────────────┘
+               24 hex characters = 12 bytes
+
+Breaking it down:
+┌──────────────┬──────────────┬──────────────┬──────────────┐
+│  4 bytes     │  5 bytes     │  3 bytes     │              │
+│  Unix        │  Random      │  Incrementing│              │
+│  Timestamp   │  Value       │  Counter     │              │
+│  (seconds)   │  (machine+   │              │              │
+│              │   process)   │              │              │
+└──────────────┴──────────────┴──────────────┴──────────────┘
+This means ObjectId is:
+
+Globally unique across machines
+Sortable by creation time (first 4 bytes = timestamp)
+Lightweight — only 12 bytes vs a UUID's 16 bytes
+
+java// In Spring Boot
+@Id
+private String id;  // Spring auto-converts ObjectId ↔ String
+// Or use ObjectId directly
+@Id
+private ObjectId id;
+
+// Extract timestamp from ObjectId
+ObjectId oid = new ObjectId("507f1f77bcf86cd799439011");
+Date createdAt = oid.getDate();  // when the doc was created — for free!
+
+BSON Data Types in Spring Boot / Java
+java@Document(collection = "products")
+public class Product {
+
+    @Id
+    private ObjectId id;              // BSON: ObjectId
+    private String name;              // BSON: String
+    private int quantity;             // BSON: Int32
+    private long views;               // BSON: Int64
+    private double price;             // BSON: Double
+    private Decimal128 exactPrice;    // BSON: Decimal128 (financial precision!)
+    private Date createdAt;           // BSON: Date
+    private byte[] thumbnail;         // BSON: Binary
+    private Pattern namePattern;      // BSON: Regex
+    private List<String> tags;        // BSON: Array
+}
+
+ How It All Connects:
+Your Java Object
+      │
+      │  Spring Data converts
+      ▼
+   JSON / BSON Document
+      │
+      │  mongos routes via Shard Key
+      ▼
+  Correct Shard (Replica Set)
+      │
+      │  Stored as BSON on disk
+      ▼
+  _id = ObjectId (auto-generated, unique, timestamped)
