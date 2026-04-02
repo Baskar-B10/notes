@@ -152,54 +152,189 @@ JPA vs Hibernate — what exactly is each one?
 
       The relationship in one sentence:
           JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
-  
-  What is SessionFactory?
-       Factory that creates Session objects
-       Key Characteristics: Heavy-weight object ⚠️, Created once per application and Thread-safe ✅
-       Holds: DB configuration ,Mapping metadata and 2nd level cache
-            SessionFactory factory = new Configuration()
-                .configure()
-                .buildSessionFactory();
-      ✔ Responsibilities: Create sessions, Maintain cache and Store ORM mappings
 
-  What is Session?
-        Connection between application and database
-        Key Characteristics: Light-weight object, Created per request/transaction and NOT thread-safe ❌ and Represents persistence context
-        Session session = factory.openSession();
-        
-        User user = session.get(User.class, 1);
-        ✔ Responsibilities: CRUD operations, Manage entity lifecycle, First-level cache and Dirty checking
-        What happens if Session not closed? ❌ Memory leak
-        Session Lifecycle: OpenSession() → perform operations → flush() → close()
-    
-       Session Management -  Managing session lifecycle automatically
-        ❌ Without Spring
-        Session session = factory.openSession();
-        Transaction tx = session.beginTransaction();
-        
-        session.save(user);
-        
-        tx.commit();
-        session.close();
-    
+JPA abstraction                                      Hibernate native
+
+EntityManagerFactory<----------------≈≈≈-------------->SessionFactory
+    JPA API ·                                         Hibernate native · wraps EMF / IS the same object
+    one per persistence unit                                |
+        |creates (per TX / request)                         |opens (per TX / request)
+        |                                                   |
+  EntityManager  <------------------≈≈≈------------------->Session
+    JPA API ·                                               Hibernate native 
+    short-lived ·                                           · extends EntityManager
+    not thread-safe
+                |
+            — Session management strategies —
+        ___________________________________________________________________
+        |                              |                                  |
+Spring-managed                  Thread-bound                            Manual (avoid)
+@Transactional opens          getCurrentSession()                      openSession() — you
+and closes session            bound to TX thread                        open / flush / close
+      \                            |                                      /
+        \                          |                                     /
+
+                 Persistence Context (1st-level cache)
+                  Lives inside the Session/EntityManager ·
+                  tracks managed entities · dirty check on flush
+                              |
+                  _______________________________
+                  |                              |
+OSIV — Open Session in View                    StatelessSession
+Session stays open for whole HTTP request      No cache · no dirty check · batch inserts
+            \                                                  /
+             \                                                /
+                      2nd-Level Cache (optional)
+            Shared across sessions · Ehcache / Caffeine · @Cache on entity
+                                    |
+                                Database
+  
+SessionFactory — Lifetime and Creation
+    SessionFactory is created once at application startup and lives for the entire application lifetime.
+    It is thread-safe and expensive to build — 
+            it reads all entity mappings, validates them against the schema, builds the SQL templates, 
+            and sets up the second-level cache.
+   ✔ Responsibilities: Create sessions, Maintain cache and Store ORM mappings
+    In modern Spring Boot you never build it manually.
+    Spring Boot auto-configures it via HibernateJpaAutoConfiguration. 
+    If you need to customize it:
+            @Configuration
+            public class HibernateConfig {
+                @Bean
+                public LocalContainerEntityManagerFactoryBean entityManagerFactory(
+                        DataSource dataSource) {
+                    LocalContainerEntityManagerFactoryBean factory =
+                        new LocalContainerEntityManagerFactoryBean();
+                    factory.setDataSource(dataSource);
+                    factory.setPackagesToScan("com.example.entities");
+                    factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+                    Properties props = new Properties();
+                    props.put("hibernate.hbm2ddl.auto", "validate");
+                    props.put("hibernate.show_sql", "true");
+                    props.put("hibernate.format_sql", "true");
+                    props.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
+                    props.put("hibernate.jdbc.batch_size", "50");          // batch inserts
+                    props.put("hibernate.cache.use_second_level_cache", "true");
+                    factory.setJpaProperties(props);
+                    return factory; // this IS your SessionFactory under the hood
+                }
+            }
+
+Session — Lifetime and the Three Management Strategies
+          A Session is short-lived, cheap, and not thread-safe. 
+          One session per request/transaction is the rule. 
+          How that session gets opened and closed is the "session management" question.
+          ✔ Responsibilities: CRUD operations, Manage entity lifecycle, First-level cache and Dirty checking
+  Strategy 1 — Spring-managed (the standard, use this always)
+      @Transactional is the trigger.
+          When the proxy intercepts a method call, it asks the JpaTransactionManager to begin a transaction,
+              which opens a Session and binds it to the current thread.
+          When the method exits, the transaction manager commits (or rolls back), flushes the session, and closes it. 
+          You never touch the session directly.
+            @Service
+            @Transactional          // all methods in this class get a session automatically
+            public class OrderService {
+                @PersistenceContext
+                private EntityManager em; // Spring injects a thread-bound proxy — safe to use as field
+                public Order findOrder(Long id) {
+                    return em.find(Order.class, id); // session is already open, bound to this thread
+                }
+                public void updateStatus(Long id, String status) {
+                    Order o = em.find(Order.class, id);
+                    o.setStatus(status);
+                    // NO explicit save needed — dirty checking detects the change and flushes on commit
+                }
+            }
+    Strategy 2 — getCurrentSession() (Hibernate-native, still TX-bound)
+        When you inject the SessionFactory directly and call getCurrentSession(), 
+        Hibernate looks up the session already bound to the current transaction thread — the exact same session that @Transactional opened.
+        This is useful when you're in legacy Hibernate DAOs that haven't moved to JPA yet:
+            @Repository
+            public class LegacyOrderDao {
+                @Autowired
+                private SessionFactory sessionFactory;
+                public List<Order> findPending() {
+                    // requires an active @Transactional on the caller — throws if no TX exists
+                    Session session = sessionFactory.getCurrentSession();
+                    return session.createQuery("FROM Order o WHERE o.status = 'PENDING'", Order.class)
+                                  .list();
+                }
+            }
+        This only works because Spring's JpaTransactionManager sets up the current-session context when it starts the transaction.
+        If there's no active transaction, getCurrentSession() throws HibernateException.
+  Strategy 3 — openSession() (manual, rarely needed)
+        Opens a brand-new session completely outside any Spring transaction management. 
+        You are responsible for everything — flush, commit, close.
+        Needed only for background threads, batch jobs, or scheduled tasks that run outside an HTTP request:
+        try (Session session = sessionFactory.openSession()) {
+            Transaction tx = session.beginTransaction();
+            try {
+                // your work
+                session.flush();
+                tx.commit();
+            } catch (Exception e) {
+                tx.rollback();
+                throw e;
+            }
+        } // session.close() called automatically by try-with-resources
+
+What happens if Session not closed? ❌ Memory leak
+Session Lifecycle: OpenSession() → perform operations → flush() → close()
+Session Management -  Managing session lifecycle automatically
+        ❌ Without Spring:
+              Session session = factory.openSession();
+              Transaction tx = session.beginTransaction();
+              session.save(user);
+               tx.commit();
+              session.close();
         ✅ With Spring (Best Practice)
-        @Transactional
-        public void saveUser() {
-            repository.save(user);
-        }
+              @Transactional
+              public void saveUser() {
+                  repository.save(user);
+              }
        How Spring Manages Session
           Uses ThreadLocal
           Binds session to transaction
           Auto open/close session
-       Open Session in View (OSIV)-  Keeps session open till view rendering
-        ✔ Avoids LazyInitializationException
-        ❌ Can cause performance issues
 
- What replaces these in JPA?
-      Hibernate          	JPA
-      SessionFactory	    EntityManagerFactory
-      Session            	EntityManager
- 
+Session Management in Practice — OSIV
+    Open Session in View (OSIV) is a pattern where the session stays open across the 
+    **entire HTTP request lifecycle** — including controller, service, and view rendering.
+    Spring Boot enables this by default via `OpenSessionInViewInterceptor`.
+                  HTTP Request starts
+                      ↓  [OpenSessionInViewInterceptor opens session]
+                  Controller → Service (@Transactional) → Repository
+                      ↑  TX commits here, but session stays open
+                  View/serialization layer — LAZY collections still loadable
+                      ↓  [OpenSessionInViewInterceptor closes session]
+                  HTTP Response sent
+    This avoids LazyInitializationException in templates or JSON serialization.
+    The downside is that you may fire unexpected lazy queries in your view layer without realizing it, 
+          and the DB connection is held for longer. 
+    The recommended approach for production is to disable OSIV and be explicit about what you fetch:
+          propertiesspring.jpa.open-in-view=false
+    Then use JOIN FETCH, @EntityGraph, or DTOs to load exactly what you need inside the transaction.
+    
+StatelessSession — Session Without the Magic
+    Hibernate's StatelessSession is a stripped-down variant that has no persistence context —
+        no first-level cache, no dirty checking, no cascades, no lazy loading. 
+    Every operation directly hits the database.
+      It's purpose-built for high-throughput batch processing:
+            StatelessSession stateless = sessionFactory.openStatelessSession();
+            Transaction tx = stateless.beginTransaction();
+            ScrollableResults results = stateless.createQuery(
+                "FROM Product p WHERE p.needsUpdate = true", Product.class)
+                .scroll(ScrollMode.FORWARD_ONLY);
+            while (results.next()) {
+                Product p = (Product) results.get();
+                p.setPrice(p.getPrice().multiply(new BigDecimal("1.10")));
+                stateless.update(p);  // immediate SQL — no flush needed
+            }
+            tx.commit();
+            stateless.close();
+    You'd use StatelessSession over a regular session with batch flush/clear 
+    when you need the absolute minimum overhead and have no need for entity state tracking.
+     
 1.What is persistence context? ✔ First-level cache
 2. Does flush commit data? ❌ No
 3. What does clear() do? ✔ Detaches all entities
