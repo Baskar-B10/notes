@@ -478,6 +478,393 @@ With Okta Flow: User → Okta login → Backend → JWT → Microservices
 1. Why use filter instead of interceptor? 👉 Because Spring Security works before controller layer
 2. Why OncePerRequestFilter? 👉 Ensures filter runs once per request
 
+The Big Picture — Spring Security Architecture:
+      [Client]
+            |
+            | HTTP Request
+            v
+        [DelegatingFilterProxy]           <-- Servlet world to Spring bridge
+            |
+            v
+        [FilterChainProxy]                <-- holds all SecurityFilterChain(s)
+            |
+            v
+        [SecurityFilterChain]             <-- your configured chain
+            |
+            |-- [SecurityContextPersistenceFilter]
+            |-- [UsernamePasswordAuthenticationFilter]
+            |-- [BearerTokenAuthenticationFilter]
+            |-- [ExceptionTranslationFilter]
+            |-- [AuthorizationFilter]
+            |
+            v
+        [Your Controller / Service]
+
+Every HTTP request enters the Servlet container,
+        hits DelegatingFilterProxy (which bridges the Servlet world to Spring's bean context), 
+        is handed to FilterChainProxy, which picks the matching SecurityFilterChain and runs each filter in order. 
+Authentication happens in the middle of that chain — 
+      the result is stored in SecurityContextHolder as a ThreadLocal, 
+      and by the time your controller runs, 
+      Authentication is simply there waiting.
+
+The Filter Chain Flow — Step by Step:
+
+        Incoming Request: GET /api/orders
+        Header: Authorization: Bearer eyJhbGci...
+            |
+            v
+        [1. SecurityContextPersistenceFilter]
+            |   Loads SecurityContext (stateless = empty each time)
+            |
+            v
+        [2. BearerTokenAuthenticationFilter]
+            |   Extracts token from Authorization header
+            |
+            v
+        [3. AuthenticationManager.authenticate()]
+            |   Wraps token in BearerTokenAuthenticationToken
+            |   Delegates to AuthenticationProvider
+            |
+            v
+        [4. JwtAuthenticationProvider]
+            |   JwtDecoder verifies:
+            |     - Signature (RSA public key / JWKS)
+            |     - Expiry (exp claim)
+            |     - Issuer (iss claim)
+            |     - Audience (aud claim)
+            |
+            |---[VALID?]
+            |       |
+            |      YES                          NO
+            |       |                            |
+            v       v                            v
+        [5a. Store in SecurityContextHolder]  [5b. ExceptionTranslationFilter]
+            |   JwtAuthenticationToken              |   AuthenticationEntryPoint
+            |   (principal + authorities)           |   Returns HTTP 401
+            v
+        [6. AuthorizationFilter]
+            |   Checks roles / scopes
+            |   @PreAuthorize / HttpSecurity rules
+            |
+            |---[AUTHORIZED?]
+                    |
+                   YES                          NO
+                    |                            |
+                    v                            v
+            [Controller executes]          HTTP 403 Forbidden
+
+Implementation — The Full Code:
+    Auto-configuration and the security starter
+    Add one dependency to get everything:
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-security</artifactId>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+            </dependency>
+    Spring Boot auto-configures a default SecurityFilterChain, a UserDetailsService with a random password, and basic form login. 
+    You override all of it with your own @Bean.
+    The SecurityFilterChain — your primary config
+          @Configuration
+          @EnableWebSecurity
+          @EnableMethodSecurity          // enables @PreAuthorize, @PostAuthorize, @Secured
+          public class SecurityConfig {
+              @Bean
+              public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+                  http
+                      .csrf(csrf -> csrf.disable())               // stateless APIs don't need CSRF
+                      .sessionManagement(sm -> sm
+                          .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                      .authorizeHttpRequests(auth -> auth
+                          .requestMatchers("/api/auth/**").permitAll()
+                          .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                          .requestMatchers(HttpMethod.GET, "/api/products/**").hasAnyRole("USER","ADMIN")
+                          .anyRequest().authenticated()
+                      )
+                      .oauth2ResourceServer(oauth2 -> oauth2
+                          .jwt(jwt -> jwt.decoder(jwtDecoder()))  // JWT validation configured here
+                      );
+                  return http.build();
+              }
+          }
+AuthenticationManager and AuthenticationProvider — are they needed?
+This is a key question. The short answer: for JWT resource servers, no — Spring Boot wires them automatically. For custom login flows, yes.
+
+  Scenario                          AuthManager?   AuthProvider?
+  --------------------------------  -------------  ----------------
+  JWT Resource Server (validate     NO             NO
+  incoming tokens only)             (auto-wired)   (auto-wired)
+
+  Login endpoint (credentials       YES            YES
+  exchanged for token)              (expose @Bean) (DaoAuth...)
+
+  Custom token type (API key,       YES            YES
+  TOTP, certificate-based)          (expose @Bean) (write custom)
+
+  OAuth2 Authorization Server       YES            Managed by
+  (issuing tokens)                                 spring-auth-server
+
+  Rule of thumb:
+    - Receiving & validating tokens  --> JwtDecoder only
+    - Issuing tokens from credentials --> need the full manager chain
+
+      For a pure JWT resource server (which most microservices are — they receive tokens they didn't issue),
+      the complete minimum config is just the SecurityFilterChain above plus a JwtDecoder:
+          @Bean
+          public JwtDecoder jwtDecoder() {
+              // Option A — validate against a public key (most common)
+              return NimbusJwtDecoder.withPublicKey(rsaPublicKey()).build();
+              // Option B — validate against JWKS endpoint (OAuth2 provider like Keycloak)
+              // return NimbusJwtDecoder.withJwkSetUri("https://auth-server/.well-known/jwks.json").build();
+          }
+      For a login endpoint (where users exchange credentials for a token), you DO need the manager:
+           @Bean
+            public AuthenticationManager authManager(HttpSecurity http) throws Exception {
+                AuthenticationManagerBuilder builder =
+                    http.getSharedObject(AuthenticationManagerBuilder.class);
+                builder.userDetailsService(userDetailsService())
+                       .passwordEncoder(passwordEncoder());
+                return builder.build();
+            }
+              @Bean
+              public UserDetailsService userDetailsService() {
+                  return username -> userRepository.findByUsername(username)
+                      .map(u -> User.withUsername(u.getUsername())
+                                    .password(u.getPasswordHash())
+                                    .roles(u.getRoles().toArray(String[]::new))
+                                    .build())
+                      .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+              }
+              
+              @Bean
+              public PasswordEncoder passwordEncoder() {
+                  return new BCryptPasswordEncoder();
+              }
+      Your login controller then calls the manager directly:
+          @RestController
+          @RequestMapping("/api/auth")
+          public class AuthController {
+              private final AuthenticationManager authManager;
+              private final JwtTokenService tokenService;
+              @PostMapping("/login")
+              public ResponseEntity<TokenResponse> login(@RequestBody LoginRequest req) {
+                  Authentication auth = authManager.authenticate(
+                      new UsernamePasswordAuthenticationToken(req.username(), req.password())
+                  );
+                  // auth is now populated with UserDetails + granted authorities
+                  String token = tokenService.generateToken(auth);
+                  return ResponseEntity.ok(new TokenResponse(token));
+              }
+          }
+Token Generation — Server-Level Certificate (mTLS & RS256)
+    Yes, you can and should generate JWTs signed with a server-level RSA or EC private key (asymmetric signing).
+    This is far more secure than a shared secret (HS256) because services only need the public key to verify — they never hold the private key.
+Generating a JWT with RSA (RS256) — using the server's private key
+      @Service
+      public class JwtTokenService {
+      
+          private final RSAPrivateKey privateKey;   // loaded from server keystore / cert
+          private final RSAPublicKey  publicKey;
+      
+          @Value("${app.jwt.expiry-minutes:60}")
+          private long expiryMinutes;
+      
+          public String generateToken(Authentication auth) {
+              Instant now     = Instant.now();
+              Instant expires = now.plusSeconds(expiryMinutes * 60);
+      
+              UserDetails user = (UserDetails) auth.getPrincipal();
+              List<String> roles = auth.getAuthorities().stream()
+                  .map(GrantedAuthority::getAuthority)
+                  .toList();
+      
+              return JWT.create()
+                  .withIssuer("https://my-service.example.com")
+                  .withSubject(user.getUsername())
+                  .withIssuedAt(Date.from(now))
+                  .withExpiresAt(Date.from(expires))
+                  .withClaim("roles", roles)
+                  .withClaim("jti", UUID.randomUUID().toString())  // unique token ID for revocation
+                  .sign(Algorithm.RSA256(publicKey, privateKey));  // signed with private key
+          }
+      }
+Loading the key from a PKCS12 keystore (the server certificate)
+        @Configuration
+        public class KeyConfig {
+        
+            @Value("${app.jwt.keystore-path}")
+            private String keystorePath;
+        
+            @Value("${app.jwt.keystore-password}")
+            private String keystorePassword;
+        
+            @Value("${app.jwt.key-alias}")
+            private String keyAlias;
+        
+            @Bean
+            public RSAPrivateKey jwtPrivateKey() throws Exception {
+                KeyStore ks = KeyStore.getInstance("PKCS12");
+                try (InputStream is = new ClassPathResource(keystorePath).getInputStream()) {
+                    ks.load(is, keystorePassword.toCharArray());
+                }
+                return (RSAPrivateKey) ks.getKey(keyAlias, keystorePassword.toCharArray());
+            }
+        
+            @Bean
+            public RSAPublicKey jwtPublicKey() throws Exception {
+                KeyStore ks = KeyStore.getInstance("PKCS12");
+                try (InputStream is = new ClassPathResource(keystorePath).getInputStream()) {
+                    ks.load(is, keystorePassword.toCharArray());
+                }
+                Certificate cert = ks.getCertificate(keyAlias);
+                return (RSAPublicKey) cert.getPublicKey();
+            }
+        }
+The resource server (same or different service) validates with only the public key —
+      the private key never leaves the issuer service. For inter-service trust, you publish the public key as a JWKS endpoint:
+      @RestController
+      public class JwksController {
+      
+          @Autowired RSAPublicKey publicKey;
+      
+          @GetMapping("/.well-known/jwks.json")
+          public Map<String, Object> jwks() {
+              RSAKey jwk = new RSAKey.Builder(publicKey)
+                  .keyUse(KeyUse.SIGNATURE)
+                  .algorithm(JWSAlgorithm.RS256)
+                  .keyID("my-key-id")
+                  .build();
+              return new JWKSet(jwk).toJSONObject();
+          }
+      }
+mTLS — certificate-based authentication at the TLS layer
+    mTLS (mutual TLS) goes a step further — the client presents its own X.509 certificate during the TLS handshake. 
+    Spring Security can extract the client cert and authenticate from it directly, with no JWT needed:
+      http
+          .x509(x509 -> x509
+              .subjectPrincipalRegex("CN=(.*?)(?:,|$)")  // extract username from cert CN
+              .userDetailsService(userDetailsService())
+          );
+      The server's application.properties must request client certs:
+      propertiesserver.ssl.client-auth=need
+      server.ssl.key-store=classpath:server.p12
+      server.ssl.key-store-password=changeit
+      server.ssl.trust-store=classpath:truststore.p12
+      server.ssl.trust-store-password=changeit
+    This is common in service-to-service auth inside a zero-trust network — 
+        each service has a cert issued by an internal CA, and no bearer tokens are needed at all.
+
+API Gateway Integration:
+The gateway sits in front of all services. There are two valid patterns.
+
+ PATTERN A — GATEWAY VALIDATES TOKEN
+  ------------------------------------
+
+  [Client]
+      | Bearer token
+      v
+  [API Gateway]
+      |   JwtDecoder validates signature + claims
+      |   Extracts user info
+      |   TokenRelay filter strips outer token
+      |   Adds internal headers: X-User-Id, X-Roles
+      |
+      v
+  [Order Service]  [User Service]  [Product Service]
+      |   Trusts internal headers (no spring-security needed)
+      |   Only reachable from gateway network (firewall rules)
+
+  Pros: single validation point, simpler services
+  Cons: gateway bypass = no security, single point of failure
+
+
+  PATTERN B — GATEWAY FORWARDS, EACH SERVICE VALIDATES
+  -----------------------------------------------------
+
+  [Client]
+      | Bearer token
+      v
+  [API Gateway]
+      |   Rate limiting, routing only
+      |   TokenRelay filter forwards Authorization header unchanged
+      |
+      v
+  [Order Service]  [User Service]  [Product Service]
+      |   Each has its own SecurityFilterChain
+      |   Each runs BearerTokenAuthenticationFilter
+      |   Each validates JWT against JWKS endpoint
+
+  Pros: defense in depth, zero-trust, services are independent
+  Cons: repeated validation overhead, each service needs security config
+
+
+
+Spring Cloud Gateway security config
+@Configuration
+public class GatewaySecurityConfig {
+
+    @Bean
+    public SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
+        http
+            .csrf(ServerHttpSecurity.CsrfSpec::disable)
+            .authorizeExchange(ex -> ex
+                .pathMatchers("/api/auth/**").permitAll()
+                .pathMatchers("/api/admin/**").hasAuthority("SCOPE_admin")
+                .anyExchange().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(Customizer.withDefaults())         // validates JWT at gateway
+            );
+        return http.build();
+    }
+}
+
+// application.yml — routing with TokenRelay (forwards the JWT downstream)
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - TokenRelay=          # forwards Authorization header to downstream
+            - RemoveRequestHeader=Cookie
+
+    The `TokenRelay` filter copies the bearer token from the incoming request and adds it to the outgoing request to downstream services. 
+    Each downstream service can then do its own JWT validation with its own `SecurityFilterChain`.
+
+Putting It All Together — the Complete Mental Model
+
+    The full flow from browser to database looks like this:
+    Browser / Mobile client
+        ↓  POST /api/auth/login  {username, password}
+    API Gateway (Spring Cloud Gateway)
+        ↓  forwards to auth service
+    Auth Service
+        ↓  AuthenticationManager → DaoAuthenticationProvider
+        ↓  UserDetailsService loads user → PasswordEncoder verifies
+        ↓  JwtTokenService signs JWT with RSA private key from server keystore
+        ↑  returns {token: "eyJ..."}
+    
+    --- subsequent request ---
+    
+    Browser
+        ↓  GET /api/orders  Authorization: Bearer eyJ...
+    API Gateway
+        ↓  JwtDecoder validates signature against public key (or JWKS endpoint)
+        ↓  TokenRelay forwards JWT
+    Order Service (Spring Boot)
+        ↓  BearerTokenAuthenticationFilter extracts token
+        ↓  JwtAuthenticationProvider validates again (defense in depth)
+        ↓  SecurityContextHolder holds JwtAuthenticationToken
+        ↓  AuthorizationFilter checks @PreAuthorize("hasRole('USER')")
+        ↓  OrderController.getOrders(@AuthenticationPrincipal Jwt jwt)
+
 Spring Security with JWT / OAuth2 / SAML 
   Why Do We Need Spring Security?
   Without Security:                    With Spring Security:
