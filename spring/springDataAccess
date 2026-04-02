@@ -10,97 +10,400 @@ Spring solves this by:
       Handling exceptions consistently
 Internal Architecture:
       Controller → Service (@Transactional) → DAO / Repository → Spring Data / ORM → JDBC → Database
+
+                Your Application (Business logic, services)
+                      |
+                      |
+            Spring Transaction Management(@Transactional · propagation · isolation · rollback)
+                      |
+  _________________________________________________________
+  |                          |                             |
+Spring JDBC                Spring ORM                  Spring Data
+JdbcTemplate               Hibernate, JPA              Repositories 
+RowMapper                  EntityManager               Redis ,JPA
+NamedParam                 Session                     MongoDB
+SimpleJdbc                 Criteria, JPQL              Elasticsearch
+                                |
+                                |
+                          — ORM internals —
+                          EntityManagerFactory
+                One per persistence unit ,  SessionFactory wrapper
+                                |
+                                |
+1st-Level Cache <------EntityManager / Session----------->Entity Lifecycle
+Per session              persist · merge · find           Transient→Managed→Detached→Removed
+· always on             · remove · flush · clear
+    |                          |                                |
+    |                          |                                |
+Query APIs                 Fetch Strategy                  Table Mapping
+JPQL · Criteria             LAZY · EAGER                   @Entity · @Table · @Column · JoinColumn
+· Native SQ                · N+1 problem   
+        |                      |                            |
+        |                      |                            |
+                DataSource / Connection Pool
+                HikariCP · DBCP ·  DriverManagerDataSource
+                                |
+                                |
+                            Database
+The Foundation — DataSource & Connection Pooling:
+    Everything in Spring Data Access starts with a DataSource. 
+    It's the factory that produces JDBC connections. 
+    Spring never manages raw DriverManager.getConnection() calls directly — it always goes through a DataSource.
+Three common implementations:
+      DriverManagerDataSource — creates a new connection every call; for testing only
+      HikariCP — the Spring Boot default; fastest, production-grade connection pool
+      Apache DBCP2 — older but still widely used
+In Spring Boot, you configure it via application.properties:
+    spring.datasource.url=jdbc:postgresql://localhost/mydb
+    spring.datasource.username=user
+    spring.datasource.password=pass
+    spring.datasource.hikari.maximum-pool-size=10
+
 Modules in Spring Data Access:
   1. JDBC Module - Simplifies JDBC operations
-     Key Class :JdbcTemplate
-    jdbcTemplate.query("SELECT * FROM user", (rs, rowNum) -> new User(rs.getString("name")));
+    Spring JDBC wraps raw JDBC and eliminates the boilerplate 
+    (open connection → create statement → execute → map results → close everything → handle checked exceptions).
+    The key class is JdbcTemplate.
+    JdbcTemplate:
+        @Repository
+        public class UserDao {
+            private final JdbcTemplate jdbc;
+            // query → returns list
+            public List<User> findAll() {
+                return jdbc.query("SELECT * FROM users", new BeanPropertyRowMapper<>(User.class));
+            }
+            // queryForObject → returns single row
+            public User findById(Long id) {
+                return jdbc.queryForObject("SELECT * FROM users WHERE id=?",
+                    new BeanPropertyRowMapper<>(User.class), id);
+            }
+            // update → INSERT / UPDATE / DELETE
+            public int save(String name) {
+                return jdbc.update("INSERT INTO users(name) VALUES(?)", name);
+            }
+        }
+    RowMapper is the interface that maps a single ResultSet row to an object.
+            BeanPropertyRowMapper does this automatically by matching column names to field names.
+            You implement RowMapper<T> manually for custom logic.
+    NamedParameterJdbcTemplate
+            Uses :name style parameters instead of ? — much cleaner for queries with many parameters:
+            Map<String, Object> params = Map.of("name", "Alice", "age", 30);
+            jdbc.query("SELECT * FROM users WHERE name=:name AND age=:age", params, rowMapper);
+    SimpleJdbcInsert / SimpleJdbcCall
+            Higher-level helpers for inserts and stored procedure calls:
+            SimpleJdbcInsert insert = new SimpleJdbcInsert(dataSource)
+                .withTableName("users")
+                .usingGeneratedKeyColumns("id");
+            Number key = insert.executeAndReturnKey(Map.of("name", "Bob"));
+    Spring JDBC also gives you a consistent exception hierarchy — 
+        it translates all vendor-specific SQLExceptions into Spring's DataAccessException 
+          subclasses (DuplicateKeyException, DataIntegrityViolationException, etc.), 
+            so your code doesn't leak JDBC concerns.
     ✔ Features: Removes boilerplate, Handles connection closing and Exception handling
     Use Case: Simple queries and Performance-critical apps
-  2.ORM Module - Integrates ORM frameworks like: JPA, Hiberante and myBatis
-    Purpose :Object ↔ Table mapping and Reduce SQL usage
-    Features : Session management, Lazy loading and Caching
-    Use Case: Complex domain models and Enterprise applications
-    JPA:
-        JPA (Java Persistence API) is a specification (set of rules/interfaces) for ORM.
-        Key Idea : ✔ JPA defines what should be done and ❌ It does NOT provide implementation
-        @Entity
-        public class User {
-            @Id
-            private Long id;
-            private String name;
-        }
-        EntityManager em = ...;
-        User user = em.find(User.class, 1L);
-        Key Components : EntityManager , @Entity , @Id and JPQL (query language)
-        ✔ Advantage :Decouples your code from ORM tool
-     Hibernate:
-        Hibernate is an ORM framework (implementation).
-        Key Idea: ✔ Hibernate implements JPA and ✔ Also provides extra features
-        Session session = sessionFactory.openSession();
-        User user = session.get(User.class, 1);
-        Key Components :Session and SessionFactory and HQL (Hibernate Query Language)
-        ✔ Features: Automatic SQL generation , Caching (1st & 2nd level) , Lazy loading  and Dirty checking
-    
-  Relationship (Core Concept):
-        JPA → Specification
-        Hibernate → Implementation of JPA
-   Real Flow
-            Your Code →JPA (EntityManager) → Hibernate → JDBC → Database
-  Important Concepts in Hibernate & JPA
-  1. ORM (Object Relational Mapping)
-    Java Object ↔ Database Table
-            Java    	DB
-            Class	    Table
-            Object	  Row
-            Field    	Column
-  2. Entity Lifecycle
-          State	        Meaning
-          Transient	    New object
-          Persistent	  Managed by session
-          Detached	    Not managed
-          Removed	      Deleted
- 3. Fetch Types
-    @OneToMany(fetch = FetchType.LAZY)
-      Type	Meaning
-      Lazy	Load when needed
-      Eager	Load immediately
-  4. Caching
-      First-Level Cache - ✔ Session-level ✔ Always enabled
-      Second-Level Cache - ✔ Shared across sessions ✔ Optional
-  5. Dirty Checking - Hibernate automatically detects changes: user.setName("New"); ✔ No need for update query
-  6. Query Types: 
-    JPQL (JPA) -SELECT u FROM User u WHERE u.name = :name
-    HQL (Hibernate) - ✔ Similar to JPQL ✔ Hibernate-specific extensions
-    Native SQL -SELECT * FROM users
-  
-   Common Problems:
-  ❗ N+1 Problem- Multiple queries due to lazy loading
-  ❗ LazyInitializationException- Access lazy data outside session
 
+  2.ORM Module - 
+        JPA (Java Persistence API) is the specification. 
+        Hibernate is the most popular implementation.
+        Spring ORM integrates them, and Spring Data JPA adds repositories on top.
+        Purpose :Object ↔ Table mapping and Reduce SQL usage
+        Features : Session management, Lazy loading and Caching
+        Use Case: Complex domain models and Enterprise applications
 JPA, Hibernate, and Spring Data relate to each other:
 Your code ---> ProductRepository ------->Spring Data JPA--------------->JPA (Jakarta Persistence API)--------->Hibernate--------------------->Database (MySQL / PostgreSQL / H2)
             · @Entity · @Service          Repository abstraction        Specification only ·                 JPA implementation ·
                                           query generation              interfaces · annotations             ORM · SQL generation · caching
 
 
-
 JPA vs Hibernate — what exactly is each one?
-JPA (Jakarta Persistence API) is just a specification — 
+      JPA (Jakarta Persistence API) is just a specification — 
                 a set of Java interfaces, annotations (@Entity, @Id, @OneToMany...),
                 and rules written in a document. 
                 It ships no executable code.
                 It defines what an ORM must do, not how.
-Hibernate is the implementation — 
-    it reads your @Entity classes,
-    maintains an in-memory cache of managed objects (the "persistence context"), 
-    generates SQL, executes it via JDBC, and maps result sets back to objects. 
-    When Spring Boot starts, it wires Hibernate as the JPA provider automatically.
-Spring Data JPA sits on top of both.
-    It reads your JpaRepository interface at startup, 
-    generates proxy classes that implement it,
-    and delegates every call down to Hibernate. 
-    You never write a single line of SQL for basic CRUD.
-The relationship in one sentence: JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
+                @Entity
+                public class User {
+                    @Id
+                    private Long id;
+                    private String name;
+                }
+                EntityManager em = ...;
+                User user = em.find(User.class, 1L);
+                Key Components : EntityManager , @Entity , @Id and JPQL (query language)
+                ✔ Advantage :Decouples your code from ORM tool
+      Hibernate is the implementation — 
+              it reads your @Entity classes,
+              maintains an in-memory cache of managed objects (the "persistence context"), 
+              generates SQL, executes it via JDBC, and maps result sets back to objects. 
+              When Spring Boot starts, it wires Hibernate as the JPA provider automatically.
+                Key Idea: ✔ Hibernate implements JPA and ✔ Also provides extra features
+                Session session = sessionFactory.openSession();
+                User user = session.get(User.class, 1);
+                Key Components :Session and SessionFactory and HQL (Hibernate Query Language)
+                ✔ Features: Automatic SQL generation , Caching (1st & 2nd level) , Lazy loading  and Dirty checking
+        Relationship (Core Concept):
+              JPA → Specification
+              Hibernate → Implementation of JPA
+      Spring Data JPA sits on top of both.
+              It reads your JpaRepository interface at startup, 
+              generates proxy classes that implement it,
+              and delegates every call down to Hibernate. 
+              You never write a single line of SQL for basic CRUD.
+
+      The relationship in one sentence:
+          JPA is the contract, Hibernate is the worker, Spring Data JPA is the manager that assigns the work.
+  
+  What is SessionFactory?
+       Factory that creates Session objects
+       Key Characteristics: Heavy-weight object ⚠️, Created once per application and Thread-safe ✅
+       Holds: DB configuration ,Mapping metadata and 2nd level cache
+            SessionFactory factory = new Configuration()
+                .configure()
+                .buildSessionFactory();
+      ✔ Responsibilities: Create sessions, Maintain cache and Store ORM mappings
+
+  What is Session?
+        Connection between application and database
+        Key Characteristics: Light-weight object, Created per request/transaction and NOT thread-safe ❌ and Represents persistence context
+        Session session = factory.openSession();
+        
+        User user = session.get(User.class, 1);
+        ✔ Responsibilities: CRUD operations, Manage entity lifecycle, First-level cache and Dirty checking
+        What happens if Session not closed? ❌ Memory leak
+        Session Lifecycle: OpenSession() → perform operations → flush() → close()
+    
+       Session Management -  Managing session lifecycle automatically
+        ❌ Without Spring
+        Session session = factory.openSession();
+        Transaction tx = session.beginTransaction();
+        
+        session.save(user);
+        
+        tx.commit();
+        session.close();
+    
+        ✅ With Spring (Best Practice)
+        @Transactional
+        public void saveUser() {
+            repository.save(user);
+        }
+       How Spring Manages Session
+          Uses ThreadLocal
+          Binds session to transaction
+          Auto open/close session
+       Open Session in View (OSIV)-  Keeps session open till view rendering
+        ✔ Avoids LazyInitializationException
+        ❌ Can cause performance issues
+
+ What replaces these in JPA?
+      Hibernate          	JPA
+      SessionFactory	    EntityManagerFactory
+      Session            	EntityManager
+ 
+1.What is persistence context? ✔ First-level cache
+2. Does flush commit data? ❌ No
+3. What does clear() do? ✔ Detaches all entities
+4  What happens after clear?✔ No automatic updates
+5. Default fetch type? ManyToOne → EAGER, OneToMany → LAZY
+6. Why use JPA over Hibernate? ✔ Decoupling
+7. Can we use JPA without Hibernate? ✔ Yes (EclipseLink, etc.)
+8. Does Hibernate use JDBC? ✔ Yes internally
+
+  Important Concepts in Hibernate & JPA
+`       1. Entity Mapping Annotations:
+              Class-level:
+                    @Entity                          // marks this as a JPA entity
+                    @Table(name = "orders",          // optional — defaults to class name
+                           schema = "sales",
+                           uniqueConstraints = @UniqueConstraint(columnNames = {"order_no"}))
+                    public class Order {
+                        @Id
+                        @GeneratedValue(strategy = GenerationType.IDENTITY)
+                        private Long id;
+                        @Column(name = "order_no", nullable = false, length = 50)
+                        private String orderNumber;
+                        @Column(updatable = false)   // set on insert; never updated
+                        private LocalDateTime createdAt;
+                    }
+                       @Entity - ✔ Marks class as a persistent entity ✔ Must have a primary key
+                       @Table - ✔ Maps class to specific table ✔ Optional (default = class name)
+                       @Id -✔ Primary key
+                       @GeneratedValue - @GeneratedValue(strategy = GenerationType.IDENTITY) ✔ Auto-generates ID
+                         Strategies:
+                          IDENTITY (DB auto increment)
+                          SEQUENCE
+                          TABLE
+                          AUTO
+                       @Column -@Column(name = "user_name", nullable = false) ✔ Maps field → column ✔ Controls: name, nullable,length
+                       @Transient - ✔ Not persisted in DB
+                       @Lob - ✔ Large objects (BLOB/CLOB)
+              Relationship mapping:
+                      // One-to-many (Order → OrderItems)
+                      @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+                      private List<OrderItem> items = new ArrayList<>();
+                      // Many-to-one (OrderItem → Order)
+                      @ManyToOne(fetch = FetchType.LAZY)
+                      @JoinColumn(name = "order_id")   // FK column in THIS table
+                      private Order order;
+                      // Many-to-many
+                      @ManyToMany
+                      @JoinTable(name = "student_course",
+                                 joinColumns = @JoinColumn(name = "student_id"),
+                                 inverseJoinColumns = @JoinColumn(name = "course_id"))
+                      private Set<Course> courses;
+                      // One-to-one
+                      @OneToOne(cascade = CascadeType.ALL)
+                      @JoinColumn(name = "profile_id", referencedColumnName = "id")
+                      private UserProfile profile;
+
+                      Embeddable (value object — not a separate table):
+                      @Embeddable
+                      public class Address {
+                          private String street;
+                          private String city;
+                          private String country;
+                      }
+                      @Embedded
+                      @AttributeOverrides({
+                          @AttributeOverride(name = "street", column = @Column(name = "shipping_street"))
+                      })
+                      private Address shippingAddress;
+        2. Entity Lifecycle States:
+              An entity can be in one of four states 
+              — this is fundamental to understanding what Hibernate does:
+                  new object
+                       ↓  persist()
+                    TRANSIENT ──→ MANAGED (inside persistence context / session)
+                                      ↓ evict() / clear() / close()
+                                  DETACHED ──→ merge() ──→ MANAGED again
+                                      ↓ remove()
+                                  REMOVED (will be deleted on flush)
+
+            Transient — just a Java object; Hibernate knows nothing about it
+            Managed — inside the current Session/EntityManager; changes are tracked automatically (dirty checking)
+            Detached — was managed, now outside the session (e.g. after session closed); changes NOT tracked
+            Removed — scheduled for deletion on the next flush
+          3. EntityManagerFactory and EntityManager:
+                EntityManagerFactory - created once per application (or per persistence unit). 
+                                     - expensive and thread-safe. 
+                EntityManager - created per request/transaction. 
+                              - cheap and NOT thread-safe.
+                Relationship : EntityManagerFactory → creates → EntityManager → interacts with DB
+                // Spring auto-injects a thread-safe proxy for EntityManager
+                @PersistenceContext
+                private EntityManager em;
+                @PersistenceUnit
+                private EntityManagerFactory emf;
+                Spring injects a thread-bound proxy for EntityManager — 
+                    each thread gets its own actual EntityManager behind the scenes. 
+                    You never call emf.createEntityManager() manually in Spring.
+          4. Session / EntityManager Methods
+                  Method                    What it does
+                  persist(entity)           Makes a transient entity managed; INSERT on flush
+                  find(Class, id)           Lookup by PK; returns null if not found; checks 1st-level cache first
+                  getReference(Class, id)   Returns a proxy (lazy); throws if not found when accessed
+                  merge(entity)             Copies state of a detached entity into a managed instance; returns the managed copy
+                  remove(entity)            Schedules a managed entity for deletion
+                  flush()                   Synchronizes the persistence context with the DB right now — executes pending SQL
+                  clear()                   Detaches ALL entities from the session; clears 1st-level cache
+                  evict(entity)             Detaches ONE specific entity from the session
+                  refresh(entity)           Re-reads state from DB, discarding unsaved changes
+                  contains(entity)          Checks if entity is currently managed
+                  detach(entity)            Explicitly moves an entity to detached state
+                flush() vs commit: 
+                        flush() sends SQL to the DB but doesn't commit the transaction. 
+                        You can flush multiple times within one transaction. 
+                        On commit, a flush happens automatically.
+                        Full Flow (Important) : 
+                            EntityManagerFactory → EntityManager → Persistence Context →flush() →DB
+                clear() use case:
+                      Processing large batches — 
+                      flush then clear every N records to avoid the session growing unbounded:
+                        for (int i = 0; i < records.size(); i++) {
+                            em.persist(records.get(i));
+                            if (i % 50 == 0) {
+                                em.flush();
+                                em.clear(); // frees memory; entities detach
+                            }
+                        }
+                        Effect: All entities become detached and No tracking (no dirty checking)
+                          User user = em.find(User.class, 1);
+                          em.clear();
+                          user.setName("New"); // NOT updated in DB
+                          flush() vs clear()
+                          Feature	      flush()    	clear()
+                          Purpose	      Sync DB	    Clear cache
+                          SQL execution	Yes	        No
+                          Entity state	Managed	    Detached
+            5. First-Level Cache (Persistence Context)
+                    Every EntityManager / Session has a built-in cache scoped to the current session.
+                    When you call find() twice with the same ID in the same session, Hibernate hits the DB only once — the second call returns the cached object. 
+                    This cache is always on and cannot be disabled.
+              Second-Level Cache is optional, shared across sessions, configured per entity with @Cache:
+                        @Entity  
+                        @Cache(usage = CacheConcurrencyStrategy.READ_WRITE)
+                        public class Product { ... }
+            6. Fetch Types
+                Controls when related data is loaded:
+                FetchType.LAZY (default for @OneToMany, @ManyToMany) —
+                          loads related data only when you actually access it (uses a proxy). 
+                          Efficient but risks LazyInitializationException if you access it after the session is closed.
+                FetchType.EAGER (default for @ManyToOne, @OneToOne) — 
+                          loads related data immediately with the parent. 
+                          Can cause performance issues if overused.
+                The N+1 Problem: 
+                          If you load 100 orders with LAZY items, and then iterate and access .getItems() on each, 
+                          Hibernate fires 1 query for orders + 100 queries for items = 101 queries. 
+                Solutions:
+                      // Solution 1: JOIN FETCH in JPQL
+                      em.createQuery("SELECT o FROM Order o JOIN FETCH o.items", Order.class).getResultList();
+                      // Solution 2: @EntityGraph
+                      @EntityGraph(attributePaths = {"items", "customer"})
+                      List<Order> findAll();
+                      // Solution 3: @BatchSize (Hibernate-specific)
+                      @BatchSize(size = 25) // loads 25 items at a time instead of 1
+                      private List<OrderItem> items;
+           7. Query Types: 
+              Querying — JPQL, Criteria API, Native SQL
+              JPQL (Java Persistence Query Language) — 
+                  like SQL but operates on entity classes and fields, not tables and columns:
+                  // TypedQuery
+                          TypedQuery<Order> q = em.createQuery(
+                              "SELECT o FROM Order o WHERE o.customer.name = :name AND o.total > :min",
+                              Order.class);
+                          q.setParameter("name", "Alice");
+                          q.setParameter("min", new BigDecimal("100"));
+                          List<Order> orders = q.getResultList();
+                  // Named query (defined on the entity)
+                          @NamedQuery(name = "Order.byStatus",
+                                      query = "SELECT o FROM Order o WHERE o.status = :status")
+              Criteria API —
+                 type-safe, programmatic query building; verbose but refactoring-safe:                     
+                    Old: Hibernate Criteria (Deprecated)
+                          Criteria c = session.createCriteria(User.class);
+                          c.add(Restrictions.eq("name", "Baskar"));👉 Deprecated ❌
+                          Modern: JPA Criteria API
+                    From JPA:
+                        CriteriaBuilder cb = em.getCriteriaBuilder();
+                        CriteriaQuery<User> cq = cb.createQuery(User.class);
+                        Root<User> root = cq.from(User.class);
+                        cq.select(root).where(cb.equal(root.get("name"), "Baskar"));
+              Native SQL — 
+                  when you need DB-specific features:
+                      List<Object[]> rows = em.createNativeQuery(
+                          "SELECT id, name FROM users WHERE name ILIKE :pattern")
+                          .setParameter("pattern", "%alice%")
+                          .getResultList();
+          8. Cascade Types:
+              Controls what happens to related entities when you do an operation on the parent:
+                    Cascade      Effect
+                    PERSIST      When parent is persisted, children are too
+                    MERGE        When parent is merged, children are merged
+                    REMOVE       When parent is removed, children are deleted
+                    REFRESH      When parent is refreshed, children are too
+                    DETACH       When parent is detached, children are tooALLAll of the above
+              orphanRemoval = true is separate — 
+              it deletes a child when it's removed from the parent's collection (not just when the parent is deleted).
 
 7 core in Hibernate
 1. ORM (Object-Relational Mapping)
@@ -108,6 +411,11 @@ The relationship in one sentence: JPA is the contract, Hibernate is the worker, 
     The Mapping: Using annotations (like @Entity, @Table, @Column) or XML,
                 Hibernate understands that a class attribute like String userName corresponds to a table column USER_NAME.
     The Benefit: You work with objects and methods rather than manually mapping result sets to objects.
+                  Java Object ↔ Database Table
+                  Java    	DB
+                  Class	    Table
+                  Object	  Row
+                  Field    	Column
 2. SQL Generation
     Hibernate acts as a translator. You don't have to write vendor-specific SQL for every operation.
     Dialects: Hibernate uses a Dialect (e.g., PostgreSQLDialect, MySQL8Dialect) to know how to talk to your specific database.
@@ -166,208 +474,27 @@ LazyInitializationException — accessing a lazy relationship outside a transact
 ddl-auto=create in production — drops and recreates all tables on startup. 
         Always use validate or none in production, and manage schema changes with Flyway or Liquibase instead.
 
-4. Spring Data:
-  It is an extension layer built on top of the data access features of the Spring Framework.
-  👉 Instead of writing DAO classes manually ❌
-  👉 You just define interfaces ✅
-  ✔ Spring generates implementation at runtime
-
-  Before Spring Data:
-    public class UserDAO {
-        public User findById(Long id) {
-            // boilerplate code
-        }
-    }
-  After Spring Data:
-    public interface UserRepository extends JpaRepository<User, Long> {} ✔ No implementation needed
-
-   Architecture of Spring Data
-    Controller → Service → Repository (interface) → Spring Data → JPA → Hibernate → JDBC → Database
-    Internally:  Repository Interface → Proxy Object → Query Generation → Execution via EntityManager
-  
-  Modules in Spring Data: Spring Data supports multiple databases:
-    🔹 Relational DB
-          Spring Data JPA
-          Spring Data JDBC
-    🔹 NoSQL
-          MongoDB
-          Redis
-          Cassandra
-    🔹 Others
-          Elasticsearch
-          Neo4j
-
-Spring Data — The Umbrella Project:
-Spring Data is the parent project that provides a consistent, unified programming model for data access across different data stores:
-        Spring Data (Umbrella):
-        ├── Spring Data JPA          → Relational DBs (MySQL, PostgreSQL, Oracle)
-        ├── Spring Data MongoDB      → MongoDB (NoSQL Document Store)
-        ├── Spring Data Redis        → Redis (Key-Value Cache)
-        ├── Spring Data Elasticsearch → Elasticsearch
-        ├── Spring Data Cassandra    → Apache Cassandra
-        ├── Spring Data Neo4j        → Neo4j (Graph DB)
-        ├── Spring Data JDBC         → Lightweight JDBC
-        └── Spring Data REST         → Exposes repos as REST endpoints
-
- What is “Criteria” in ORM?
-    Criteria = a programmatic way to build queries dynamically (instead of writing SQL/JPQL strings)
-  Why use Criteria?
-      Dynamic queries (conditions at runtime)
-      Avoid string-based queries
-      Type-safe (in modern API)
-  Types of Criteria:
-         Old: Hibernate Criteria (Deprecated)
-        Criteria c = session.createCriteria(User.class);
-        c.add(Restrictions.eq("name", "Baskar"));👉 Deprecated ❌
-        Modern: JPA Criteria API
-        From JPA
-        
-        CriteriaBuilder cb = em.getCriteriaBuilder();
-        CriteriaQuery<User> cq = cb.createQuery(User.class);
-        
-        Root<User> root = cq.from(User.class);
-        cq.select(root).where(cb.equal(root.get("name"), "Baskar"));
-        
-        List<User> users = em.createQuery(cq).getResultList();
-  
-  Key Idea (Important):
-   Criteria is part of ORM querying mechanism
-   Used for dynamic and complex queries
-
-  What is SessionFactory?
-   Factory that creates Session objects
-   Key Characteristics: Heavy-weight object ⚠️, Created once per application and Thread-safe ✅
-   Holds: DB configuration ,Mapping metadata and 2nd level cache
-        SessionFactory factory = new Configuration()
-            .configure()
-            .buildSessionFactory();
-  ✔ Responsibilities: Create sessions, Maintain cache and Store ORM mappings
-
-  What is Session?
-    Connection between application and database
-    Key Characteristics: Light-weight object, Created per request/transaction and NOT thread-safe ❌ and Represents persistence context
-    Session session = factory.openSession();
-    
-    User user = session.get(User.class, 1);
-    ✔ Responsibilities: CRUD operations, Manage entity lifecycle, First-level cache and Dirty checking
-    What happens if Session not closed? ❌ Memory leak
-    Session Lifecycle: OpenSession() → perform operations → flush() → close()
-
-   Session Management -  Managing session lifecycle automatically
-
-    ❌ Without Spring
-    Session session = factory.openSession();
-    Transaction tx = session.beginTransaction();
-    
-    session.save(user);
-    
-    tx.commit();
-    session.close();
-
-    ✅ With Spring (Best Practice)
-    @Transactional
-    public void saveUser() {
-        repository.save(user);
-    }
-   How Spring Manages Session
-      Uses ThreadLocal
-      Binds session to transaction
-      Auto open/close session
-   Open Session in View (OSIV)-  Keeps session open till view rendering
-    ✔ Avoids LazyInitializationException
-    ❌ Can cause performance issues
-
-    What replaces these in JPA?
-    Hibernate          	JPA
-    SessionFactory	    EntityManagerFactory
-    Session            	EntityManager
-
-    EntityManager: main interface to interact with persistence context
-                  @PersistenceContext
-                  private EntityManager em;
-    ✔ Responsibilities: CRUD operations, Manage entity lifecycle and Execute queries and Handle persistence context
-      Common Methods
-                    em.persist(user);     // insert
-                    em.find(User.class, 1); // select
-                    em.merge(user);       // update
-                    em.remove(user);      // delete
-    
-    EntityManagerFactory: Factory that creates EntityManager
-     Key Points: Heavy object ⚠️, Created once per application and Thread-safe ✅
-              EntityManagerFactory emf =
-                  Persistence.createEntityManagerFactory("myUnit");
-      Relationship : EntityManagerFactory → creates → EntityManager → interacts with DB
-    
-    Persistence Context (Important 🔥) - Managed by EntityManager ✔ Stores managed entities ✔ Acts like cache
-
-   flush() Method - Synchronizes persistence context → database
-            em.persist(user);
-            em.flush();
-  Behavior:Executes SQL immediately, Does NOT commit transaction
-  When flush happens automatically? Before query execution and Before transaction commit
-  Important: flush != commit ✔ Flush → send SQL ✔ Commit → save permanently
-
-   clear() Method- Removes all entities from persistence context
-            em.clear();
-    Effect:
-          All entities become detached
-          No tracking (no dirty checking)
-
-        User user = em.find(User.class, 1);
-        em.clear();
-        user.setName("New"); // NOT updated in DB
-  flush() vs clear()
-  Feature	      flush()    	clear()
-  Purpose	      Sync DB	    Clear cache
-  SQL execution	Yes	        No
-  Entity state	Managed	    Detached
-  
-  Full Flow (Important) : EntityManagerFactory → EntityManager → Persistence Context →flush() →DB
-
-  Entity Class Annotations (Mapping)
-
-These annotations map Java objects ↔ Database tables
-   @Entity - ✔ Marks class as a persistent entity ✔ Must have a primary key
-   @Table - ✔ Maps class to specific table ✔ Optional (default = class name)
-   @Id -✔ Primary key
-   @GeneratedValue - @GeneratedValue(strategy = GenerationType.IDENTITY) ✔ Auto-generates ID
-     Strategies:
-      IDENTITY (DB auto increment)
-      SEQUENCE
-      TABLE
-      AUTO
-   @Column -@Column(name = "user_name", nullable = false) ✔ Maps field → column ✔ Controls: name, nullable,length
-   @Transient - ✔ Not persisted in DB
-   @Lob - ✔ Large objects (BLOB/CLOB)
- Relationship Annotations
-🔹 @OneToOne
-        @OneToOne
-        @JoinColumn(name = "profile_id")
-🔹 @OneToMany
-        @OneToMany(mappedBy = "user")
-🔹 @ManyToOne
-        @ManyToOne
-        @JoinColumn(name = "user_id")
-🔹 @ManyToMany
-        @ManyToMany
-        @JoinTable(name = "user_role")
-🔹 Fetch Types
-        fetch = FetchType.LAZY
-        Type	Meaning
-        LAZY	Load when needed
-        EAGER	Load immediately
-
-1.What is persistence context? ✔ First-level cache
-2. Does flush commit data? ❌ No
-3. What does clear() do? ✔ Detaches all entities
-4  What happens after clear?✔ No automatic updates
-5. Default fetch type? ManyToOne → EAGER, OneToMany → LAZY
-6. Why use JPA over Hibernate? ✔ Decoupling
-7. Can we use JPA without Hibernate? ✔ Yes (EclipseLink, etc.)
-8. Does Hibernate use JDBC? ✔ Yes internally
-
 3. Transaction Management:
   What is Transaction? Group of DB operations that must be atomic ✔ All succeed OR all fail
+  The core abstraction: PlatformTransactionManager
+    Spring abstracts transactions behind this interface. 
+    The actual implementation swaps based on your tech:
+        DataSourceTransactionManager → for plain JDBC / Spring JDBC
+        JpaTransactionManager → for JPA / Hibernate
+        JtaTransactionManager → for distributed (XA) transactions
+      @Transactional - The most important Spring annotation in data access:
+          @Service
+          public class OrderService {
+              @Transactional
+              public void placeOrder(Order order) {
+                  // everything here runs in ONE transaction
+                  orderRepo.save(order);
+                  inventoryService.deduct(order.getItems());
+                  paymentService.charge(order.getTotal());
+              }
+          }
+        Spring wraps the method in a proxy. 
+        A transaction begins before the method runs, and commits (or rolls back) when it exits.
       🔧 Without Spring (Manual)
       con.setAutoCommit(false);
       try {
@@ -436,7 +563,7 @@ These annotations map Java objects ↔ Database tables
             user.getOrders(); // ❌ Exception
            Why?  @Transactional ends → Session closed → Lazy access outside method
      @Transactional only works inside method boundary
-  How to Fix
+  How to Fix:
   ✔ Option 1: Access inside transaction
             @Transactional
             public User getUser() {
@@ -449,7 +576,12 @@ These annotations map Java objects ↔ Database tables
   ✔ Option 4: Open Session in View (OSIV) ✔ Keeps session open till view
               👉 Even without @Transactional: ✔ Spring Boot may keep session open till view layer. Controller → Service → View
               ⚠️ But: Not recommended for heavy apps Can cause performance issues
-  
+
+@Transactional gotcha — self-invocation
+    If method A calls method B in the same class, and B is @Transactional, 
+                    Spring's proxy is bypassed — B's transaction annotation has NO effect. 
+    Solution: inject the bean into itself, or restructure into separate beans.
+
   Transaction Propagation -  Defines how transactions behave when methods call each other
         Syntax
         @Transactional(propagation = Propagation.REQUIRED)
@@ -470,6 +602,11 @@ These annotations map Java objects ↔ Database tables
   🔹 READ_COMMITTED (Default) -No dirty reads
   🔹 REPEATABLE_READ -Same data on repeated reads
   🔹 SERIALIZABLE -Strictest (like single-thread)
+    Level                    Dirty Read     Non-repeatable Read    Phantom Read
+    READ_UNCOMMITTED        ✓ possible      ✓ possible            ✓ possible
+    READ_COMMITTED(default)    ✗            ✓ possible            ✓ possible
+    REPEATABLE_READ            ✗                ✗                 ✓ possible
+    SERIALIZABLE                ✗                ✗                    ✗
 
     How Rollback Works in @Transactional
     Default Behavior: Rollback ONLY on RuntimeException
@@ -479,12 +616,10 @@ These annotations map Java objects ↔ Database tables
               credit(); // throws RuntimeException
           }
      Entire transaction rolled back
-     
     Checked Exception Case - throw new Exception(); 👉 ❌ NO rollback by default
      ✅ Fix - @Transactional(rollbackFor = Exception.class)
      Internal Working
     Method call →Spring Proxy →Start transaction →Execute method →If exception: rollback Else: commit
-
 
   1. What triggers transaction? ✔ AOP proxy
   2. Why @Transactional not working? ✔ Self-invocation issue
@@ -496,6 +631,38 @@ These annotations map Java objects ↔ Database tables
   8. Does each method get new session? ✔ Depends on propagation
   9. Only public methods ✔ @Transactional works only on public methods
   10. Self-invocation problem -> this.method(); // ❌ no transaction
+
+4. Spring Data:
+  It is an extension layer built on top of the data access features of the Spring Framework.
+  👉 Instead of writing DAO classes manually ❌
+  👉 You just define interfaces ✅
+  ✔ Spring generates implementation at runtime
+
+  Before Spring Data:
+    public class UserDAO {
+        public User findById(Long id) {
+            // boilerplate code
+        }
+    }
+  After Spring Data:
+    public interface UserRepository extends JpaRepository<User, Long> {} ✔ No implementation needed
+
+   Architecture of Spring Data
+    Controller → Service → Repository (interface) → Spring Data → JPA → Hibernate → JDBC → Database
+    Internally:  Repository Interface → Proxy Object → Query Generation → Execution via EntityManager
+  
+Spring Data — The Umbrella Project:
+Spring Data is the parent project that provides a consistent, unified programming model for data access across different data stores:
+        Spring Data (Umbrella):
+        ├── Spring Data JPA          → Relational DBs (MySQL, PostgreSQL, Oracle)
+        ├── Spring Data MongoDB      → MongoDB (NoSQL Document Store)
+        ├── Spring Data Redis        → Redis (Key-Value Cache)
+        ├── Spring Data Elasticsearch → Elasticsearch
+        ├── Spring Data Cassandra    → Apache Cassandra
+        ├── Spring Data Neo4j        → Neo4j (Graph DB)
+        ├── Spring Data JDBC         → Lightweight JDBC
+        └── Spring Data REST         → Exposes repos as REST endpoints
+
 Spring Data JPA:
 repository interface inheritance chain:
                  extends                            extends                                                extends                        extends
@@ -1225,6 +1392,26 @@ ORM                 Hibernate                       Spring Data MongoDB Converte
    7.  Which supports batch operations? ✔ JpaRepository
    8.  Can we create custom methods? ✔ Yes (in all repositories)
 
+Other Spring Data Access Modules:
+  Spring Data JDBC:
+    Simpler than JPA — no lazy loading, no dirty checking, no entity lifecycle. 
+    Each save() is explicit. Good for teams that want predictable SQL without ORM magic:
+      public interface UserRepository extends CrudRepository<User, Long> {
+          @Query("SELECT * FROM users WHERE email = :email")
+          Optional<User> findByEmail(String email);
+      }
+  Spring Data REST:
+      Automatically exposes your Spring Data repositories as REST endpoints with zero controller code.
+      Spring Data Redis / MongoDB / Elasticsearch
+      Same repository pattern, different backends:
+          public interface ProductRepository extends MongoRepository<Product, String> {
+              List<Product> findByCategory(String category);
+          }
+Spring's @EnableJpaRepositories: Activates repository scanning:
+        @Configuration
+        @EnableJpaRepositories(basePackages = "com.example.repositories")
+        @EnableTransactionManagement
+        public class DataConfig { ... }
 5.  Java Message Service (JMS) 
     It is a Java API for sending messages between systems asynchronously.
       👉 Instead of direct communication: Service A → Service B (tight coupling ❌)
