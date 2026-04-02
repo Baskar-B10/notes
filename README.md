@@ -10,7 +10,7 @@ Java:
   
 Spring:
   spring Core
-  spring Data access (ORM, Hiberate , JPA) - read write spliting and soft delete,Projection Optimization,N+1 Detection in Tests, modify content
+  spring Data access (ORM, Hiberate , JPA)
   Web (Spring MVC)
   AOP
   Security 
