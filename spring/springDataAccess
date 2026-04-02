@@ -1547,6 +1547,377 @@ Spring's @EnableJpaRepositories: Activates repository scanning:
         @EnableJpaRepositories(basePackages = "com.example.repositories")
         @EnableTransactionManagement
         public class DataConfig { ... }
+
+1. Projection Optimization
+The core problem: 
+      by default, JPA loads entire entity objects — every column, every mapped field —
+            even when you only need two or three values. 
+      Projections let you fetch exactly the shape of data you need.
+    Interface Projection (Spring Data):
+      The cleanest approach — define an interface with getter methods matching the fields you want, 
+                              and Spring   Data generates a proxy at runtime:
+              public interface UserSummary {
+                  String getName();
+                  String getEmail();
+                  // nested — Spring joins Address automatically
+                  AddressView getAddress();
+                  interface AddressView {
+                      String getCity();
+                  }
+                  // SpEL — computed at projection time
+                  @Value("#{target.firstName + ' ' + target.lastName}")
+                  String getFullName();
+              }
+              public interface UserRepository extends JpaRepository<User, Long> {
+                  List<UserSummary> findByActiveTrue();
+                  // Spring generates: SELECT u.name, u.email, a.city FROM users u LEFT JOIN addresses a ...
+              }
+              The SQL generated only selects the columns you declare getters for.
+              No SELECT *, no hydrating a full User entity, no dirty checking overhead.
+    DTO / Class Projection (JPQL constructor expression):
+       When you want a concrete class (records work perfectly here):
+            public record UserSummaryDto(String name, String email, String city) {}
+          // In repository:
+          @Query("""
+              SELECT new com.example.dto.UserSummaryDto(u.name, u.email, a.city)
+              FROM User u JOIN u.address a
+              WHERE u.active = true
+          """)
+          List<UserSummaryDto> findActiveSummaries();
+          The new keyword in JPQL is a constructor call — 
+              Hibernate calls the matching constructor on each row.
+              Records are ideal here because they give you an immutable DTO with no boilerplate.
+    Dynamic Projection:
+        One repository method, caller decides the return shape:
+            public interface UserRepository extends JpaRepository<User, Long> {
+                <T> List<T> findByDepartment(String dept, Class<T> type);
+            }
+            // Caller decides at runtime:
+            List<UserSummary> light  = repo.findByDepartment("Engineering", UserSummary.class);
+            List<User>        full   = repo.findByDepartment("Engineering", User.class);
+        This is powerful for APIs that serve different consumers —
+          a list endpoint needs a summary, a detail endpoint needs the full entity, same underlying query.
+    @SqlResultSetMapping for Native Queries
+        When you need raw SQL but still want DTO mapping:
+        @SqlResultSetMapping(
+            name = "UserStatMapping",
+            classes = @ConstructorResult(
+                targetClass = UserStatDto.class,
+                columns = {
+                    @ColumnResult(name = "username", type = String.class),
+                    @ColumnResult(name = "order_count", type = Long.class),
+                    @ColumnResult(name = "total_spent", type = BigDecimal.class)
+                }
+            )
+        )
+        @Entity public class User { ... } // mapping lives on the entity
+        // Usage:
+        List<UserStatDto> stats = em.createNativeQuery(
+            "SELECT u.username, COUNT(o.id) AS order_count, SUM(o.total) AS total_spent " +
+            "FROM users u LEFT JOIN orders o ON o.user_id = u.id GROUP BY u.username",
+            "UserStatMapping"
+        ).getResultList();
+2.Read-Write Splitting (Dynamic Routing):
+    The pattern: route SELECT queries to one or more read replicas, route INSERT/UPDATE/DELETE to the primary.
+                 Spring's AbstractRoutingDataSource makes this clean.
+
+              @Transactional call
+              readOnly=true → READ · readOnly=false → WRITE
+                      |
+                      |
+            RoutingDataSource
+            extends AbstractRoutingDataSource
+            determineCurrentLookupKey()
+                      |
+______________________________________________________
+|                        |                           |
+Read replica pool    DataSourceContextHolder        Primary (write)
+HikariCP             ThreadLocal<DataSourceType>    HikariCP · master node
+replica1, replica2 ... set by AOP before TX starts   INSERT / UPDATE / DELETE
+SELECT queries only          |                        |
+    |                        | DB replication (async) |
+Replica DB 1              Replica DB 2  --------------Primary DB
+
+Implementation — Step by Step
+Step 1 — The context holder (ThreadLocal key store):
+        public class DataSourceContextHolder {
+            private static final ThreadLocal<String> CONTEXT = new ThreadLocal<>();
+            public static void setDataSource(String key) { CONTEXT.set(key); }
+            public static String getDataSource()         { return CONTEXT.get(); }
+            public static void clear()                   { CONTEXT.remove(); }
+            public static final String WRITE = "write";
+            public static final String READ  = "read";
+        }
+Step 2 — The routing DataSource:
+          public class RoutingDataSource extends AbstractRoutingDataSource {
+              @Override
+              protected Object determineCurrentLookupKey() {
+                  return DataSourceContextHolder.getDataSource();
+              }
+          }
+Step 3 — Wire up the DataSources as a map:
+        @Configuration
+        public class DataSourceConfig {
+            @Bean
+            @ConfigurationProperties("spring.datasource.write")
+            public DataSource writeDataSource() { return DataSourceBuilder.create().build(); }
+            @Bean
+            @ConfigurationProperties("spring.datasource.read")
+            public DataSource readDataSource()  { return DataSourceBuilder.create().build(); }
+            @Bean
+            @Primary
+            public DataSource routingDataSource(
+                    @Qualifier("writeDataSource") DataSource write,
+                    @Qualifier("readDataSource")  DataSource read) {
+                RoutingDataSource routing = new RoutingDataSource();
+                routing.setTargetDataSources(Map.of(
+                    DataSourceContextHolder.WRITE, write,
+                    DataSourceContextHolder.READ,  read
+                ));
+                routing.setDefaultTargetDataSource(write); // fallback
+                return routing;
+            }
+        }
+Step 4 — AOP advice to set the key BEFORE @Transactional opens the connection:
+This ordering is critical —
+the DataSource key must be set before Spring's transaction manager acquires the connection, otherwise the routing is too late.
+        @Aspect
+        @Component
+        @Order(1)  // MUST be lower (higher priority) than @Transactional's order (default 2147483647)
+        public class DataSourceRoutingAspect {
+            @Around("@annotation(transactional)")
+            public Object route(ProceedingJoinPoint pjp,
+                                org.springframework.transaction.annotation.Transactional transactional)
+                    throws Throwable {
+                try {
+                    String key = transactional.readOnly()
+                        ? DataSourceContextHolder.READ
+                        : DataSourceContextHolder.WRITE;
+                    DataSourceContextHolder.setDataSource(key);
+                    return pjp.proceed();
+                } finally {
+                    DataSourceContextHolder.clear(); // always clean up ThreadLocal
+                }
+            }
+        }
+Usage — nothing changes in your service layer:
+        @Service
+        public class ProductService {
+            @Transactional(readOnly = true)   // → read replica
+            public List<Product> listAll() { return repo.findAll(); }
+            @Transactional                    // → primary (write)
+            public Product create(Product p)  { return repo.save(p); }
+        }
+      The readOnly = true flag does double duty: 
+      it tells Hibernate to skip dirty checking and flush, AND your AOP advice uses it to route to the replica.                             
+3. N+1 Detection in Tests
+  The N+1 problem is silent in production until it breaks you.
+  Catching it in tests requires intercepting Hibernate's SQL output and counting queries per test.
+Approach 1 — datasource-proxy (recommended):
+    datasource-proxy wraps your DataSource and fires a listener for every SQL statement executed. 
+    Add it to your test scope:
+        <dependency>
+            <groupId>net.ttddyy</groupId>
+            <artifactId>datasource-proxy</artifactId>
+            <version>1.10</version>
+            <scope>test</scope>
+        </dependency>
+    Create a test base class that counts queries:
+        @SpringBootTest
+        public abstract class QueryCountTestBase {
+            @Autowired
+            private DataSource dataSource;
+            private ProxyDataSource proxyDataSource;
+            @BeforeEach
+            void wrapDataSource() {
+                proxyDataSource = ProxyDataSourceBuilder
+                    .create(dataSource)
+                    .countQuery()         // enables QueryCountHolder
+                    .build();
+                QueryCountHolder.clear(); // reset before each test
+            }
+            protected void assertSelectCount(int expected) {
+                QueryCount qc = QueryCountHolder.getGrandTotal();
+                assertThat(qc.getSelect())
+                    .as("Expected %d SELECT queries but got %d — possible N+1", expected, qc.getSelect())
+                    .isEqualTo(expected);
+            }
+            protected void assertTotalQueryCount(int expected) {
+                QueryCount qc = QueryCountHolder.getGrandTotal();
+                assertThat(qc.getTotal()).isEqualTo(expected);
+            }
+        }
+  Test a repository that might have N+1:
+        class OrderRepositoryTest extends QueryCountTestBase {
+        @Autowired OrderRepository orderRepo;
+        @Test
+        @Transactional
+        void loading_orders_with_items_should_not_cause_N_plus_1() {
+            // Given: 10 orders exist in test DB
+            List<Order> orders = orderRepo.findAll(); // fires the initial query
+            // Trigger the association — this is where N+1 would show
+            orders.forEach(o -> o.getItems().size());
+            // If N+1: 1 (orders) + 10 (items) = 11 queries
+            // If fixed with JOIN FETCH: 1 query total
+            assertSelectCount(1);
+        }
+    }
+Approach 2 — Hibernate Statistics (no extra dependency)
+    Hibernate has built-in statistics tracking — enable it in test config:
+    # application-test.properties
+        spring.jpa.properties.hibernate.generate_statistics=true
+        spring.jpa.show-sql=true
+    Assert in tests using the Statistics object:
+          @SpringBootTest
+          class HibernateStatisticsTest {
+              @PersistenceUnit
+              EntityManagerFactory emf;
+              private Statistics stats;
+              @BeforeEach
+              void setup() {
+                  stats = emf.unwrap(SessionFactory.class).getStatistics();
+                  stats.setStatisticsEnabled(true);
+                  stats.clear(); // reset before each test
+              }
+              @Test
+              void findAllWithItems_shouldIssueOneQuery() {
+                  List<Order> orders = orderRepo.findAllWithItems(); // your JOIN FETCH method
+                  long queryCount = stats.getQueryExecutionCount();
+                  assertThat(queryCount).isEqualTo(1);
+                  // Also check entity fetch counts:
+                  long orderFetches = stats.getEntityLoadCount();
+                  System.out.println("Entities loaded: " + orderFetches);
+              }
+          }
+Approach 3 — Log assertion with @Sql + controlled data
+      For integration tests where you control the data size, you know exactly how many queries should fire.
+      Pair it with a custom StatementInspector:
+          public class QueryCaptor implements StatementInspector {
+              private final List<String> queries = new ArrayList<>();
+              @Override
+              public String inspect(String sql) {
+                  queries.add(sql);
+                  return sql; // return unchanged — just recording
+              }
+              public int count() { return queries.size(); }
+              public List<String> all() { return Collections.unmodifiableList(queries); }
+              public void reset() { queries.clear(); }
+          }
+    Register it:
+      // In test Hibernate config:
+      props.put("hibernate.session_factory.statement_inspector",
+                new QueryCaptor());
+      This gives you the actual SQL strings —
+      useful for asserting not just count but the shape of queries (e.g. verifying a JOIN FETCH is present).
+
+4. Soft Deletes & Filters
+      Soft delete means marking a record as deleted (via a flag or timestamp) rather than physically removing it.
+      The challenge is making this transparent so every query automatically excludes "deleted" rows without you adding WHERE deleted = false everywhere.
+   A. @SQLDelete + @Where (Hibernate-specific):
+        @Entity
+        @Table(name = "products")
+        @SQLDelete(sql = "UPDATE products SET deleted_at = NOW() WHERE id = ?")
+        @Where(clause = "deleted_at IS NULL")   // auto-appended to ALL queries on this entity
+        public class Product {
+            @Id @GeneratedValue
+            private Long id;
+            private String name;
+            @Column(name = "deleted_at")
+            private LocalDateTime deletedAt;
+        }
+        Now em.remove(product) executes the UPDATE SQL, not a DELETE.
+        And every SELECT Hibernate generates for Product automatically gets AND deleted_at IS NULL appended —
+            in findById(), findAll(), JOIN fetches, everything. You never write the condition manually.
+        productRepo.delete(product);
+        // SQL: UPDATE products SET deleted_at = NOW() WHERE id = ?
+        productRepo.findAll();
+        // SQL: SELECT * FROM products WHERE deleted_at IS NULL   ← @Where applied automatically
+        productRepo.findById(42L);
+        // SQL: SELECT * FROM products WHERE id = 42 AND deleted_at IS NULL
+        The @Where clause is baked into Hibernate's generated SQL at the mapping level, so it cannot be bypassed accidentally.
+  B.  @FilterDef + @Filter (switchable filter):
+        @Where is always-on. Hibernate @Filter is a named filter you can enable/disable per session — 
+        useful when you need to temporarily see deleted records (admin panel, audit screen):
+            @Entity
+            @FilterDef(
+                name = "deletedFilter",
+                parameters = @ParamDef(name = "isDeleted", type = Boolean.class)
+            )
+            @Filter(name = "deletedFilter", condition = "deleted = :isDeleted")
+            public class Product {
+                // ...
+                private boolean deleted = false;
+            }
+   Enable/disable the filter on the current session:
+        @Service
+        public class ProductService {
+            @PersistenceContext
+            private EntityManager em;
+            @Transactional(readOnly = true)
+            public List<Product> findActive() {
+                // Enable filter for this session — only non-deleted rows returned
+                em.unwrap(Session.class)
+                  .enableFilter("deletedFilter")
+                  .setParameter("isDeleted", false);
+                return productRepo.findAll();
+            }
+            @Transactional(readOnly = true)
+            public List<Product> findDeleted() {
+                // Same filter, different parameter value — returns only deleted
+                em.unwrap(Session.class)
+                  .enableFilter("deletedFilter")
+                  .setParameter("isDeleted", true);
+                return productRepo.findAll();
+            }
+            @Transactional(readOnly = true)
+            public List<Product> findAllIncludingDeleted() {
+                // Filter NOT enabled — returns everything
+                return productRepo.findAll();
+            }
+        }
+    C.Spring Data JPA @SQLRestriction (Hibernate 6+ / Spring Boot 3+)
+        @Where was deprecated in Hibernate 6. 
+        The replacement is @SQLRestriction:
+                  @Entity
+                  @SQLRestriction("deleted_at IS NULL")   // same effect as @Where, new name
+                  public class Product { ... }
+                  @SQLDelete(sql = "UPDATE products SET deleted_at = NOW() WHERE id = ?")
+        Soft delete with Spring Data: @NoRepositoryBean base
+              For a reusable soft-delete base across all your entities:
+                    @MappedSuperclass
+                    @SQLDelete(sql = "UPDATE #{#entityName} SET deleted = true WHERE id = ?")
+                    @SQLRestriction("deleted = false")
+                    public abstract class SoftDeletableEntity {
+                        @Id @GeneratedValue
+                        private Long id;
+                        @Column(nullable = false)
+                        private boolean deleted = false;
+                        @Column
+                        private LocalDateTime deletedAt;
+                        @PreRemove
+                        void onRemove() {
+                            this.deletedAt = LocalDateTime.now();
+                        }
+                    }
+                    // All entities that extend this get soft-delete for free
+                    @Entity
+                    public class Product extends SoftDeletableEntity {
+                        private String name;
+                        // no delete boilerplate needed
+                    }
+        Finding soft-deleted records when you need them
+            Since @SQLRestriction/@Where is applied globally to all Hibernate-generated SQL,
+                you cannot bypass it with a JPQL or Spring Data query — Hibernate appends the clause regardless. 
+            The only way to bypass it is with a native SQL query:
+                   @Query(value = "SELECT * FROM products WHERE deleted_at IS NOT NULL", nativeQuery = true)
+                    List<Product> findAllDeleted();
+                    // Or use a separate EntityManager with native query for an admin restore screen:
+                    @Transactional
+                    public void restore(Long id) {
+                        em.createNativeQuery("UPDATE products SET deleted_at = NULL, deleted = false WHERE id = :id")
+                          .setParameter("id", id)
+                          .executeUpdate();
+                    }
 5.  Java Message Service (JMS) 
     It is a Java API for sending messages between systems asynchronously.
       👉 Instead of direct communication: Service A → Service B (tight coupling ❌)
