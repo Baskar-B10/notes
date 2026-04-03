@@ -1,0 +1,576 @@
+What is AOP?
+AOP stands for Aspect-Oriented Programming. It is a programming paradigm that separates cross-cutting concerns from your actual business logic.
+A cross-cutting concern is any logic that repeats across many classes and has nothing to do with the core business —
+    logging, security, transaction management, auditing, performance monitoring, caching, exception handling. Without AOP you scatter this code everywhere. 
+With AOP you write it once and apply it anywhere declaratively.
+
+WITHOUT AOP — cross-cutting concern scattered everywhere
+─────────────────────────────────────────────────────────
+  OrderService.java
+  ─────────────────
+  public void placeOrder(Order order) {
+      log.info("Entering placeOrder");          // logging
+      checkPermission("ROLE_USER");             // security
+      long start = System.currentTimeMillis();  // performance
+      try {
+          // actual business logic — 5 lines
+          validateOrder(order);
+          inventory.reserve(order);
+          payment.charge(order);
+      } catch (Exception e) {
+          log.error("placeOrder failed", e);    // exception
+          throw e;
+      } finally {
+          log.info("Time: " + (System.currentTimeMillis()-start));
+      }
+  }
+
+  CustomerService.java — same boilerplate repeated
+  PaymentService.java  — same boilerplate repeated
+  InventoryService.java— same boilerplate repeated
+
+  PROBLEMS:
+  → Business logic buried inside infrastructure code
+  → Any change to logging format = edit 50 files
+  → Impossible to unit test business logic in isolation
+  → Violates Single Responsibility Principle
+
+
+WITH AOP — business logic stays clean
+──────────────────────────────────────
+  OrderService.java
+  ─────────────────
+  public void placeOrder(Order order) {
+      validateOrder(order);       // pure business logic only
+      inventory.reserve(order);
+      payment.charge(order);
+  }
+
+  LoggingAspect.java      → handles logging for ALL services
+  SecurityAspect.java     → handles auth checks for ALL services
+  PerformanceAspect.java  → handles timing for ALL services
+
+  Change logging format → edit ONE file → applies everywhere
+
+  Core AOP Terminology:
+  ASPECT
+  ───────
+  The class that contains your cross-cutting logic.
+  Example: LoggingAspect, SecurityAspect, AuditAspect
+  Annotated with @Aspect + @Component
+
+  JOIN POINT
+  ───────────
+  Any point in program execution where an Aspect CAN be applied.
+  In Spring AOP, a join point is always a METHOD EXECUTION.
+  Every method call in a Spring bean is a potential join point.
+
+  POINTCUT
+  ─────────
+  The expression that SELECTS which join points to intercept.
+  Think of it as a filter / query over all join points.
+  Example: "intercept all methods in package com.app.service"
+
+  ADVICE
+  ───────
+  The actual code that runs at a matched join point.
+  There are 5 types — see below.
+
+  WEAVING
+  ────────
+  The process of linking Aspects with the target objects.
+  Spring AOP does weaving at RUNTIME using proxies.
+  AspectJ does it at compile time or load time (more powerful).
+
+  TARGET OBJECT
+  ──────────────
+  The original bean whose method is being intercepted.
+  Spring wraps this in a PROXY — the caller never knows.
+
+  PROXY
+  ──────
+  The wrapper Spring creates around your bean.
+  All calls go through the proxy first, then to the real bean.
+  Two types: JDK Dynamic Proxy (interface-based)
+             CGLIB Proxy (subclass-based, no interface needed)
+
+  The 5 Types of Advice
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        5 ADVICE TYPES                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  1. @Before
+  ───────────
+  Runs BEFORE the target method executes.
+  Cannot stop the method from running (unless it throws exception).
+  Use for: security checks, input validation, logging entry
+
+  @Before("execution(* com.app.service.*.*(..))")
+  public void logBefore(JoinPoint jp) {
+      log.info("Calling: " + jp.getSignature().getName());
+  }
+
+
+  2. @After (finally)
+  ────────────────────
+  Runs AFTER the method, whether it succeeded or threw exception.
+  Like a finally block.
+  Use for: releasing resources, cleanup
+
+  @After("execution(* com.app.service.*.*(..))")
+  public void afterMethod(JoinPoint jp) {
+      log.info("Completed: " + jp.getSignature().getName());
+  }
+
+
+  3. @AfterReturning
+  ───────────────────
+  Runs ONLY when method returns successfully (no exception).
+  Can access the return value.
+  Use for: audit logging successful operations, caching results
+
+  @AfterReturning(
+      pointcut = "execution(* com.app.service.*.*(..))",
+      returning = "result"
+  )
+  public void afterSuccess(JoinPoint jp, Object result) {
+      log.info("Returned: " + result);
+  }
+
+
+  4. @AfterThrowing
+  ──────────────────
+  Runs ONLY when method throws an exception.
+  Can access the exception object.
+  Use for: error logging, alerting, exception translation
+
+  @AfterThrowing(
+      pointcut = "execution(* com.app.service.*.*(..))",
+      throwing = "ex"
+  )
+  public void afterException(JoinPoint jp, Exception ex) {
+      log.error("Exception in " + jp.getSignature() + ": " + ex.getMessage());
+  }
+
+
+  5. @Around  ← most powerful, most commonly used
+  ─────────────
+  Wraps the entire method. YOU control whether the method runs.
+  Can modify args before, modify return value after.
+  Must call proceed() to invoke the actual method.
+  Use for: performance timing, caching, transaction management,
+           rate limiting, circuit breaking
+
+  @Around("execution(* com.app.service.*.*(..))")
+  public Object around(ProceedingJoinPoint pjp) throws Throwable {
+      long start = System.currentTimeMillis();
+      try {
+          Object result = pjp.proceed();  // ← call actual method
+          return result;
+      } finally {
+          long time = System.currentTimeMillis() - start;
+          log.info("Took: " + time + "ms");
+      }
+  }
+
+Pointcut Expression Syntax:
+
+  ANATOMY OF execution() EXPRESSION
+  ────────────────────────────────────
+  execution( [modifier] returnType [declaring-type] method(params) )
+
+       execution(  *          com.app.service.*    .  *   (..))
+                   │          │                       │    │
+                   │          │                       │    └── any params
+                   │          │                       └── any method name
+                   │          └── any class in service package
+                   └── any return type
+
+
+  COMMON PATTERNS
+  ────────────────
+  All methods in a class:
+  execution(* com.app.service.OrderService.*(..))
+
+  All methods in a package:
+  execution(* com.app.service.*.*(..))
+
+  All methods in package and sub-packages:
+  execution(* com.app..*.*(..))
+
+  Only public methods:
+  execution(public * com.app..*.*(..))
+
+  Methods returning String:
+  execution(String com.app..*.*(..))
+
+  Methods with specific param type:
+  execution(* com.app..*.*(com.app.model.Order, ..))
+
+  Methods annotated with custom annotation:
+  @annotation(com.app.annotation.Loggable)
+
+  All methods in beans annotated with @Service:
+  @within(org.springframework.stereotype.Service)
+
+
+  COMBINING POINTCUTS
+  ────────────────────
+  @Pointcut("execution(* com.app.service.*.*(..))")
+  public void serviceLayer() {}
+
+  @Pointcut("execution(* com.app.repository.*.*(..))")
+  public void repositoryLayer() {}
+
+  @Before("serviceLayer() || repositoryLayer()")  // OR
+  @Before("serviceLayer() && repositoryLayer()")  // AND (rare)
+  @Before("serviceLayer() && !repositoryLayer()") // NOT
+
+  How Spring AOP Works Internally — Proxy Flow:
+  APPLICATION STARTUP
+  ────────────────────
+  Spring Container starts
+        │
+        ▼
+  Scans for @Aspect classes
+        │
+        ▼
+  For each bean that matches any Pointcut expression:
+        │
+        ▼
+  Wraps that bean in a PROXY (JDK or CGLIB)
+        │
+        ▼
+  Registers the PROXY in context instead of real bean
+        │
+        ▼
+  Application ready — callers get the proxy, not the real bean
+
+
+  RUNTIME METHOD CALL FLOW
+  ─────────────────────────
+  Caller
+    │
+    │ calls orderService.placeOrder(order)
+    ▼
+  ┌─────────────────────────────────────────────────────┐
+  │                PROXY (invisible to caller)          │
+  │                                                     │
+  │  1. Intercept the call                              │
+  │  2. Build MethodInvocation chain                    │
+  │  3. Execute @Before advice(s)                       │
+  │  4. Execute @Around advice (before proceed())       │
+  │  5. ──────► call real method on target bean ◄────── │
+  │  6. Execute @Around advice (after proceed())        │
+  │  7. Execute @AfterReturning OR @AfterThrowing       │
+  │  8. Execute @After advice                           │
+  │  9. Return result to caller                         │
+  └─────────────────────────────────────────────────────┘
+    │
+    ▼
+  Caller receives result
+
+
+  JDK PROXY vs CGLIB PROXY
+  ──────────────────────────
+  JDK Dynamic Proxy
+  ─────────────────
+  Bean implements an interface → Spring uses JDK proxy
+  Proxy implements same interface as bean
+  Caller must use interface type (not concrete class)
+
+  OrderService (interface)
+       ▲
+       │ implements
+  OrderServiceImpl (real bean)
+       │
+       │ wrapped by
+  $Proxy23 (JDK proxy) ← what Spring puts in context
+
+
+  CGLIB Proxy
+  ────────────
+  Bean has NO interface → Spring uses CGLIB
+  CGLIB creates a subclass of your bean at runtime
+  Proxy IS a subclass → no interface needed
+
+  OrderService (concrete class)
+       │
+       │ subclassed by
+  OrderService$$EnhancerByCGLIB (CGLIB proxy)
+
+
+  ⚠ SELF-INVOCATION PROBLEM
+  ───────────────────────────
+  class OrderService {
+      public void placeOrder() {
+          this.validateOrder();  // ← AOP will NOT intercept this
+      }
+      public void validateOrder() { ... }
+  }
+
+  When a method calls another method on ITSELF (this.),
+  it bypasses the proxy — AOP advice does NOT fire.
+
+  FIX: Inject self as a bean, or restructure into separate classes
+  @Autowired private OrderService self;
+  self.validateOrder();  // ← goes through proxy → AOP fires
+
+  Full Flow Diagram — AOP in Action
+┌─────────────────────────────────────────────────────────────────────────┐
+│              COMPLETE AOP EXECUTION FLOW                                │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  METHOD CALL: orderService.placeOrder(order)
+
+  ┌──────────┐
+  │  Caller  │
+  └────┬─────┘
+       │ orderService.placeOrder(order)
+       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                         PROXY                                   │
+  │                                                                 │
+  │  ┌─────────────────────────────────────────────────────────┐   │
+  │  │  @Before advice fires                                   │   │
+  │  │  → log.info("Entering placeOrder")                      │   │
+  │  │  → SecurityAspect checks ROLE_USER                      │   │
+  │  └─────────────────────────────┬───────────────────────────┘   │
+  │                                │                               │
+  │  ┌─────────────────────────────▼───────────────────────────┐   │
+  │  │  @Around advice — before proceed()                      │   │
+  │  │  → start = System.currentTimeMillis()                   │   │
+  │  └─────────────────────────────┬───────────────────────────┘   │
+  │                                │ pjp.proceed()                 │
+  │                                ▼                               │
+  │  ┌─────────────────────────────────────────────────────────┐   │
+  │  │             REAL METHOD EXECUTES                        │   │
+  │  │  OrderService.placeOrder(order)                         │   │
+  │  │  → validateOrder()                                      │   │
+  │  │  → inventory.reserve()                                  │   │
+  │  │  → payment.charge()                                     │   │
+  │  └───────────────┬──────────────────┬───────────────────────┘  │
+  │                  │ SUCCESS           │ EXCEPTION                │
+  │                  ▼                   ▼                          │
+  │  ┌───────────────────┐   ┌───────────────────────────────┐     │
+  │  │ @AfterReturning   │   │ @AfterThrowing                │     │
+  │  │ → audit log result│   │ → log error, send alert       │     │
+  │  └─────────┬─────────┘   └──────────────┬────────────────┘     │
+  │            │                             │                      │
+  │            └──────────────┬──────────────┘                      │
+  │                           ▼                                     │
+  │  ┌─────────────────────────────────────────────────────────┐   │
+  │  │  @Around advice — after proceed()                       │   │
+  │  │  → duration = now - start                               │   │
+  │  │  → log.info("placeOrder took " + duration + "ms")       │   │
+  │  └─────────────────────────────────────────────────────────┘   │
+  │                           │                                     │
+  │  ┌────────────────────────▼────────────────────────────────┐   │
+  │  │  @After advice fires (always — like finally)            │   │
+  │  │  → log.info("Exiting placeOrder")                       │   │
+  │  └─────────────────────────────────────────────────────────┘   │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ return result
+                               ▼
+                          ┌──────────┐
+                          │  Caller  │
+                          └──────────┘
+
+
+  ADVICE EXECUTION ORDER (single method call):
+  ─────────────────────────────────────────────
+  @Around (before proceed)
+      @Before
+          target method runs
+      @AfterReturning  OR  @AfterThrowing
+  @Around (after proceed)
+  @After
+
+Complete Implementation — Real World Example
+// ─────────────────────────────────────────────
+// 1. Custom Annotation (optional but clean)
+// ─────────────────────────────────────────────
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Loggable {
+    String value() default "";
+}
+
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface TrackPerformance {}
+
+
+// ─────────────────────────────────────────────
+// 2. Logging Aspect
+// ─────────────────────────────────────────────
+@Aspect
+@Component
+@Slf4j
+public class LoggingAspect {
+
+    // reusable pointcut — all service methods
+    @Pointcut("execution(* com.app.service.*.*(..))")
+    public void serviceLayer() {}
+
+    // reusable pointcut — methods annotated with @Loggable
+    @Pointcut("@annotation(com.app.annotation.Loggable)")
+    public void loggableMethod() {}
+
+    @Before("serviceLayer()")
+    public void logMethodEntry(JoinPoint jp) {
+        String method = jp.getSignature().toShortString();
+        Object[] args = jp.getArgs();
+        log.info("→ Entering {} with args: {}", method, args);
+    }
+
+    @AfterReturning(pointcut = "serviceLayer()", returning = "result")
+    public void logMethodExit(JoinPoint jp, Object result) {
+        log.info("← Exiting {} with result: {}",
+            jp.getSignature().toShortString(), result);
+    }
+
+    @AfterThrowing(pointcut = "serviceLayer()", throwing = "ex")
+    public void logException(JoinPoint jp, Exception ex) {
+        log.error("✗ Exception in {}: {}",
+            jp.getSignature().toShortString(), ex.getMessage());
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// 3. Performance Tracking Aspect
+// ─────────────────────────────────────────────
+@Aspect
+@Component
+@Slf4j
+public class PerformanceAspect {
+
+    @Around("@annotation(com.app.annotation.TrackPerformance)")
+    public Object trackTime(ProceedingJoinPoint pjp) throws Throwable {
+        long start = System.currentTimeMillis();
+        String method = pjp.getSignature().toShortString();
+        try {
+            Object result = pjp.proceed();
+            long duration = System.currentTimeMillis() - start;
+            log.info("⏱ {} completed in {}ms", method, duration);
+            if (duration > 2000) {
+                log.warn("⚠ SLOW METHOD: {} took {}ms", method, duration);
+            }
+            return result;
+        } catch (Throwable t) {
+            long duration = System.currentTimeMillis() - start;
+            log.error("✗ {} failed after {}ms", method, duration);
+            throw t;
+        }
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// 4. Security Aspect
+// ─────────────────────────────────────────────
+@Aspect
+@Component
+public class SecurityAspect {
+
+    @Autowired
+    private SecurityContextHolder securityContextHolder;
+
+    @Before("@annotation(com.app.annotation.RequiresRole)")
+    public void checkRole(JoinPoint jp) {
+        RequiresRole annotation = ((MethodSignature) jp.getSignature())
+            .getMethod().getAnnotation(RequiresRole.class);
+        String requiredRole = annotation.value();
+
+        Authentication auth = SecurityContextHolder
+            .getContext().getAuthentication();
+
+        if (!auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals(requiredRole))) {
+            throw new AccessDeniedException(
+                "Required role: " + requiredRole);
+        }
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// 5. Audit Aspect — DB auditing
+// ─────────────────────────────────────────────
+@Aspect
+@Component
+public class AuditAspect {
+
+    @Autowired private AuditRepository auditRepo;
+
+    @AfterReturning(
+        pointcut = "execution(* com.app.service.*.save*(..)) ||" +
+                   "execution(* com.app.service.*.delete*(..))",
+        returning = "result"
+    )
+    public void auditDataChange(JoinPoint jp, Object result) {
+        AuditLog log = AuditLog.builder()
+            .operation(jp.getSignature().getName())
+            .args(Arrays.toString(jp.getArgs()))
+            .performedBy(getCurrentUser())
+            .performedAt(LocalDateTime.now())
+            .build();
+        auditRepo.save(log);
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// 6. Retry Aspect — custom retry without @Retryable
+// ─────────────────────────────────────────────
+@Aspect
+@Component
+@Slf4j
+public class RetryAspect {
+
+    @Around("@annotation(com.app.annotation.Retryable)")
+    public Object retry(ProceedingJoinPoint pjp) throws Throwable {
+        int maxAttempts = 3;
+        long delay = 1000L;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return pjp.proceed();
+            } catch (Exception ex) {
+                if (attempt == maxAttempts) throw ex;
+                log.warn("Attempt {}/{} failed, retrying in {}ms",
+                    attempt, maxAttempts, delay);
+                Thread.sleep(delay);
+                delay *= 2; // exponential back-off
+            }
+        }
+        throw new IllegalStateException("Should not reach here");
+    }
+}
+
+
+// ─────────────────────────────────────────────
+// 7. Service using AOP annotations — stays clean
+// ─────────────────────────────────────────────
+@Service
+public class OrderService {
+
+    @Loggable
+    @TrackPerformance
+    @RequiresRole("ROLE_USER")
+    public Order placeOrder(Order order) {
+        // 100% pure business logic — no logging, no security, no timing
+        validateOrder(order);
+        inventory.reserve(order);
+        return payment.charge(order);
+    }
+
+    @Loggable
+    @Retryable
+    public void syncWithExternalSystem(Order order) {
+        externalApi.push(order); // retried up to 3 times on failure
+    }
+}
+
+Spring AOP vs AspectJ
