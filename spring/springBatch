@@ -1,0 +1,103 @@
+What is Spring Batch?
+Spring Batch is a lightweight, comprehensive batch processing framework built on top of Spring.
+It handles large-volume data operations — reading from a source, transforming it, and writing to a destination — in a reliable, restartable, and monitorable way.
+
+Why Spring Batch over the Old Way?
+Before Spring Batch, teams wrote batch jobs as plain Java main() methods with manual loops, hand-coded JDBC, and DIY retry logic. 
+Here's the honest comparison:
+OLD WAY                          SPRING BATCH
+─────────────────────────────────────────────────────────────────
+No structure                  → Job → Step → Reader/Processor/Writer
+Manual restart from scratch   → Resumes from last failed step (JobRepository)
+Hand-coded chunking loops     → Built-in chunk-oriented processing
+DIY retry/skip logic          → Declarative skip policies and retry policies
+No monitoring                 → Full JobExecution / StepExecution metadata
+Thread-safety DIY             → Partitioning, parallel steps, TaskExecutor
+Reinvented every project      → Pre-built readers/writers for JDBC, JPA, CSV, XML
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                        SPRING BATCH ARCHITECTURE                    │
+└─────────────────────────────────────────────────────────────────────┘
+
+  [Scheduler / REST trigger]
+            │
+            ▼
+    ┌───────────────┐       JobParameters
+    │  JobLauncher  │ ──────────────────────────────────┐
+    └───────┬───────┘                                   │
+            │                                           ▼
+            ▼                                  ┌─────────────────┐
+        ┌───────┐   creates/updates            │  JobRepository  │
+        │  Job  │ ◄──────────────────────────► │  (DB metadata)  │
+        └───┬───┘                              └─────────────────┘
+            │                                       ▲      ▲
+            │ contains one or more                  │      │
+            ▼                                       │      │
+    ┌───────────────┐   StepExecution written ──────┘      │
+    │    Step 1     │                                       │
+    │  ┌──────────┐ │                                       │
+    │  │  Reader  │ │  reads one item at a time             │
+    │  └────┬─────┘ │                                       │
+    │       │       │                                       │
+    │  ┌────▼─────┐ │                                       │
+    │  │Processor │ │  transforms or filters (optional)     │
+    │  └────┬─────┘ │                                       │
+    │       │       │                                       │
+    │  ┌────▼─────┐ │                                       │
+    │  │  Writer  │ │  writes entire chunk in one tx        │
+    │  └──────────┘ │                                       │
+    │               │                                       │
+    │ ExecutionCtx  │ ─── persisted for restart ────────────┘
+    └───────────────┘
+            │
+            ▼
+    ┌───────────────┐
+    │    Step 2     │  (runs after Step 1 completes)
+    │   (Tasklet)   │  e.g. send email, archive file
+    └───────────────┘
+            │
+            ▼
+    ┌───────────────┐
+    │  Job COMPLETE │
+    └───────────────┘
+
+Key Concepts Explained:
+Job :
+    It is the top-level unit of work. 
+    It holds one or more Steps and is uniquely identified by its name plus the JobParameters you launch it with.
+Step:
+    It is a single phase inside a Job. 
+    It can be chunk-oriented (read → process → write in a loop) or a Tasklet (one-shot logic like deleting temp files or sending a notification).
+JobParameters:
+    They are key-value pairs passed at launch time (e.g. run.date=2024-01-15). 
+    They identify a unique JobInstance.
+JobInstance:
+    It represents one logical run of a Job with specific parameters. 
+    If a JobInstance fails and you re-launch with the same parameters, Spring Batch resumes it — it does not start over.
+JobExecution:
+    It is one actual attempt to run a JobInstance. 
+    A single JobInstance can have multiple JobExecutions (first attempt failed, second attempt succeeded).
+JobRepository:
+    It is Spring Batch's persistence backbone. 
+    It stores all Job and Step metadata — statuses, counts, timestamps — in a relational database. 
+    This is what makes restart possible.
+ItemReader:
+    It reads one item at a time from a source. 
+    It returns null when the data is exhausted, which signals the chunk loop to stop.
+ItemProcessor:
+    It receives one item, transforms or validates it, and returns the result. 
+    Returning null tells Spring Batch to skip that item entirely.
+ItemWriter:
+    It receives the full accumulated chunk (a list) and writes it in a single transaction.
+    Built-in writers exist for JDBC, JPA, flat files, XML, Kafka, and more.
+ExecutionContext:
+    It is a key-value map scoped to a JobExecution or StepExecution.
+    It survives a crash and is restored on restart — for example, storing the last successfully processed file line number.
+Listeners:
+    They are hooks around the job/step/chunk lifecycle — JobExecutionListener, StepExecutionListener, ChunkListener, ItemReadListener, etc.
+    Used for logging, alerting, or custom cleanup.
+Skip Policy:
+    It declares which exceptions are safe to skip and up to how many times.
+    Perfect for tolerating a handful of bad records in a million-row file without failing the whole job.
+Retry Policy:
+    It handles transient failures — for example, retrying a DB write up to 3 times on a deadlock exception before giving up.
