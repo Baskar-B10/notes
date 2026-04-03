@@ -174,3 +174,44 @@ KafkaItemReader                      CompositeItemWriter (fan-out)
 MultiResourceItemReader              ClassifierCompositeItemWriter
 StaxEventItemReader (XML)            StaxEventItemWriter
 JsonItemReader                       JsonFileItemWriter
+
+Scaling Options
+Spring Batch offers four main ways to scale when a single-threaded job is too slow:
+Multi-threaded Step — each chunk runs on a separate thread using a TaskExecutor. 
+                    Simple to configure but the ItemReader must be thread-safe.
+Parallel Steps — independent Steps run simultaneously using a Flow with a SplitState. 
+                Good when your job has unrelated phases.
+Partitioning — a manager Step splits the data into partitions (e.g. by ID range or file), and worker Steps process each partition in parallel
+                  — locally via threads or remotely via messaging.
+Remote Chunking — the manager reads items and sends them over a message queue (RabbitMQ, Kafka); remote workers do the processing and writing.
+                  Best for CPU-heavy processing tasks.
+
+Minimal Spring Boot Setup:
+@Configuration
+@EnableBatchProcessing
+public class BatchConfig {
+    @Bean
+    public Job importJob(JobRepository repo, Step step1) {
+        return new JobBuilder("importJob", repo)
+                .start(step1)
+                .build();
+    }
+    @Bean
+    public Step step1(JobRepository repo,
+                      PlatformTransactionManager txm,
+                      ItemReader<User> reader,
+                      ItemProcessor<User, UserDto> processor,
+                      ItemWriter<UserDto> writer) {
+        return new StepBuilder("step1", repo)
+                .<User, UserDto>chunk(100, txm)  // chunk size = 100
+                .reader(reader)
+                .processor(processor)
+                .writer(writer)
+                .faultTolerant()
+                .skip(FlatFileParseException.class)
+                .skipLimit(10)
+                .build();
+    }
+}
+The chunk(100, txm) call means: read and process 100 items, then write all 100 in one transaction. 
+If that transaction fails, only those 100 items are rolled back — not the entire job.
