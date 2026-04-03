@@ -101,3 +101,76 @@ Skip Policy:
     Perfect for tolerating a handful of bad records in a million-row file without failing the whole job.
 Retry Policy:
     It handles transient failures — for example, retrying a DB write up to 3 times on a deadlock exception before giving up.
+
+Chunk-Oriented Processing Flow (Text Format):
+┌─────────────────────────────────────────────────────┐
+│               CHUNK PROCESSING LOOP                 │
+└─────────────────────────────────────────────────────┘
+
+  Step starts
+       │
+       ▼
+  BEGIN TRANSACTION
+       │
+       ▼
+  ItemReader.read()
+       │
+       ├── returns null? ──► STEP COMPLETE (no more data)
+       │
+       ▼
+  ItemProcessor.process(item)
+       │
+       ├── returns null? ──► skip this item, read next
+       │
+       ▼
+  Add processed item to chunk buffer
+       │
+       ├── chunk NOT full? ──► go back to ItemReader.read()
+       │
+       ▼ (chunk full, e.g. 100 items)
+  ItemWriter.write(chunk)
+       │
+       ├── success? ──► COMMIT TRANSACTION
+       │                      │
+       │                      └──► begin next chunk (loop back)
+       │
+       └── failure? ──► ROLLBACK TRANSACTION
+                              │
+                              └──► apply Skip / Retry policy
+
+Job Lifecycle States (Text Format):
+  [JobLauncher.run()]
+          │
+          ▼
+       STARTING
+          │
+          ▼
+       STARTED  ──────────────────────► STOPPED
+          │                              (manually stopped,
+          │                               can be restarted)
+          ├──────────────────────────► FAILED
+          │                              │
+          │                              └──► re-launch with same
+          │                                   params = RESUMES here
+          ▼
+       COMPLETED
+          │
+          ▼
+       ABANDONED  (terminal, no restart)
+
+
+  JobInstance  = Job name + same JobParameters (logical identity)
+  JobExecution = one actual attempt to run a JobInstance
+
+Common Built-in Readers and Writers:
+READERS                              WRITERS
+────────────────────────────────     ────────────────────────────────
+FlatFileItemReader  (CSV, TSV)       FlatFileItemWriter
+JdbcCursorItemReader                 JdbcBatchItemWriter
+JdbcPagingItemReader                 JpaItemWriter
+JpaPagingItemReader                  MongoItemWriter
+MongoItemReader                      KafkaItemWriter
+KafkaItemReader                      CompositeItemWriter (fan-out)
+MultiResourceItemReader              ClassifierCompositeItemWriter
+StaxEventItemReader (XML)            StaxEventItemWriter
+JsonItemReader                       JsonFileItemWriter
