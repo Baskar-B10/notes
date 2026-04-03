@@ -1,0 +1,726 @@
+Spring Test — Basic to Advanced
+
+What is Spring Test?
+
+Spring Test is the official testing framework support module for the Spring ecosystem
+It bridges JUnit / TestNG with the Spring ApplicationContext, dependency injection, and web layer
+Spring Boot extends it further with @SpringBootTest, auto-configuration, test slices, and embedded servers
+Goal is to test your Spring code as close to production behaviour as possible without deploying anywhere
+
+Testing Pyramid — Where Each Test Lives:
+
+                          ┌─────────┐
+                          │   E2E   │  ← few, slow, full system
+                          │  Tests  │    (Selenium, Postman)
+                         /└─────────┘\
+                        /             \
+                       /  Integration  \
+                      /     Tests       \  ← @SpringBootTest
+                     /  @WebMvcTest      \   @DataJpaTest
+                    /   @DataJpaTest      \
+                   /─────────────────────  \
+                  /                         \
+                 /       Unit Tests          \  ← @ExtendWith(Mockito)
+                /   (Mockito, plain JUnit)    \   pure Java, no context
+               └─────────────────────────────--┘
+
+  Unit Tests        → fast, isolated, no Spring context, mock everything
+  Integration Tests → Spring context loads, real beans, real DB (H2/TC)
+  E2E Tests         → full app running, external systems, browser/HTTP
+
+Dependencies
+Add these to your pom.xml — Spring Boot Test starter pulls in JUnit 5, Mockito, AssertJ, Hamcrest, Spring Test
+<!-- All-in-one Spring Boot test starter -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-test</artifactId>
+    <scope>test</scope>
+</dependency>
+<!-- Testcontainers for real DB in tests -->
+<dependency>
+    <groupId>org.testcontainers</groupId>
+    <artifactId>junit-jupiter</artifactId>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.testcontainers</groupId>
+    <artifactId>postgresql</artifactId>
+    <scope>test</scope>
+</dependency>
+
+What spring-boot-starter-test includes automatically:
+    JUnit 5 (Jupiter)
+    Mockito + Mockito-JUnit integration
+    AssertJ (fluent assertions)
+    Hamcrest
+    JSONassert
+    JsonPath
+    Spring Test + Spring Boot Test
+
+  Layer 1 — Unit Tests (No Spring Context)
+
+Fastest tests, zero Spring startup cost
+All dependencies are mocked using Mockito
+Test one class in complete isolation
+Should form 70% of your test suite
+
+Basic Unit Test
+      // Service under test
+      @Service
+      public class OrderService {
+          private final OrderRepository orderRepo;
+          private final PaymentService paymentService;
+      
+          public OrderService(OrderRepository orderRepo,
+                              PaymentService paymentService) {
+              this.orderRepo = orderRepo;
+              this.paymentService = paymentService;
+          }
+      
+          public Order placeOrder(Order order) {
+              if (order.getAmount() <= 0) {
+                  throw new IllegalArgumentException("Amount must be positive");
+              }
+              paymentService.charge(order);
+              return orderRepo.save(order);
+          }
+      }
+
+// Unit Test
+      @ExtendWith(MockitoExtension.class)          // ← Mockito only, no Spring
+      class OrderServiceTest {
+          @Mock
+          private OrderRepository orderRepo;       // ← mock, no real DB
+          @Mock
+          private PaymentService paymentService;   // ← mock, no real HTTP call
+          @InjectMocks
+          private OrderService orderService;       // ← real instance, mocks injected
+          @Test
+          void placeOrder_shouldSaveOrder_whenAmountIsValid() {
+              // ARRANGE
+              Order order = new Order(1L, 500.0);
+              when(orderRepo.save(order)).thenReturn(order);
+              // ACT
+              Order result = orderService.placeOrder(order);
+              // ASSERT
+              assertThat(result).isNotNull();
+              assertThat(result.getAmount()).isEqualTo(500.0);
+              // VERIFY interactions
+              verify(paymentService, times(1)).charge(order);
+              verify(orderRepo, times(1)).save(order);
+          }
+      
+          @Test
+          void placeOrder_shouldThrowException_whenAmountIsZero() {
+              Order order = new Order(1L, 0.0);
+              assertThatThrownBy(() -> orderService.placeOrder(order))
+                  .isInstanceOf(IllegalArgumentException.class)
+                  .hasMessage("Amount must be positive");
+              verifyNoInteractions(paymentService);
+              verifyNoInteractions(orderRepo);
+          }
+      }
+Mockito Cheat Sheet
+    // ── STUBBING ───────────────────────────────────────────────
+    when(mock.method(arg)).thenReturn(value);
+    when(mock.method(arg)).thenThrow(new RuntimeException());
+    when(mock.method(any())).thenReturn(value);        // any argument
+    when(mock.method(anyString())).thenReturn(value);
+    when(mock.method(eq("exact"))).thenReturn(value);  // exact match
+    doNothing().when(mock).voidMethod();               // stub void method
+    doThrow(ex).when(mock).voidMethod();               // throw from void
+
+    // ── ARGUMENT CAPTORS ───────────────────────────────────────
+    @Captor ArgumentCaptor<Order> orderCaptor;
+    
+    verify(orderRepo).save(orderCaptor.capture());
+    Order captured = orderCaptor.getValue();
+    assertThat(captured.getAmount()).isEqualTo(500.0);
+    
+    // ── VERIFICATION ───────────────────────────────────────────
+    verify(mock).method(arg);                  // called exactly once
+    verify(mock, times(2)).method(arg);        // called twice
+    verify(mock, never()).method(arg);         // never called
+    verify(mock, atLeast(1)).method(arg);      // at least once
+    verifyNoInteractions(mock);                // zero calls on mock
+    verifyNoMoreInteractions(mock);            // no unexpected calls
+    
+    // ── SPY (partial mock) ─────────────────────────────────────
+    @Spy
+    private OrderValidator validator;          // real object, some methods stubbed
+    doReturn(true).when(validator).validate(any());
+
+Layer 2 — Spring Context Tests:
+
+Spring loads ApplicationContext with your beans
+Real dependency injection, real bean lifecycle
+Slower than unit tests but catches wiring bugs
+
+    @ExtendWith(SpringExtension.class) — Minimal Context
+    // Manual context — you define exactly which beans load
+    @ExtendWith(SpringExtension.class)
+    @ContextConfiguration(classes = {OrderService.class, OrderConfig.class})
+    class OrderServiceSpringTest {
+        @Autowired
+        private OrderService orderService;  // real Spring-managed bean
+        @MockBean
+        private OrderRepository orderRepo;  // mock in Spring context
+        @Test
+        void shouldAutowireCorrectly() {
+            assertThat(orderService).isNotNull();
+        }
+    }
+
+Layer 3 — Spring Boot Integration Tests:
+@SpringBootTest loads the FULL application context
+Closest to real production behaviour
+Supports embedded server, real HTTP calls, real DB
+
+Full Context Test
+@SpringBootTest                          // loads full ApplicationContext
+@Transactional                           // rolls back after each test
+class OrderIntegrationTest {
+
+    @Autowired
+    private OrderService orderService;
+
+    @Autowired
+    private OrderRepository orderRepo;
+
+    @Test
+    void placeOrder_shouldPersistToDatabase() {
+        Order order = new Order(null, 750.0);
+        Order saved = orderService.placeOrder(order);
+
+        assertThat(saved.getId()).isNotNull();
+        assertThat(orderRepo.findById(saved.getId())).isPresent();
+    }
+}
+@SpringBootTest with Embedded Server
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class OrderControllerIntegrationTest {
+
+    @Autowired
+    private TestRestTemplate restTemplate;     // HTTP client for tests
+
+    @LocalServerPort
+    private int port;
+
+    @Test
+    void placeOrder_shouldReturn201() {
+        Order order = new Order(null, 500.0);
+
+        ResponseEntity<Order> response = restTemplate.postForEntity(
+            "/api/orders", order, Order.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().getId()).isNotNull();
+    }
+}
+
+// WebEnvironment options:
+// MOCK (default)       → mock servlet, use MockMvc, no real HTTP port
+// RANDOM_PORT          → real server on random port, use TestRestTemplate
+// DEFINED_PORT         → real server on server.port from properties
+// NONE                 → no web layer at all, pure service testing
+
+Layer 4 — Test Slices (Targeted Context Loading)
+Test slices load ONLY the layer you care about
+Much faster than full @SpringBootTest
+Each slice auto-configures only relevant beans
+
+  SLICE ANNOTATION       LOADS                        USE FOR
+  ──────────────────────────────────────────────────────────────────────
+  @WebMvcTest            Controllers, Filters,        REST API layer
+                         HandlerMappings, MockMvc     (no service/repo)
+
+  @DataJpaTest           JPA repos, Hibernate,        Repository layer
+                         H2 embedded DB               (no controllers)
+
+  @WebFluxTest           WebFlux controllers           Reactive REST API
+                         RouterFunctions
+
+  @DataMongoTest         MongoDB repos                MongoDB repo layer
+
+  @DataRedisTest         Redis repos                  Redis repo layer
+
+  @JsonTest              Jackson ObjectMapper          JSON ser/deser
+
+  @RestClientTest        RestTemplate, MockServer      HTTP client code
+
+  @JdbcTest              JdbcTemplate, H2             Raw JDBC code
+
+  @DataJdbcTest          Spring Data JDBC repos       JDBC repos
+  
+@WebMvcTest — Controller Layer Only
+@WebMvcTest(OrderController.class)       // only this controller loaded
+class OrderControllerTest {
+    @Autowired
+    private MockMvc mockMvc;             // auto-configured
+
+    @MockBean
+    private OrderService orderService;   // service mocked — not loaded
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Test
+    void placeOrder_shouldReturn201_whenValidRequest() throws Exception {
+        Order order = new Order(null, 500.0);
+        Order saved  = new Order(1L, 500.0);
+
+        when(orderService.placeOrder(any(Order.class))).thenReturn(saved);
+
+        mockMvc.perform(post("/api/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(order)))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.id").value(1L))
+            .andExpect(jsonPath("$.amount").value(500.0))
+            .andDo(print());             // prints request/response to console
+    }
+
+    @Test
+    void getOrder_shouldReturn404_whenNotFound() throws Exception {
+        when(orderService.findById(99L))
+            .thenThrow(new OrderNotFoundException(99L));
+
+        mockMvc.perform(get("/api/orders/99"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.message").value("Order 99 not found"));
+    }
+}
+MockMvc Fluent API Reference
+// ── REQUEST BUILDING ────────────────────────────────────────
+mockMvc.perform(get("/api/orders"))
+mockMvc.perform(post("/api/orders"))
+mockMvc.perform(put("/api/orders/1"))
+mockMvc.perform(delete("/api/orders/1"))
+mockMvc.perform(get("/api/orders").param("status", "PENDING"))
+mockMvc.perform(get("/api/orders").header("Authorization", "Bearer token"))
+
+// ── RESPONSE ASSERTIONS ─────────────────────────────────────
+.andExpect(status().isOk())                     // 200
+.andExpect(status().isCreated())                // 201
+.andExpect(status().isNotFound())               // 404
+.andExpect(status().isBadRequest())             // 400
+.andExpect(content().contentType(APPLICATION_JSON))
+.andExpect(content().string("hello"))
+.andExpect(jsonPath("$.id").value(1))
+.andExpect(jsonPath("$.name").value("test"))
+.andExpect(jsonPath("$.items").isArray())
+.andExpect(jsonPath("$.items.length()").value(3))
+.andExpect(jsonPath("$.items[0].name").value("item1"))
+.andExpect(header().string("Location", "/api/orders/1"))
+
+// ── EXTRACTING RESPONSE ─────────────────────────────────────
+MvcResult result = mockMvc.perform(get("/api/orders/1"))
+    .andReturn();
+String body = result.getResponse().getContentAsString();
+Order order = objectMapper.readValue(body, Order.class);
+
+@DataJpaTest — Repository Layer Only
+@DataJpaTest                             // H2 in-memory DB auto-configured
+class OrderRepositoryTest {
+    @Autowired
+    private OrderRepository orderRepo;
+
+    @Autowired
+    private TestEntityManager em;        // helper for test data setup
+
+    @Test
+    void findByStatus_shouldReturnMatchingOrders() {
+        // ARRANGE — insert test data via TestEntityManager
+        Order o1 = em.persistAndFlush(new Order(null, 100.0, "PENDING"));
+        Order o2 = em.persistAndFlush(new Order(null, 200.0, "PENDING"));
+        Order o3 = em.persistAndFlush(new Order(null, 300.0, "COMPLETED"));
+
+        // ACT
+        List<Order> pending = orderRepo.findByStatus("PENDING");
+
+        // ASSERT
+        assertThat(pending).hasSize(2);
+        assertThat(pending).extracting(Order::getStatus)
+                           .containsOnly("PENDING");
+    }
+
+    @Test
+    void findTopByAmountGreaterThan_shouldReturnCorrectOrder() {
+        em.persistAndFlush(new Order(null, 50.0, "PENDING"));
+        em.persistAndFlush(new Order(null, 500.0, "PENDING"));
+
+        Optional<Order> result = orderRepo.findTopByAmountGreaterThan(100.0);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getAmount()).isEqualTo(500.0);
+    }
+}
+
+Test Configuration and Properties
+Always use a separate properties file for tests to avoid polluting production config
+# src/test/resources/application-test.yml
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+  flyway:
+    enabled: false          # disable migrations in test — let Hibernate create schema
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+ Apply test profile in tests
+@SpringBootTest
+@ActiveProfiles("test")
+class OrderIntegrationTest { }
+
+// Or override specific properties inline
+@SpringBootTest
+@TestPropertySource(properties = {
+    "spring.datasource.url=jdbc:h2:mem:testdb",
+    "feature.payment.enabled=false"
+})
+class OrderServiceTest { }
+
+Test Data Management
+@Sql — Run SQL Scripts in Tests
+@DataJpaTest
+class OrderRepositoryTest {
+
+    @Test
+    @Sql("/test-data/orders.sql")              // runs before test
+    @Sql(scripts = "/test-data/cleanup.sql",
+         executionPhase = Sql.ExecutionPhase.AFTER_TEST_METHOD)
+    void findAll_shouldReturnSeededOrders() {
+        List<Order> orders = orderRepo.findAll();
+        assertThat(orders).hasSize(5);
+    }
+}
+
+// src/test/resources/test-data/orders.sql
+// INSERT INTO orders(id, amount, status) VALUES (1, 100.0, 'PENDING');
+// INSERT INTO orders(id, amount, status) VALUES (2, 200.0, 'COMPLETED');
+
+@Sql vs @Transactional Rollback
+
+  STRATEGY 1: @Transactional on test class
+  ──────────────────────────────────────────
+  Each test method runs in a transaction
+  Transaction rolls back after each test
+  DB always clean between tests
+  ✓ Simple, automatic
+  ✗ Does not test transaction boundary behaviour
+
+  STRATEGY 2: @Sql cleanup scripts
+  ──────────────────────────────────
+  Run INSERT before test, DELETE after test
+  Works even without @Transactional
+  ✓ Tests real commit/rollback
+  ✗ More boilerplate
+
+  STRATEGY 3: Testcontainers (fresh DB per test class)
+  ─────────────────────────────────────────────────────
+  Spin up real DB in Docker once per test class
+  Best isolation, real DB behaviour
+  ✓ Identical to production DB engine
+  ✗ Slower startup, requires Docker
+
+Testcontainers — Real Database in Tests
+
+Run a real PostgreSQL / MySQL / MongoDB inside Docker during tests
+No more "works on H2 but fails on Postgres" surprises
+
+@SpringBootTest
+@Testcontainers
+@ActiveProfiles("test")
+class OrderRepositoryTestcontainersTest {
+
+    @Container
+    static PostgreSQLContainer<?> postgres =
+        new PostgreSQLContainer<>("postgres:15")
+            .withDatabaseName("testdb")
+            .withUsername("test")
+            .withPassword("test");
+
+    // Wire container URL into Spring datasource dynamically
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+    }
+
+    @Autowired
+    private OrderRepository orderRepo;
+
+    @Test
+    void shouldPersistAndRetrieve_onRealPostgres() {
+        Order order = orderRepo.save(new Order(null, 999.0, "PENDING"));
+
+        Optional<Order> found = orderRepo.findById(order.getId());
+
+        assertThat(found).isPresent();
+        assertThat(found.get().getAmount()).isEqualTo(999.0);
+    }
+}
+
+Testing Security
+@WebMvcTest(OrderController.class)
+@Import(SecurityConfig.class)            // import your security config
+class OrderControllerSecurityTest {
+
+    @Autowired private MockMvc mockMvc;
+    @MockBean  private OrderService orderService;
+
+    @Test
+    void placeOrder_shouldReturn401_whenNotAuthenticated() throws Exception {
+        mockMvc.perform(post("/api/orders")
+                .contentType(APPLICATION_JSON)
+                .content("{\"amount\":100}"))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(roles = "USER")        // simulate authenticated user
+    void placeOrder_shouldReturn201_whenAuthenticated() throws Exception {
+        when(orderService.placeOrder(any())).thenReturn(new Order(1L, 100.0));
+
+        mockMvc.perform(post("/api/orders")
+                .contentType(APPLICATION_JSON)
+                .content("{\"amount\":100}"))
+            .andExpect(status().isCreated());
+    }
+
+    @Test
+    @WithMockUser(roles = "GUEST")       // wrong role
+    void deleteOrder_shouldReturn403_whenWrongRole() throws Exception {
+        mockMvc.perform(delete("/api/orders/1"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithUserDetails("admin@app.com")    // loads real UserDetailsService
+    void adminEndpoint_shouldReturn200_forAdmin() throws Exception {
+        mockMvc.perform(get("/api/admin/orders"))
+            .andExpect(status().isOk());
+    }
+}
+
+Testing with WireMock — Mock External APIs
+
+When your service calls an external REST API, use WireMock to stub it
+
+@SpringBootTest
+@AutoConfigureWireMock(port = 0)         // random port WireMock server
+@ActiveProfiles("test")
+class PaymentServiceTest {
+
+    @Autowired
+    private PaymentService paymentService;
+
+    @Test
+    void charge_shouldReturnSuccess_whenExternalApiResponds() {
+        // STUB the external payment gateway
+        stubFor(post(urlEqualTo("/payments/charge"))
+            .willReturn(aResponse()
+                .withStatus(200)
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"status\":\"SUCCESS\",\"transactionId\":\"TX123\"}")));
+
+        PaymentResult result = paymentService.charge(new Order(1L, 500.0));
+
+        assertThat(result.getStatus()).isEqualTo("SUCCESS");
+        assertThat(result.getTransactionId()).isEqualTo("TX123");
+    }
+
+    @Test
+    void charge_shouldThrowException_whenExternalApiReturns500() {
+        stubFor(post(urlEqualTo("/payments/charge"))
+            .willReturn(aResponse().withStatus(500)));
+
+        assertThatThrownBy(() -> paymentService.charge(new Order(1L, 500.0)))
+            .isInstanceOf(PaymentException.class);
+    }
+}
+
+Testing Caching
+@SpringBootTest
+class OrderServiceCacheTest {
+
+    @Autowired private OrderService orderService;
+    @MockBean  private OrderRepository orderRepo;
+
+    @Test
+    void findById_shouldHitCacheOnSecondCall() {
+        Order order = new Order(1L, 500.0);
+        when(orderRepo.findById(1L)).thenReturn(Optional.of(order));
+
+        orderService.findById(1L);   // first call — hits DB
+        orderService.findById(1L);   // second call — hits cache
+        orderService.findById(1L);   // third call — hits cache
+
+        // Repository called only ONCE despite 3 service calls
+        verify(orderRepo, times(1)).findById(1L);
+    }
+}
+
+Testing Async Methods
+@SpringBootTest
+class NotificationServiceTest {
+
+    @Autowired private NotificationService notificationService;
+    @MockBean  private EmailClient emailClient;
+
+    @Test
+    void sendEmail_shouldComplete_asynchronously() throws Exception {
+        CompletableFuture<Void> future =
+            notificationService.sendEmailAsync("user@test.com", "Hello");
+
+        // wait for async to complete
+        future.get(5, TimeUnit.SECONDS);
+
+        verify(emailClient, times(1)).send("user@test.com", "Hello");
+    }
+}
+
+Testing Events
+@SpringBootTest
+class OrderEventTest {
+
+    @Autowired private OrderService orderService;
+    @Autowired private ApplicationEventPublisher publisher;
+
+    @MockBean  private OrderEventListener eventListener;
+
+    @Test
+    void placeOrder_shouldPublishOrderPlacedEvent() {
+        Order order = new Order(null, 500.0);
+        orderService.placeOrder(order);
+
+        // verify the listener received the event
+        ArgumentCaptor<OrderPlacedEvent> captor =
+            ArgumentCaptor.forClass(OrderPlacedEvent.class);
+
+        verify(eventListener, times(1)).onOrderPlaced(captor.capture());
+        assertThat(captor.getValue().getOrder().getAmount())
+            .isEqualTo(500.0);
+    }
+}
+
+Context Caching — How Spring Reuses Contexts
+  Spring caches the ApplicationContext between tests
+  Same context config = same cached context = FAST
+
+  CONTEXT IS REUSED when:
+  ─────────────────────────
+  Same @SpringBootTest config
+  Same @ActiveProfiles
+  Same @TestPropertySource values
+  No @MockBean differences
+  → Test suite runs much faster (context loads once)
+
+  CONTEXT IS RECREATED when:
+  ────────────────────────────
+  Different @SpringBootTest(classes=...)
+  Different @ActiveProfiles("x") vs @ActiveProfiles("y")
+  Different set of @MockBean
+  @DirtiesContext used explicitly
+
+  @DirtiesContext
+  ─────────────────
+  Forces context to be destroyed and recreated after test
+  Use ONLY when your test mutates global Spring state
+  Very expensive — avoid unless absolutely necessary
+
+  @DirtiesContext(classMode = AFTER_CLASS)   // after all tests in class
+  @DirtiesContext(methodMode = AFTER_METHOD) // after each test method
+
+Full Test Flow Diagram
+
+  Test runner starts (Maven / Gradle / IDE)
+          │
+          ▼
+  JUnit 5 discovers test classes
+          │
+          ▼
+  SpringExtension initialises
+  (triggered by @ExtendWith or @SpringBootTest)
+          │
+          ▼
+  ┌──────────────────────────────────────────────────┐
+  │  Context Cache check                             │
+  │                                                  │
+  │  Same config seen before?                        │
+  │     YES → reuse cached context ─────────────┐   │
+  │     NO  → build new context                 │   │
+  │            │                                │   │
+  │            ▼                                │   │
+  │     Load @Configuration classes             │   │
+  │     Scan @Component / @Service / @Repo      │   │
+  │     Apply @MockBean replacements            │   │
+  │     Apply @TestPropertySource               │   │
+  │     Run auto-configurations                 │   │
+  │            │                                │   │
+  │            └────────────────────────────────┘   │
+  └──────────────────────────────────────────────────┘
+          │
+          ▼
+  Inject dependencies into test class
+  (@Autowired, @MockBean, @Value fields)
+          │
+          ▼
+  ┌──────────────────────────────────────────────────┐
+  │  For each @Test method:                          │
+  │                                                  │
+  │  @BeforeEach runs                                │
+  │       │                                          │
+  │       ▼                                          │
+  │  @Sql scripts execute (if present)               │
+  │       │                                          │
+  │       ▼                                          │
+  │  Transaction begins (if @Transactional)          │
+  │       │                                          │
+  │       ▼                                          │
+  │  TEST METHOD EXECUTES                            │
+  │  → Arrange: set up mocks / test data             │
+  │  → Act:     call the method under test           │
+  │  → Assert:  verify result / interactions         │
+  │       │                                          │
+  │       ▼                                          │
+  │  Transaction rolls back (if @Transactional)      │
+  │       │                                          │
+  │       ▼                                          │
+  │  @AfterEach runs                                 │
+  │       │                                          │
+  │       ▼                                          │
+  │  Mockito verifications fire                      │
+  └──────────────────────────────────────────────────┘
+          │
+          ▼
+  All tests done
+          │
+          ▼
+  Context closed (@PreDestroy, shutdown hooks)
+          │
+          ▼
+  Test report generated (Surefire / Failsafe)
+
+
+Best Practices Summary:
+
+Write unit tests first — if you need Spring context to test a class, it is a design smell, consider splitting responsibilities
+Use test slices (@WebMvcTest, @DataJpaTest) instead of @SpringBootTest wherever possible — they are 5–10x faster
+Never use production DB for tests — always H2, Testcontainers, or a dedicated test schema
+One assertion concept per test — do not test 10 things in one @Test method
+Name tests clearly — methodName_shouldExpectedBehavior_whenCondition pattern is readable and self-documenting
+Avoid @DirtiesContext — it kills context cache and makes suites slow; redesign the test instead
+Keep @MockBean usage minimal in integration tests — if you mock everything, you are not integrating anything
+Use @Transactional on test classes for auto-rollback — avoids manual cleanup SQL
+Separate application-test.yml for test-specific config — never override production properties inline in 20 test classes
+Test the unhappy path as much as the happy path — null inputs, empty results, exceptions, timeout scenarios
+Use AssertJ over JUnit assertions — assertThat(x).isEqualTo(y) gives far better failure messages than assertEquals(y, x)
+Run Testcontainers tests in CI only — mark them with a custom tag and skip locally for speed
