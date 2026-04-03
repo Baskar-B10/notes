@@ -534,3 +534,582 @@ public ReactorLoadBalancer<ServiceInstance> randomLoadBalancer(
     return new RandomLoadBalancer(factory.getLazyProvider(name, ServiceInstanceListSupplier.class), name);
 }
 
+ SPRING CLOUD KUBERNETES ARCHITECTURE
+================================================================================
+  Traditional Spring Cloud vs Spring Cloud Kubernetes:
+  +-----------------------------+------------------------------------+
+  |  Traditional Spring Cloud   |  Spring Cloud Kubernetes           |
+  +-----------------------------+------------------------------------+
+  |  Eureka Server              |  K8s Service DNS                   |
+  |  Config Server + Git        |  ConfigMap + Secret                |
+  |  Spring Cloud Bus refresh   |  Config Watcher -> /actuator/refr  |
+  |  Ribbon / LoadBalancer      |  K8s Service load balancing        |
+  +-----------------------------+------------------------------------+
+
+  KUBERNETES CLUSTER
+  +------------------------------------------------------------------+
+  |  namespace: production                                           |
+  |                                                                  |
+  |  +------------------+  +------------------+  +--------------+   |
+  |  |   ConfigMap      |  |     Secret       |  | K8s API Svr  |   |
+  |  | order-svc config |  | DB pwd, API keys |  | watch chgs   |   |
+  |  +--------+---------+  +--------+---------+  +------+-------+   |
+  |           |                     |                    |           |
+  |           +---------------------+                    | watch     |
+  |                     |  pulls config on startup       |           |
+  |                     v                                |           |
+  |  +------------------+  +------------------+  +--------------+   |
+  |  |  K8s Service     |  |  K8s Service     |  | K8s Service  |   |
+  |  |  order-service   |  |  user-service    |  | inventory-svc|   |
+  |  +--------+---------+  +--------+---------+  +------+-------+   |
+  |           |                     |                    |           |
+  |           v                     v                    v           |
+  |  +------------------+  +------------------+  +--------------+   |
+  |  |   Order Pod      |  |   User Pod       |  | Inventory Pod|   |
+  |  | @RefreshScope    |  | @RefreshScope    |  | @RefreshScope|   |
+  |  +------------------+  +------------------+  +--------------+   |
+  |                                                                  |
+  |  +--------------------------------------------------------------+|
+  |  |  Spring Cloud Kubernetes Discovery                           ||
+  |  |  Replaces Eureka -- uses K8s API to list healthy endpoints   ||
+  |  +--------------------------------------------------------------+|
+  |                                                                  |
+  |  +--------------------------------------------------------------+|
+  |  |  Config Watcher (Spring Cloud K8s)                           ||
+  |  |  Watches ConfigMap -> triggers /actuator/refresh on pods     ||
+  |  +--------------------------------------------------------------+|
+  +------------------------------------------------------------------+
+ 
+--------------------------------------------------------------------------------
+ SPRING CLOUD KUBERNETES -- DEPENDENCY
+--------------------------------------------------------------------------------
+  pom.xml:
+  --------
+  <dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-kubernetes-client-all</artifactId>
+  </dependency>
+  <!-- includes: discovery, config, loadbalancer -->
+ 
+--------------------------------------------------------------------------------
+ APPLICATION.YML (inside pod)
+--------------------------------------------------------------------------------
+  spring:
+    application:
+      name: order-service
+    cloud:
+      kubernetes:
+        config:
+          enabled: true
+          name: order-service          # reads ConfigMap named "order-service"
+          namespace: production
+          sources:
+            - name: order-service      # primary ConfigMap
+            - name: shared-config      # shared ConfigMap (merged)
+        secrets:
+          enabled: true
+          name: order-service-secrets  # reads Secret named "order-service-secrets"
+          namespace: production
+        discovery:
+          enabled: true
+          all-namespaces: false
+        reload:
+          enabled: true                # watches for ConfigMap changes
+          strategy: refresh            # fires @RefreshScope -- no pod restart
+          period: 15000                # poll every 15 seconds
+ 
+--------------------------------------------------------------------------------
+ CONFIGMAP MANIFEST (in Git / Helm chart)
+--------------------------------------------------------------------------------
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: order-service
+    namespace: production
+    labels:
+      spring.cloud.kubernetes.config: "true"
+  data:
+    application.yml: |
+      order:
+        max-items: 200
+        payment-timeout: 30s
+      spring:
+        datasource:
+          url: jdbc:postgresql://postgres-svc:5432/orders
+ 
+ 
+--------------------------------------------------------------------------------
+ SECRET MANIFEST
+--------------------------------------------------------------------------------
+  apiVersion: v1
+  kind: Secret
+  metadata:
+    name: order-service-secrets
+    namespace: production
+  type: Opaque
+  stringData:
+    spring.datasource.password: "supersecret123"
+    payment.api.key: "pk_live_xxxx"
+ 
+ 
+--------------------------------------------------------------------------------
+ RBAC -- ServiceAccount + Role + RoleBinding
+--------------------------------------------------------------------------------
+  apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: order-service-sa
+    namespace: production
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: Role
+  metadata:
+    name: config-reader
+    namespace: production
+  rules:
+    - apiGroups: [""]
+      resources: ["configmaps","secrets","pods","endpoints","services"]
+      verbs: ["get", "list", "watch"]
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: RoleBinding
+  metadata:
+    name: order-service-config-binding
+    namespace: production
+  subjects:
+    - kind: ServiceAccount
+      name: order-service-sa
+  roleRef:
+    kind: Role
+    name: config-reader
+    apiGroup: rbac.authorization.k8s.io
+ 
+ 
+--------------------------------------------------------------------------------
+ DEPLOYMENT -- attach ServiceAccount
+--------------------------------------------------------------------------------
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: order-service
+  spec:
+    replicas: 3
+    template:
+      spec:
+        serviceAccountName: order-service-sa    # <-- critical
+        containers:
+          - name: order-service
+            image: yourregistry/order-service:1.0
+            ports:
+              - containerPort: 8081
+
+ @REFRESHSCOPE -- HOW IT WORKS
+================================================================================
+  FLOW:
+  -----
+  ConfigMap updated (order.max-items: 500)
+          |
+          v
+  Config Watcher detects change
+          |
+          v
+  POST /actuator/refresh called on pod
+          |
+          v
+  RefreshScope destroys all @RefreshScope beans (clears CGLIB proxy cache)
+          |
+          v
+  On next method call --> bean re-created with fresh @Value from Environment
+          |
+          v
+  OrderController (new) --> maxItems = 500  [no restart needed]
+ 
+  WHAT HAPPENS INTERNALLY:
+  ------------------------
+  - Spring wraps every @RefreshScope bean in a CGLIB proxy
+  - On /actuator/refresh --> scope clears its internal bean cache
+  - On the next method call through the proxy --> bean is re-created
+  - All @Value fields are re-read from the updated Environment
+  - No pod restart, no connection drop
+ 
+--------------------------------------------------------------------------------
+ BASIC USAGE
+--------------------------------------------------------------------------------
+  @RestController
+  @RefreshScope        // entire controller re-created on refresh
+  public class OrderController {
+      @Value("${order.max-items:100}")
+      private int maxItems;
+      @Value("${order.payment-timeout:30s}")
+      private String paymentTimeout;
+      @GetMapping("/config")
+      public Map<String, Object> config() {
+          return Map.of("maxItems", maxItems, "timeout", paymentTimeout);
+      }
+  }
+ 
+--------------------------------------------------------------------------------
+ BETTER PATTERN -- Dedicated config bean
+--------------------------------------------------------------------------------
+  @Component
+  @RefreshScope
+  public class OrderConfig {
+      @Value("${order.max-items:100}")
+      private int maxItems;
+      @Value("${order.feature.express-shipping:false}")
+      private boolean expressShipping;
+      @Value("${order.discount-percentage:0}")
+      private double discountPercentage;
+      // getters only -- immutable after creation
+      public int getMaxItems()           { return maxItems; }
+      public boolean isExpressShipping() { return expressShipping; }
+      public double getDiscountPercentage() { return discountPercentage; }
+  }
+  // Inject the config bean -- NOT the values directly
+  @Service
+  public class OrderService {
+      @Autowired
+      private OrderConfig orderConfig;  // this is a proxy -- always up to date
+      public Order placeOrder(OrderRequest req) {
+          if (req.getItems().size() > orderConfig.getMaxItems()) {
+              throw new OrderLimitException("Exceeds limit");
+          }
+      }
+  }
+ 
+--------------------------------------------------------------------------------
+ @REFRESHSCOPE GOTCHAS
+--------------------------------------------------------------------------------
+  WRONG -- @Value directly in a non-refreshable bean:
+  ---------------------------------------------------
+  @Service
+  // No @RefreshScope here!
+  public class PaymentService {
+      @Value("${payment.api-key}")
+      private String apiKey;  // NEVER refreshes -- captured at startup
+  }
+  CORRECT -- inject a @RefreshScope config bean:
+  ----------------------------------------------
+  @Service
+  public class PaymentService {
+      @Autowired
+      private PaymentConfig paymentConfig;  // @RefreshScope bean, always fresh
+      public void charge() {
+          String key = paymentConfig.getApiKey();  // always reads current value
+      }
+  }
+  WRONG -- @RefreshScope on @Configuration class:
+  -----------------------------------------------
+  @Configuration
+  @RefreshScope   // DON'T do this -- @Bean methods won't refresh correctly
+  public class DataSourceConfig {
+      @Bean
+      public DataSource dataSource() { ... }
+  }
+ 
+  CORRECT -- use @ConfigurationProperties instead:
+  ------------------------------------------------
+  @Component
+  @ConfigurationProperties(prefix = "order")
+  @RefreshScope
+  public class OrderProperties {
+      private int maxItems;
+      private String paymentTimeout;
+      // setters required for @ConfigurationProperties binding
+  }
+ 
+--------------------------------------------------------------------------------
+ TRIGGERING REFRESH -- 3 WAYS
+--------------------------------------------------------------------------------
+  1. Manual -- hit actuator on one pod:
+     curl -X POST http://order-service:8081/actuator/refresh
+  2. Spring Cloud Bus (Kafka) -- broadcasts to ALL instances:
+     curl -X POST http://order-service:8081/actuator/busrefresh
+  3. Spring Cloud Kubernetes Config Watcher -- AUTOMATIC:
+     No curl needed -- watcher detects ConfigMap change
+     and calls refresh on all pods automatically.
+ 
+  application.yml -- enable the refresh endpoint:
+  -----------------------------------------------
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: refresh, busrefresh, health, info
+    endpoint:
+      refresh:
+        enabled: true
+ 
+ ANSIBLE VAULT --> SPRING BOOT PROPERTIES (4 PATTERNS)
+================================================================================
+  OVERVIEW FLOW:
+  --------------
+  +------------------+
+  |  Ansible Vault   |  (encrypted secrets store)
+  +------------------+
+         |
+         +----------+----------+----------+
+         |          |          |          |
+         v          v          v          v
+    [Pattern A] [Pattern B] [Pattern C] [Pattern D]
+    Env Vars    app.yml     K8s Secret  HashiCorp
+                Jinja2                  Vault
+         |          |          |          |
+         +----------+----------+----------+
+                         |
+                         v
+              +--------------------+
+              |  Spring Boot App   |
+              | @Value/@ConfigProp |
+              +--------------------+
+  Priority (most secure to least):
+  D (HashiCorp Vault) > C (K8s Secret) > B (Templated yml) > A (Env Vars)
+ 
+--------------------------------------------------------------------------------
+ PATTERN A -- Environment Variables (simplest)
+--------------------------------------------------------------------------------
+  How it works:
+  Ansible decrypts Vault secrets and sets them as env vars when starting
+  the Spring Boot process. Spring Boot auto-maps env vars to properties
+  using relaxed binding:
+    SPRING_DATASOURCE_PASSWORD --> spring.datasource.password
+  Ansible Playbook:
+  -----------------
+  - name: Deploy order-service
+    hosts: app-servers
+    vars_files:
+      - vault/secrets.yml    # Ansible Vault encrypted file
+    tasks:
+      - name: Start Spring Boot service with secrets as env vars
+        systemd:
+          name: order-service
+          state: restarted
+        environment:
+          SPRING_DATASOURCE_PASSWORD: "{{ db_password }}"
+          PAYMENT_API_KEY: "{{ payment_api_key }}"
+          SPRING_DATASOURCE_URL: "jdbc:postgresql://{{ db_host }}:5432/orders"
+          SPRING_PROFILES_ACTIVE: "production"
+
+  Spring Boot -- no special code needed:
+  --------------------------------------
+  @Value("${spring.datasource.password}")
+  private String dbPassword;
+  @Value("${payment.api.key}")
+  private String apiKey;
+  Drawback: secrets visible in 'ps aux' output -- low security.
+ 
+--------------------------------------------------------------------------------
+ PATTERN B -- Jinja2 Templated application.yml
+--------------------------------------------------------------------------------
+  How it works:
+  Ansible templates the application.yml at deploy time, substituting
+  Vault values before the app starts. File written to disk on the server.
+
+  vault/secrets.yml (Ansible Vault encrypted):
+  --------------------------------------------
+  db_password: "prod_secret_xyz"
+  api_key: "pk_live_abc123"
+  redis_password: "redis_prod_pass"
+  templates/application.yml.j2 (Jinja2 template):
+  -------------------------------------------------
+  spring:
+    datasource:
+      url: jdbc:postgresql://{{ db_host }}:5432/orders
+      username: {{ db_user }}
+      password: {{ db_password }}        # injected from Ansible Vault
+    redis:
+      password: {{ redis_password }}
+ 
+  payment:
+    api:
+      key: {{ api_key }}
+ 
+  order:
+    max-items: {{ order_max_items | default(100) }}
+ 
+  Ansible task:
+  -------------
+  - name: Template application.yml with vault secrets
+    template:
+      src: templates/application.yml.j2
+      dest: /opt/order-service/config/application.yml
+      owner: orderapp
+      group: orderapp
+      mode: '0600'                    # restrict read access
+  - name: Restart service to pick up new config
+    systemd:
+      name: order-service
+      state: restarted
+ 
+  Spring Boot -- point to external config:
+  ----------------------------------------
+  spring:
+    config:
+      location: file:/opt/order-service/config/application.yml
+  Drawback: secret written to disk, no dynamic refresh without restart.
+ 
+--------------------------------------------------------------------------------
+ PATTERN C -- Ansible Creates Kubernetes Secrets
+--------------------------------------------------------------------------------
+  How it works:
+  Ansible decrypts Vault, creates K8s Secrets, Spring Boot reads them
+  via Spring Cloud Kubernetes -- supports dynamic refresh.
+  Ansible Playbook:
+  -----------------
+  - name: Create K8s secrets from Ansible Vault
+    hosts: localhost
+    vars_files:
+      - vault/secrets.yml
+    tasks:
+      - name: Create K8s Secret for order-service
+        kubernetes.core.k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: order-service-secrets
+              namespace: production
+            type: Opaque
+            stringData:
+              spring.datasource.password: "{{ db_password }}"
+              payment.api.key: "{{ api_key }}"
+              spring.redis.password: "{{ redis_password }}"
+ 
+      - name: Deploy order-service referencing the secret
+        kubernetes.core.k8s:
+          state: present
+          definition:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: order-service
+              namespace: production
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: order-service
+                      image: "yourregistry/order-service:{{ app_version }}"
+                      envFrom:
+                        - secretRef:
+                            name: order-service-secrets  # inject all as env vars
+ 
+  Spring Boot reads via @Value -- same as always:
+  -----------------------------------------------
+  @Value("${spring.datasource.password}")
+  private String dbPassword;
+  Advantage: K8s RBAC protects secrets, supports refresh via Config Watcher.
+ 
+--------------------------------------------------------------------------------
+ PATTERN D -- HashiCorp Vault + Spring Cloud Vault (most secure)
+--------------------------------------------------------------------------------
+  How it works:
+  Ansible provisions and unseals HashiCorp Vault with secrets.
+  Spring Boot fetches secrets DIRECTLY from Vault at startup.
+  Secrets NEVER touch disk or env vars.
+  Dependency:
+  -----------
+  <dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-vault-config</artifactId>
+  </dependency>
+ 
+  bootstrap.yml (loaded before application.yml):
+  -----------------------------------------------
+  spring:
+    application:
+      name: order-service
+    cloud:
+      vault:
+        host: vault.internal.company.com
+        port: 8200
+        scheme: https
+        authentication: KUBERNETES         # pod uses K8s SA token to auth
+        kubernetes:
+          role: order-service              # Vault role mapped to this K8s SA
+          kubernetes-path: kubernetes      # Vault auth mount path
+        kv:
+          enabled: true
+          backend: secret                  # KV v2 mount
+          default-context: order-service   # reads secret/order-service
+          profiles:
+            - production                   # also reads secret/order-svc/production
+ 
+  Ansible writes secrets to HashiCorp Vault:
+  ------------------------------------------
+  - name: Write secrets to HashiCorp Vault
+    hashivault_secret:
+      url: "https://vault.internal.company.com"
+      token: "{{ vault_root_token }}"      # from Ansible Vault
+      secret: "order-service"
+      mount_point: "secret"
+      data:
+        spring.datasource.password: "{{ db_password }}"
+        payment.api.key: "{{ api_key }}"
+ 
+  Spring Boot reads from Vault transparently:
+  -------------------------------------------
+  @Component
+  @RefreshScope      // can re-fetch from Vault on refresh
+  public class PaymentConfig {
+      @Value("${payment.api.key}")           // comes from Vault at startup
+      private String apiKey;
+      @Value("${spring.datasource.password}")
+      private String dbPassword;
+  }
+ 
+  Advantage: Full audit trail, secret rotation without restart,
+             secrets never on disk, Vault leases auto-expire.
+ 
+================================================================================
+ PATTERN COMPARISON TABLE
+================================================================================
+ 
+  +----------------+----------+----------+----------+----------+
+  | Feature        | A-EnvVar | B-Yaml   | C-K8sSec | D-Vault  |
+  +----------------+----------+----------+----------+----------+
+  | Security       | Low      | Medium   | High     | Highest  |
+  | Dynamic Refr.  | No       | No       | Yes      | Yes      |
+  | Audit Trail    | None     | None     | K8s log  | Full     |
+  | Secret Rotate  | Redeploy | Redeploy | Update+  | Vault    |
+  |                |          |          | refresh  | lease    |
+  | Complexity     | Low      | Low      | Medium   | High     |
+  | Best For       | Dev      | Bare     | K8s no   | K8s +    |
+  |                | simple   | metal/VM | Vault    | enterprise|
+  +----------------+----------+----------+----------+----------+
+ 
+================================================================================
+ RECOMMENDED PRODUCTION STACK
+================================================================================
+ 
+  Ansible provisions HashiCorp Vault (Pattern D)
+       +
+  Spring Cloud Vault
+       +
+  @RefreshScope
+       +
+  Spring Cloud Kubernetes Config Watcher
+       |
+       v
+  Secrets fetched at startup, never written to disk,
+  rotate without restarting pods, full audit trail.
+ 
+================================================================================
+ PROPERTY LOADING PRIORITY IN SPRING BOOT
+================================================================================
+  (Highest priority first -- later sources override earlier ones)
+  1.  Command line args           --server.port=9090
+  2.  SPRING_APPLICATION_JSON    env var (inline JSON)
+  3.  OS Environment variables    SPRING_DATASOURCE_PASSWORD
+  4.  application-{profile}.yml  (profile-specific)
+  5.  application.yml            (default)
+  6.  @ConfigurationProperties   bound classes
+  7.  Config Server / ConfigMap  (Spring Cloud sources)
+  8.  HashiCorp Vault            (Spring Cloud Vault -- lowest, loaded first)
+ 
+  Note: Spring Cloud external sources (Vault, ConfigMap) are loaded in
+  bootstrap phase BEFORE application.yml, so they appear lower in the
+  override chain -- they can be overridden by local application.yml
+  if needed. 
+ 
