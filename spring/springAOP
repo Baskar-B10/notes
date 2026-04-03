@@ -573,4 +573,218 @@ public class OrderService {
     }
 }
 
-Spring AOP vs AspectJ
+Spring AOP vs AspectJ:
+  FEATURE              SPRING AOP              ASPECTJ
+  ─────────────────────────────────────────────────────────────────
+  Join points          Method execution only   Method, field, constructor,
+                                               static initializer, etc.
+  Weaving              Runtime (proxy)         Compile-time, load-time,
+                                               or post-compile
+  Self-invocation      NOT intercepted         Intercepted (no proxy)
+  Performance          Slight proxy overhead   Minimal (compile-time)
+  Setup complexity     Zero (auto in Spring)   Needs AspectJ compiler
+  Spring integration   Native                  Via @EnableAspectJAutoProxy
+  Use case             90% of enterprise apps  Advanced, non-Spring code
+
+
+  WHEN TO STICK WITH SPRING AOP:
+  → All your beans are Spring-managed
+  → You only need method-level interception
+  → Simplicity matters more than raw power
+
+  WHEN TO MOVE TO ASPECTJ:
+  → Need to intercept field access or constructors
+  → Need to intercept non-Spring objects (new MyObject())
+  → Self-invocation interception is required
+  → Performance is extremely critical
+
+AOP Use Cases — Quick Reference:
+  USE CASE                    ADVICE TYPE    WHY
+  ──────────────────────────────────────────────────────────────────
+  Method entry logging        @Before        runs before, no return value
+  Security / auth check       @Before        block early if unauthorized
+  Input validation            @Before        reject bad args before method
+  Success audit logging       @AfterReturn   only log when succeeded
+  Error logging / alerting    @AfterThrow    only fires on exception
+  Resource cleanup            @After         runs regardless of outcome
+  Performance timing          @Around        needs time before AND after
+  Caching                     @Around        intercept + short-circuit
+  Transaction management      @Around        begin before, commit/roll after
+  Rate limiting               @Around        count calls, block if exceeded
+  Circuit breaking            @Around        track failures, open circuit
+  Retry logic                 @Around        loop proceed() on failure
+  Request/response masking    @Around        mask PII in logs
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   WHAT AOP SHOULD NOT DO                                │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  ✗ Do not put business logic inside Aspects
+    → Aspects are infrastructure, not domain logic
+
+  ✗ Do not use AOP to replace proper exception handling
+    → @AfterThrowing is for observability, not recovery
+
+  ✗ Do not create too many fine-grained Aspects
+    → Hard to debug when 6 aspects all fire on one method
+
+  ✗ Do not intercept repository layer unless truly necessary
+    → Transaction management is already handled by Spring there
+
+  ✓ Keep each Aspect focused on ONE concern
+  ✓ Name pointcuts clearly (serviceLayer, publicApi, writeMethods)
+  ✓ Log aspect activity at DEBUG level, not INFO
+  ✓ Always test aspects independently with unit tests
+
+Required Dependencies
+xml<!-- Spring Boot — AOP included via this starter -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-aop</artifactId>
+</dependency>
+
+<!-- application.properties -->
+spring.aop.auto=true          # default true — enables @Aspect scanning
+spring.aop.proxy-target-class=true  # force CGLIB even if interface exists
+
+That single dependency is all you need. @EnableAspectJAutoProxy is auto-configured by Spring Boot when spring-boot-starter-aop is on the classpath.
+@EnableAspectJAutoProxy
+This annotation enables support for handling components marked with the @Aspect annotation. 
+In a standard Spring Boot application, this is usually enabled by default,
+but you need it explicitly if you are using a pure Spring configuration or need to change how proxies are created.
+
+Key Attributes:
+proxyTargetClass:
+        false (Default): Spring uses JDK Dynamic Proxies (requires the class to implement an interface).
+        true: Spring uses CGLIB (subclasses the target class).
+        Pro Tip: In Spring Boot 2.x and 3.x, this defaults to true to avoid ClassCastException issues.
+exposeProxy:
+    If set to true, the proxy is exposed via AopContext.
+    This is a "hack" to solve the self-invocation problem mentioned earlier, allowing a class to call its own advised methods through a proxy.
+
+@Configuration
+@EnableAspectJAutoProxy(proxyTargetClass = true, exposeProxy = true)
+public class AopConfig {
+    // Configuration logic
+}
+
+@Order
+When you have multiple Aspects targeting the same method, the execution order is undefined unless you specify it. @Order defines the precedence.
+The "Onion" Model
+Think of Aspects like layers of an onion. The lower the number in @Order, the "higher" the precedence (closer to the outside of the onion).
+        Entering (Before/Around): The Aspect with the lowest value runs first.
+        Exiting (After/Around): The Aspect with the lowest value runs last.
+
+Example Scenario:
+Imagine you have a SecurityAspect and a LoggingAspect. You always want Security to run before Logging.
+
+@Aspect
+@Order(1) // Runs FIRST on the way in
+public class SecurityAspect {
+    @Before("execution(* com.app.service.*.*(..))")
+    public void checkSecurity() {
+        System.out.println("1. Checking Security...");
+    }
+}
+
+@Aspect
+@Order(2) // Runs SECOND on the way in
+public class LoggingAspect {
+    @Before("execution(* com.app.service.*.*(..))")
+    public void logAction() {
+        System.out.println("2. Logging Action...");
+    }
+}
+Output Order:
+Security Check (Order 1)
+Logging (Order 2)
+Actual Method Execution
+
+The JoinPoint and ProceedingJoinPoint
+If Advice is the "what," these objects are the "context." 
+They allow your Aspect to be intelligent rather than just a blind interceptor.
+JoinPoint: Available in all advice types. 
+           Use it to get method signatures, arguments (getArgs()), or the target object.
+            @Before("execution(* com.app.service.*.*(..))")
+            public void logMethodEntry(JoinPoint joinPoint) {
+                // Accessing method name
+                String methodName = joinPoint.getSignature().getName();
+                
+                // Accessing method arguments (returns Object[])
+                Object[] args = joinPoint.getArgs();
+                
+                // Accessing the target object (the actual bean instance)
+                Object target = joinPoint.getTarget();
+            
+                System.out.println("Entering method: " + methodName + " with " + args.length + " arguments.");
+            }
+ProceedingJoinPoint: Only available in @Around advice. 
+                    It is the most critical tool because it has the .proceed() method. 
+                    If you don't call proceed(), the actual business method will never run.
+                    @Around("execution(* com.app.service.*.*(..))")
+                    public Object measureTime(ProceedingJoinPoint pjp) throws Throwable {
+                        long start = System.currentTimeMillis();
+                    
+                        // 1. You can change arguments before proceeding
+                        Object[] args = pjp.getArgs(); 
+                        
+                        // 2. YOU must call proceed() or the target method never runs!
+                        Object result = pjp.proceed(args); 
+                    
+                        // 3. You can modify the result before returning it
+                        long executionTime = System.currentTimeMillis() - start;
+                        System.out.println(pjp.getSignature() + " executed in " + executionTime + "ms");
+                    
+                        return result; 
+                    }
+Think of a JoinPoint like a Security Guard watching a door:
+        They can see who is coming in (arguments).
+        They can see which door it is (method signature).
+        But they can't stop time or change what happens inside the room.
+Think of a ProceedingJoinPoint like a Movie Director:
+        They can pause the scene.
+        They can change the script (arguments) before the actors start.
+        They can even decide to skip the scene entirely or film it twice.
+Key Methods Comparison:
+Method                    JoinPoint    ProceedingJoinPoint
+getArgs()                    Yes            Yes
+getSignature()               Yes            Yes
+getTarget()                  Yes            Yes
+proceed()                    No             Yes
+proceed(Object[] args)       No             Yes
+
+
+@Pointcut (The Reusable Query):
+Instead of repeating long execution strings inside every @Before or @After, you can define a reusable pointcut.
+This makes your code DRY (Don't Repeat Yourself).
+
+@Pointcut("execution(* com.app.service.*.*(..))")
+public void serviceLayer() {} // Dummy method to hold the pointcut
+
+@Before("serviceLayer()")
+public void doLogging() { ... }
+
+@After("serviceLayer()")
+public void doCleanup() { ... }
+
+Introduction (Using @DeclareParents)
+This is one of the most "mind-bending" features of AOP. 
+It allows you to add new interfaces to existing objects at runtime.
+For example, you could make an existing UserService implement a UsageStats interface without actually modifying the UserService code. 
+
+4. Handling Advice Arguments (args, this, target)
+Sometimes you don't just want to intercept a method; you want to grab the data passing through it.
+args(): Matches by method arguments and makes them available to the advice.
+@annotation(): Limits matching to methods that have a specific annotation and gives you access to that annotation's properties.
+
+
+@Before("execution(* save(..)) && args(user, ..)")
+public void trackUser(User user) {
+    System.out.println("Saving user: " + user.getName());
+}
+
+TW (Load-Time Weaving)
+If Spring AOP's method-level interception isn't enough, you can enable Load-Time Weaving. 
+This uses an AspectJ agent to "weave" the aspects into your classes as they are loaded into the JVM.
+You enable this via @EnableLoadTimeWeaving.
