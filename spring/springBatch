@@ -215,3 +215,525 @@ public class BatchConfig {
 }
 The chunk(100, txm) call means: read and process 100 items, then write all 100 in one transaction. 
 If that transaction fails, only those 100 items are rolled back — not the entire job.
+
+Cron Job Integration with Spring Batch
+Spring Batch does not schedule itself. You need a trigger. The three common approaches:
+┌─────────────────────────────────────────────────────────────────┐
+│                  HOW JOBS GET TRIGGERED                         │
+└─────────────────────────────────────────────────────────────────┘
+
+  OPTION 1: Spring @Scheduled (built-in, simple)
+  ──────────────────────────────────────────────
+  @Scheduled(cron = "0 0 2 * * *")   ← runs every day at 2:00 AM
+  public void runJob() {
+      JobParameters params = new JobParametersBuilder()
+          .addLong("run.id", System.currentTimeMillis())
+          .toJobParameters();
+      jobLauncher.run(importJob, params);
+  }
+
+  OPTION 2: Quartz Scheduler (distributed, clustered)
+  ────────────────────────────────────────────────────
+  QuartzJobBean → triggers JobLauncher → runs Spring Batch Job
+  Quartz stores trigger state in DB → safe for clustered environments
+
+  OPTION 3: External Trigger (CI/CD, Kubernetes CronJob, etc.)
+  ─────────────────────────────────────────────────────────────
+  kubectl CronJob → HTTP POST /api/jobs/trigger
+                 → REST Controller → JobLauncher.run()
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│                   CRON EXPRESSION ANATOMY                       │
+└─────────────────────────────────────────────────────────────────┘
+
+   ┌────────── second      (0–59)
+   │ ┌──────── minute      (0–59)
+   │ │ ┌────── hour        (0–23)
+   │ │ │ ┌──── day-of-month(1–31)
+   │ │ │ │ ┌── month       (1–12)
+   │ │ │ │ │ ┌ day-of-week (0–7)
+   │ │ │ │ │ │
+   0 0 2 * * *   → every day at 02:00:00
+   0 0/30 * * * * → every 30 minutes
+   0 0 0 1 * *   → first day of every month at midnight
+
+DB-to-DB Migration Architecture (Huge Load)
+This is the most common real-world Spring Batch use case — moving millions of rows from a source DB to a target DB with transformation in between.
+┌─────────────────────────────────────────────────────────────────────────┐
+│              DB TO DB MIGRATION — HIGH LEVEL FLOW                       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  SOURCE DB (Oracle / MySQL / PostgreSQL)
+       │
+       │  JdbcPagingItemReader / JdbcCursorItemReader
+       │  reads in pages (e.g. 1000 rows per page)
+       ▼
+  ┌─────────────────────────────────────────────────────┐
+  │                  SPRING BATCH JOB                   │
+  │                                                     │
+  │   Step 1: Extract & Validate                        │
+  │   ┌──────────┐   ┌───────────────┐   ┌──────────┐  │
+  │   │  Reader  │──►│   Processor   │──►│  Writer  │  │
+  │   │ (Source) │   │ (transform,   │   │ (Target) │  │
+  │   │   DB     │   │  validate,    │   │   DB     │  │
+  │   │          │   │  enrich)      │   │          │  │
+  │   └──────────┘   └───────────────┘   └──────────┘  │
+  │                                                     │
+  │   Step 2: Post-migration validation (row counts)    │
+  │   Step 3: Notify / archive / cleanup                │
+  └─────────────────────────────────────────────────────┘
+       │
+       ▼
+  TARGET DB (new schema / different DB vendor)
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│              PAGING vs CURSOR — CHOOSING THE RIGHT READER               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  JdbcCursorItemReader
+  ────────────────────
+  Opens ONE DB connection → streams rows via cursor
+  Fast, but holds connection for entire step duration
+  Risk: connection timeout on very long jobs
+  Best for: moderate data, fast network, same DB server
+
+  JdbcPagingItemReader
+  ────────────────────
+  Issues a new SQL query per page → releases connection after each page
+  Slower but safe for hours-long jobs
+  Needs a sort key (e.g. ORDER BY id) for stable pagination
+  Best for: huge datasets, cross-network DB calls, cloud DBs
+
+  SELECT * FROM orders
+  WHERE id > :lastId        ← offset-free pagination (faster)
+  ORDER BY id
+  LIMIT 1000
+
+ExecutorService + TaskExecutor in Spring Batch
+This is how you go from single-threaded (slow) to parallel (fast) processing.
+┌─────────────────────────────────────────────────────────────────────────┐
+│               THREADING MODEL — FROM SLOW TO FAST                       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  DEFAULT (single-threaded) — processes one chunk at a time
+  ──────────────────────────────────────────────────────────
+  Main Thread:
+  [Read 1000]──►[Process]──►[Write]──►[Read 1000]──►[Process]──►[Write]
+  Time: T1────────────────────────────────────────────────────────► slow
+
+
+  MULTI-THREADED STEP — each chunk on its own thread
+  ────────────────────────────────────────────────────
+  Thread-1: [Read chunk-1]──►[Process]──►[Write]
+  Thread-2: [Read chunk-2]──►[Process]──►[Write]
+  Thread-3: [Read chunk-3]──►[Process]──►[Write]
+  Thread-4: [Read chunk-4]──►[Process]──►[Write]
+  Time: T1──────────────────────────────────────► much faster
+
+  ⚠ WARNING: ItemReader MUST be thread-safe
+             Use SynchronizedItemStreamReader wrapper
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│               TASKEXECUTOR CONFIGURATION                                │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  @Bean
+  public TaskExecutor taskExecutor() {
+      ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+      executor.setCorePoolSize(5);       // always-alive threads
+      executor.setMaxPoolSize(10);       // burst capacity
+      executor.setQueueCapacity(25);     // pending chunk queue
+      executor.setThreadNamePrefix("batch-thread-");
+      executor.initialize();
+      return executor;
+  }
+
+  @Bean
+  public Step multiThreadedStep(...) {
+      return new StepBuilder("step", repo)
+              .<Source, Target>chunk(1000, txm)
+              .reader(reader)
+              .processor(processor)
+              .writer(writer)
+              .taskExecutor(taskExecutor())   // ← plug it in here
+              .throttleLimit(10)              // max concurrent chunks
+              .build();
+  }
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│               THREAD POOL SIZING GUIDE                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  CPU-bound processing (heavy computation):
+      corePoolSize = number of CPU cores (e.g. 8)
+
+  I/O-bound processing (DB reads/writes, network calls):
+      corePoolSize = 2× to 4× CPU cores (e.g. 16–32)
+      because threads spend most time waiting on I/O
+
+  DB connection pool must be >= maxPoolSize
+  otherwise threads will block waiting for a connection
+  HikariCP maxPoolSize >= batch ThreadPool maxPoolSize
+
+Partitioning — The Right Way to Scale DB Migration
+Multi-threaded step shares one reader. Partitioning gives each thread its own reader, its own data slice, its own transaction. Much safer and more scalable.
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    PARTITIONING ARCHITECTURE                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  Total rows in source DB: 10,000,000
+
+  ┌──────────────────────────────────────────────────┐
+  │           MANAGER STEP (single thread)           │
+  │                                                  │
+  │  Partitioner splits data into ranges:            │
+  │  Partition-1 → id: 1        to  1,000,000        │
+  │  Partition-2 → id: 1,000,001 to 2,000,000        │
+  │  Partition-3 → id: 2,000,001 to 3,000,000        │
+  │  ...                                             │
+  │  Partition-10→ id: 9,000,001 to 10,000,000       │
+  └──────────────────────┬───────────────────────────┘
+                         │ delegates to
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+   │  Worker-1   │ │  Worker-2   │ │  Worker-3   │ ... 10 workers
+   │  ids 1-1M   │ │  ids 1M-2M  │ │  ids 2M-3M  │
+   │  Reader     │ │  Reader     │ │  Reader     │
+   │  Processor  │ │  Processor  │ │  Processor  │
+   │  Writer     │ │  Writer     │ │  Writer     │
+   └─────────────┘ └─────────────┘ └─────────────┘
+          │              │              │
+          └──────────────┼──────────────┘
+                         ▼
+                   TARGET DATABASE
+                   (all 10M rows written)
+
+
+  Custom Partitioner code structure:
+  ────────────────────────────────────
+  public class RangePartitioner implements Partitioner {
+      public Map<String, ExecutionContext> partition(int gridSize) {
+          // query: SELECT MIN(id), MAX(id) FROM source_table
+          // divide range into gridSize equal slices
+          // each slice → one ExecutionContext with minId, maxId
+          // Worker Step reads: WHERE id BETWEEN :minId AND :maxId
+      }
+  }
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│         LOCAL vs REMOTE PARTITIONING                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  LOCAL PARTITIONING
+  ──────────────────
+  Manager and all workers run in same JVM
+  Workers use ThreadPoolTaskExecutor
+  Good for: single-node, moderate scale (up to ~50M rows)
+
+  REMOTE PARTITIONING
+  ────────────────────
+  Manager sends partition metadata via message queue
+  (RabbitMQ / Kafka / ActiveMQ)
+  Workers are separate JVM instances / pods
+  Each worker picks up a partition message, processes it, sends reply
+
+  Manager JVM                    Worker JVM-1
+  ────────────                   ────────────
+  Partitioner                    MessageChannel listener
+      │                              │
+      │──► partition-1 msg ──────────►│ process ids 1-1M
+      │──► partition-2 msg ──────────►│ (different pod)
+      │                          Worker JVM-2
+      │──► partition-3 msg ──────────►│ process ids 2M-3M
+      │
+      ◄── completion replies ─────────
+      │
+  Mark step COMPLETE
+
+  Good for: Kubernetes, massive scale (100M+ rows)
+
+Job Types Beyond Migration
+┌─────────────────────────────────────────────────────────────────────────┐
+│                   COMMON JOB PATTERNS                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  1. SEQUENTIAL STEPS JOB
+  ────────────────────────
+  Job
+   ├── Step 1: Extract from source DB
+   ├── Step 2: Validate & deduplicate
+   ├── Step 3: Write to target DB
+   ├── Step 4: Generate reconciliation report
+   └── Step 5: Send email notification
+
+  Each step only runs if previous step completed successfully
+
+
+  2. CONDITIONAL FLOW JOB
+  ────────────────────────
+  Job
+   └── Step 1: Process file
+          │
+          ├── EXIT STATUS = "COMPLETED" ──► Step 2a: Archive file
+          │
+          ├── EXIT STATUS = "FAILED"    ──► Step 2b: Move to error folder
+          │
+          └── EXIT STATUS = "NO_DATA"  ──► Step 2c: Send empty-file alert
+
+
+  3. PARALLEL STEPS JOB (independent steps run simultaneously)
+  ──────────────────────────────────────────────────────────────
+  Job
+   └── Split (parallel flow)
+          ├── Flow A: Migrate orders table
+          ├── Flow B: Migrate customers table
+          └── Flow C: Migrate products table
+                │
+                ▼ (all three complete)
+          Step Final: Referential integrity check
+
+
+  4. TASKLET JOB (non-chunk, single unit of work)
+  ─────────────────────────────────────────────────
+  Used for:
+  - Truncating staging tables before load
+  - Calling a stored procedure
+  - FTP file download / upload
+  - Sending HTTP request to external API
+  - Archiving processed files to S3
+
+  @Bean
+  public Step truncateStep(...) {
+      return new StepBuilder("truncate", repo)
+              .tasklet((contribution, chunkContext) -> {
+                  jdbcTemplate.execute("TRUNCATE TABLE staging");
+                  return RepeatStatus.FINISHED;
+              }, txm)
+              .build();
+  }
+
+Full DB Migration Job — End to End Flow
+┌─────────────────────────────────────────────────────────────────────────┐
+│          COMPLETE DB MIGRATION JOB — REAL WORLD FLOW                    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  TRIGGER: Cron @ 01:00 AM
+        │
+        ▼
+  JobLauncher.run(migrationJob, params{date=today})
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  Step 1 — TRUNCATE STAGING (Tasklet)                           │
+  │  DELETE / TRUNCATE target staging tables                       │
+  │  Duration: seconds                                              │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ COMPLETED
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  Step 2 — PARTITIONED EXTRACT + LOAD (10 parallel workers)     │
+  │                                                                 │
+  │  Manager: splits 10M rows into 10 partitions of 1M each        │
+  │                                                                 │
+  │  Each Worker:                                                   │
+  │  JdbcPagingItemReader (source DB, page size 1000)               │
+  │       │                                                         │
+  │       ▼                                                         │
+  │  ItemProcessor                                                  │
+  │   - map old schema columns to new schema                        │
+  │   - normalize dates, enums, nulls                               │
+  │   - enrich with lookup data (cached in memory)                  │
+  │       │                                                         │
+  │       ▼                                                         │
+  │  JdbcBatchItemWriter (target DB, batch INSERT 1000 rows)        │
+  │                                                                 │
+  │  ThreadPool: 10 threads, HikariCP: 20 connections               │
+  │  Duration: minutes to hours depending on data volume            │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ COMPLETED
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  Step 3 — VALIDATION (Tasklet)                                  │
+  │  SELECT COUNT(*) FROM source  vs  SELECT COUNT(*) FROM target   │
+  │  If mismatch → throw exception → Step fails → alerts fire       │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ COMPLETED
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  Step 4 — INDEX REBUILD (Tasklet)                               │
+  │  Re-enable indexes on target DB that were disabled for bulk load │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │ COMPLETED
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  Step 5 — NOTIFY (Tasklet)                                      │
+  │  Send success email / Slack alert with row counts & duration    │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │
+                               ▼
+                       JOB COMPLETED ✓
+                  All metadata saved in JobRepository
+                  Re-run same date params → SKIPPED (already complete)
+
+
+  ON ANY STEP FAILURE:
+  ─────────────────────
+  JobRepository records FAILED status + step name + exception
+  Re-trigger job with same date params
+  Spring Batch skips already-COMPLETED steps
+  Resumes from the FAILED step automatically
+
+Fault Tolerance — Skip, Retry, Restart
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     FAULT TOLERANCE STRATEGIES                          │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  SKIP — tolerate bad records without stopping the job
+  ──────────────────────────────────────────────────────
+  .faultTolerant()
+  .skip(FlatFileParseException.class)   ← skip unparseable rows
+  .skip(ConstraintViolationException.class) ← skip duplicate keys
+  .skipLimit(500)                        ← but fail if >500 skipped
+
+  What happens to skipped items?
+  → Logged by ItemSkipListener
+  → Written to a separate error table or dead-letter file
+  → Job continues with remaining records
+
+
+  RETRY — handle transient failures automatically
+  ─────────────────────────────────────────────────
+  .faultTolerant()
+  .retry(DeadlockLoserDataAccessException.class)
+  .retry(TransientDataAccessException.class)
+  .retryLimit(3)     ← try up to 3 times before skipping/failing
+
+  Retry sequence for one item:
+  Attempt 1 → fails (deadlock)
+  Wait (back-off policy)
+  Attempt 2 → fails (deadlock)
+  Wait
+  Attempt 3 → success ✓  (or → skip if still failing)
+
+
+  RESTART — resume from exact failure point
+  ───────────────────────────────────────────
+  Job fails at Step 2, chunk 450 (after 449,000 rows written)
+       │
+       ▼
+  JobRepository stores: Step2.writeCount=449000
+                        Step2.status=FAILED
+                        ExecutionContext={lastProcessedId=449000}
+       │
+  Re-trigger same job + same JobParameters
+       │
+       ▼
+  Step 1 → SKIPPED (already COMPLETED)
+  Step 2 → RESUMED from id=449001 onward
+  No duplicate writes, no data loss
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                  SKIP vs RETRY vs RESTART — WHEN TO USE                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  SKIP   → bad data (corrupt records, constraint violations)
+           you accept losing those rows, log them separately
+
+  RETRY  → transient infrastructure issues (deadlocks, timeouts)
+           the error is temporary, same data will succeed next attempt
+
+  RESTART→ job-level failure (OOM, DB down, server crash)
+           infrastructure recovered, resume job from failure point
+
+Monitoring and Observability
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    WHAT SPRING BATCH TRACKS                             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  BATCH_JOB_INSTANCE       → job name + parameters (unique run identity)
+  BATCH_JOB_EXECUTION      → start time, end time, status, exit message
+  BATCH_JOB_EXEC_PARAMS    → parameters stored per execution
+  BATCH_STEP_EXECUTION     → per-step: readCount, writeCount, skipCount,
+                             commitCount, rollbackCount, duration
+  BATCH_STEP_EXEC_CONTEXT  → ExecutionContext for restart
+  BATCH_JOB_EXEC_CONTEXT   → Job-level ExecutionContext
+
+
+  USEFUL MONITORING QUERIES:
+  ───────────────────────────
+  -- Last 10 job runs with status
+  SELECT job_instance_id, start_time, end_time, status, exit_code
+  FROM batch_job_execution ORDER BY start_time DESC LIMIT 10;
+
+  -- Step performance for a run
+  SELECT step_name, read_count, write_count, skip_count,
+         TIMESTAMPDIFF(SECOND, start_time, end_time) AS duration_sec
+  FROM batch_step_execution WHERE job_execution_id = ?;
+
+  -- Failed jobs needing restart
+  SELECT * FROM batch_job_execution WHERE status = 'FAILED';
+
+
+  SPRING BOOT ACTUATOR ENDPOINTS (add spring-boot-starter-actuator):
+  ───────────────────────────────────────────────────────────────────
+  GET /actuator/batch/jobs              → all registered jobs
+  GET /actuator/batch/jobs/{name}       → job details
+  GET /actuator/metrics/spring.batch.*  → Micrometer metrics
+
+  KEY METRICS exposed via Micrometer → Prometheus → Grafana:
+  spring.batch.job.duration
+  spring.batch.step.duration
+  spring.batch.item.read
+  spring.batch.item.write
+  spring.batch.item.process.error
+
+Performance Tuning Checklist
+┌─────────────────────────────────────────────────────────────────────────┐
+│              DB MIGRATION PERFORMANCE TUNING                            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+  CHUNK SIZE
+  ──────────
+  Too small (10)   → too many transactions → DB overhead
+  Too large (10000)→ large rollback on failure, high memory
+  Sweet spot       → 500 to 2000 rows per chunk (tune with profiling)
+
+  READER OPTIMIZATION
+  ────────────────────
+  Use JdbcPagingItemReader with offset-free keyset pagination
+  Add index on sort column (WHERE id > :lastId ORDER BY id)
+  fetchSize on JDBC = same as chunk size → reduces round trips
+  reader.setFetchSize(1000)
+
+  WRITER OPTIMIZATION
+  ────────────────────
+  JdbcBatchItemWriter uses JDBC batch → single network round trip
+  Disable indexes on target table before bulk load → re-enable after
+  Use INSERT INTO ... ON DUPLICATE KEY UPDATE for idempotency
+  Set target DB bulk insert buffer (innodb_buffer_pool_size for MySQL)
+
+  CONNECTION POOL
+  ────────────────
+  HikariCP maxPoolSize >= (threadPoolSize + 2)
+  Separate DataSources for source and target DB
+  Set connectionTimeout, idleTimeout appropriately for long jobs
+
+  PROCESSOR OPTIMIZATION
+  ───────────────────────
+  Cache lookup data in @PostConstruct (reference tables, enums)
+  Avoid DB calls inside ItemProcessor — pre-load all reference data
+  Use CompositeItemProcessor to chain processors cleanly
+
+  MEMORY
+  ───────
+  Do NOT collect items in memory across chunks
+  Each chunk is processed and discarded — GC stays healthy
+  For very wide rows, reduce chunk size to manage heap pressure
+  JVM heap: -Xms512m -Xmx2g for typical migration jobs
