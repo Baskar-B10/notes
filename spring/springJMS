@@ -1,0 +1,1444 @@
+================================================================================
+   SPRING JMS | KAFKA | RABBITMQ | AZURE SERVICE BUS
+   Complete Guide: Basic to Advanced
+   (Open in Notepad with Courier New or Consolas font)
+================================================================================
+
+================================================================================
+ WHY MESSAGING? -- THE CORE PROBLEM
+================================================================================
+  OLD WAY -- TIGHT COUPLING (HTTP Sync)
+  --------------------------------------
+
+  +------------+   HTTP call   +-------------+   HTTP call   +------------+
+  | Order Svc  | ------------> | Payment Svc | ------------> | Email Svc  |
+  +------------+               +-------------+               +------------+
+
+  Problems:
+  - Payment slow    --> Order waits (latency cascades)
+  - Payment down    --> Order fails (failure cascades)
+  - High traffic    --> All services must scale together
+  - No retry        --> Lost requests on failure
+  - Tight coupling  --> Cannot deploy independently
+
+
+  NEW WAY -- LOOSE COUPLING (Messaging)
+  ---------------------------------------
+  +------------+  publish  +-------------------+  consume  +-------------+
+  | Order Svc  | --------> |   Message Broker  | --------> | Payment Svc |
+  +------------+           |  (Kafka/Rabbit/   |           +-------------+
+                           |   Azure Svc Bus)  |  consume  +-------------+
+                           |                   | --------> |  Email Svc  |
+                           +-------------------+           +-------------+
+
+  Benefits:
+  - Order never waits            (async, fire and forget)
+  - Payment can be down          (broker holds message)
+  - Scale independently          (each service scales alone)
+  - Automatic retry              (broker retries on failure)
+  - Multiple consumers           (one event -> many handlers)
+  - Replay messages              (Kafka only)
+  - Decouple deployment          (release independently)
+
+
+================================================================================
+ EVOLUTION OF MESSAGING IN JAVA / SPRING
+================================================================================
+  Generation 1: JMS (Java Message Service) -- 2001
+  --------------------------------------------------
+  - Standard Java API for messaging
+  - Works with ActiveMQ, IBM MQ, WebSphere MQ
+  - Point-to-point (Queue) and Pub/Sub (Topic)
+  - Synchronous, heavyweight, XML-heavy config
+  - Used in: EJB / J2EE enterprise applications
+
+  Generation 2: Spring JMS -- 2004
+  ----------------------------------
+  - Wraps JMS API with Spring simplicity
+  - JmsTemplate, @JmsListener
+  - Still relies on JMS-compliant broker (ActiveMQ etc.)
+  - Less boilerplate than raw JMS
+
+  Generation 3: RabbitMQ + Spring AMQP -- 2010
+  ----------------------------------------------
+  - AMQP protocol (not JMS)
+  - Smart routing via Exchanges
+  - Better than JMS: flexible routing, dead letter queues
+  - Spring AMQP / Spring Cloud Stream
+
+  Generation 4: Apache Kafka + Spring Kafka -- 2014
+  ---------------------------------------------------
+  - Log-based, not queue-based
+  - Millions of messages/second
+  - Replay, time-travel, event sourcing
+  - Spring Kafka / Spring Cloud Stream
+
+  Generation 5: Cloud-native (Azure Service Bus, SQS, Pub/Sub)
+  --------------------------------------------------------------
+  - Fully managed, no infra to run
+  - Pay per use, auto-scale
+  - Azure Service Bus: enterprise JMS 2.0 support
+  - Spring Cloud Azure integration
+
+  Why move from JMS to Kafka/Rabbit?
+  -----------------------------------
+  JMS Problem                    Modern Solution
+  ------------------------------ ---------------------------
+  Broker is single point failure Kafka: distributed cluster
+  Slow (thousands/sec)           Kafka: millions/sec
+  No message replay              Kafka: log retention
+  Complex XML config             Spring annotations
+  No cloud-native option         Azure Service Bus, SQS
+  Poor horizontal scaling        Kafka partitions
+
+
+================================================================================
+ PART 1: APACHE KAFKA
+================================================================================
+  KAFKA CORE CONCEPTS (MENTAL MODEL)
+  ------------------------------------
+
+  Think of Kafka like a NEWSPAPER SYSTEM:
+  - Publisher  = Newspaper company (writes stories)
+  - Topic      = Newspaper category (Sports, Business, Tech)
+  - Partition  = Physical printing press (parallel)
+  - Offset     = Page number (your reading position)
+  - Consumer   = Reader (reads at their own pace)
+  - Group      = Office subscription (one copy shared among team)
+
+  KAFKA ARCHITECTURE
+  -------------------
+                        KAFKA CLUSTER
+  +----------------------------------------------------------+
+  |                                                          |
+  |   Topic: "order-events"                                  |
+  |   +----------------------------------------------------+ |
+  |   | Partition 0: [msg1][msg3][msg5][msg7]...           | |
+  |   | Partition 1: [msg2][msg4][msg6][msg8]...           | |
+  |   | Partition 2: [msg0][msg9][msg10][msg11]...         | |
+  |   +----------------------------------------------------+ |
+  |                                                          |
+  |   Broker 1 (leader P0)   Broker 2 (leader P1,P2)        |
+  |   Zookeeper / KRaft for coordination                     |
+  +----------------------------------------------------------+
+         ^                           |
+         | produce                   | consume
+         |                           v
+  +--------------+         +-----------------------------+
+  | Order Svc    |         | Consumer Group: payment-grp |
+  | (Producer)   |         | Consumer A: reads P0        |
+  |              |         | Consumer B: reads P1        |
+  +--------------+         | Consumer C: reads P2        |
+                           +-----------------------------+
+
+  KEY RULES:
+  - One partition is consumed by ONLY ONE consumer in a group
+  - More partitions = more parallelism
+  - Messages in a partition are ORDERED (offset sequence)
+  - Consumer remembers where it left off (offset commit)
+  - Multiple groups can read the SAME topic independently
+
+
+  KAFKA MESSAGE FLOW (STEP BY STEP)
+  -----------------------------------
+  Producer                  Kafka Broker              Consumer
+  --------                  ------------              --------
+  create message
+       |
+       | send to topic "order-events"
+       |-------------------------->
+                             assign to partition
+                             (by key hash or round-robin)
+                             write to partition log
+                             replicate to followers
+                             ack back to producer
+       |<--------------------------
+  producer confirmed
+                                           poll for messages
+                                           <-----------------
+                             send batch of messages
+                             ------------------>
+                                           process message
+                                           commit offset
+                                           <-----------------
+                             offset stored (consumer position)
+
+
+  KAFKA vs QUEUE (CRITICAL DIFFERENCE)
+  --------------------------------------
+  Traditional Queue:          Kafka Topic:
+  +-----------------+         +---------------------------+
+  | msg1            |         | offset: 0  1  2  3  4  5 |
+  | msg2            |         | [m1][m2][m3][m4][m5][m6] |
+  | msg3            |         |  ^              ^         |
+  +-----------------+         | GroupA       GroupB       |
+  msg consumed = DELETED       (reads independently)
+                               msg stays for retention period
+                               can replay from offset 0
+
+
+--------------------------------------------------------------------------------
+ KAFKA DEPENDENCY
+--------------------------------------------------------------------------------
+  pom.xml:
+  <dependency>
+    <groupId>org.springframework.kafka</groupId>
+    <artifactId>spring-kafka</artifactId>
+  </dependency>
+
+
+--------------------------------------------------------------------------------
+ KAFKA CONFIGURATION
+--------------------------------------------------------------------------------
+  application.yml:
+  ----------------
+  spring:
+    kafka:
+      bootstrap-servers: localhost:9092
+      producer:
+        key-serializer: org.apache.kafka.common.serialization.StringSerializer
+        value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+        acks: all                  # wait for all replicas to confirm
+        retries: 3
+        properties:
+          enable.idempotence: true # exactly-once producer
+      consumer:
+        group-id: order-service-group
+        key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+        value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+        auto-offset-reset: earliest  # start from beginning if no offset
+        enable-auto-commit: false    # manual commit for reliability
+        properties:
+          spring.json.trusted.packages: "com.example.events"
+
+
+--------------------------------------------------------------------------------
+ KAFKA PRODUCER
+--------------------------------------------------------------------------------
+  // Simple producer
+  @Service
+  public class OrderEventProducer {
+
+      @Autowired
+      private KafkaTemplate<String, OrderEvent> kafkaTemplate;
+
+      public void publishOrderPlaced(Order order) {
+          OrderEvent event = new OrderEvent(
+              order.getId(),
+              "ORDER_PLACED",
+              order.getAmount(),
+              Instant.now()
+          );
+
+          // send(topic, key, value)
+          // key = orderId ensures same order's events go to same partition
+          kafkaTemplate.send("order-events", order.getId().toString(), event)
+              .whenComplete((result, ex) -> {
+                  if (ex == null) {
+                      log.info("Sent to partition {} offset {}",
+                          result.getRecordMetadata().partition(),
+                          result.getRecordMetadata().offset());
+                  } else {
+                      log.error("Failed to send: {}", ex.getMessage());
+                  }
+              });
+      }
+  }
+
+
+--------------------------------------------------------------------------------
+ KAFKA CONSUMER
+--------------------------------------------------------------------------------
+  @Component
+  public class OrderEventConsumer {
+      // Basic consumer
+      @KafkaListener(
+          topics = "order-events",
+          groupId = "payment-service-group"
+      )
+      public void handleOrderEvent(
+              OrderEvent event,
+              @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
+              @Header(KafkaHeaders.OFFSET) long offset) {
+
+          log.info("Received from partition {} offset {}: {}", partition, offset, event);
+          paymentService.processPayment(event);
+      }
+      // Batch consumer (advanced)
+      @KafkaListener(
+          topics = "order-events",
+          groupId = "analytics-group",
+          containerFactory = "batchFactory"
+      )
+      public void handleBatch(List<OrderEvent> events) {
+          log.info("Processing batch of {} events", events.size());
+          analyticsService.processBatch(events);
+      }
+
+      // Manual acknowledgement (reliable processing)
+      @KafkaListener(topics = "order-events", groupId = "audit-group")
+      public void handleWithAck(OrderEvent event, Acknowledgment ack) {
+          try {
+              auditService.record(event);
+              ack.acknowledge();    // commit offset ONLY after success
+          } catch (Exception e) {
+              log.error("Processing failed, will retry: {}", e.getMessage());
+              // NOT acknowledging = message will be redelivered
+          }
+      }
+  }
+
+
+--------------------------------------------------------------------------------
+ KAFKA TOPIC CREATION (PROGRAMMATIC)
+--------------------------------------------------------------------------------
+  @Configuration
+  public class KafkaTopicConfig {
+      @Bean
+      public NewTopic orderEventsTopic() {
+          return TopicBuilder.name("order-events")
+              .partitions(6)        // 6 partitions = up to 6 parallel consumers
+              .replicas(3)          // 3 replicas for fault tolerance
+              .config(TopicConfig.RETENTION_MS_CONFIG, "604800000") // 7 days
+              .build();
+      }
+      @Bean
+      public NewTopic deadLetterTopic() {
+          return TopicBuilder.name("order-events.DLT")
+              .partitions(1)
+              .replicas(1)
+              .build();
+      }
+  }
+
+
+--------------------------------------------------------------------------------
+ KAFKA ERROR HANDLING & DEAD LETTER TOPIC
+--------------------------------------------------------------------------------
+  @Configuration
+  public class KafkaConsumerConfig {
+      @Bean
+      public ConcurrentKafkaListenerContainerFactory<String, OrderEvent>
+             kafkaListenerContainerFactory(
+                 ConsumerFactory<String, OrderEvent> cf,
+                 KafkaTemplate<String, OrderEvent> kafkaTemplate) {
+
+          var factory = new ConcurrentKafkaListenerContainerFactory<String, OrderEvent>();
+          factory.setConsumerFactory(cf);
+          factory.setConcurrency(3);  // 3 threads per consumer
+          // Dead letter publishing on failure
+          DeadLetterPublishingRecoverer recoverer =
+              new DeadLetterPublishingRecoverer(kafkaTemplate,
+                  (record, ex) -> new TopicPartition("order-events.DLT", 0));
+          // Retry 3 times with 1s backoff, then send to DLT
+          DefaultErrorHandler errorHandler = new DefaultErrorHandler(
+              recoverer,
+              new FixedBackOff(1000L, 3L)
+          );
+          factory.setCommonErrorHandler(errorHandler);
+          return factory;
+      }
+  }
+
+
+--------------------------------------------------------------------------------
+ KAFKA ADVANCED: EXACTLY-ONCE SEMANTICS (TRANSACTIONS)
+--------------------------------------------------------------------------------
+  // Producer with transactions
+  @Service
+  public class TransactionalProducer {
+      @Autowired
+      private KafkaTemplate<String, Object> kafkaTemplate;
+      @Transactional("kafkaTransactionManager")
+      public void publishWithTransaction(Order order) {
+          // Both messages published atomically
+          // If one fails, both are rolled back
+          kafkaTemplate.send("order-events", order.getId().toString(),
+              new OrderPlacedEvent(order));
+          kafkaTemplate.send("audit-events", order.getId().toString(),
+              new AuditEvent("ORDER_PLACED", order.getId()));
+      }
+  }
+  application.yml additions:
+  spring:
+    kafka:
+      producer:
+        transaction-id-prefix: order-tx-
+        properties:
+          enable.idempotence: true
+
+
+================================================================================
+ KAFKA FLOW DIAGRAM (COMPLETE)
+================================================================================
+  ORDER SERVICE                KAFKA CLUSTER             CONSUMERS
+  (Producer)                                             (Multiple Groups)
+  +------------+                                         +----------------+
+  |            |  send("order-events",                  | Payment Group  |
+  | place()    |   key=orderId,         +----------+    | Consumer A: P0 |
+  |            |   value=OrderEvent)    | Topic:   |    | Consumer B: P1 |
+  |            | ---------------------->| order-   |--->| Consumer C: P2 |
+  |            |                        | events   |    +----------------+
+  |            |                        |          |
+  |            |                        | Part 0:  |    +----------------+
+  |            |                        | [e1][e4] |--->| Email Group    |
+  |            |                        |          |    | (reads same    |
+  |            |                        | Part 1:  |    |  topic, own    |
+  |            |                        | [e2][e5] |    |  offset)       |
+  |            |                        |          |    +----------------+
+  |            |                        | Part 2:  |
+  |            |                        | [e3][e6] |    +----------------+
+  |            |                        +----------+    | Analytics Grp  |
+  |            |                                        | (batch reads)  |
+  +------------+                                        +----------------+
+
+  Failure flow:
+  Consumer fails --> not ack --> broker redelivers --> retry 3x --> DLT
+
+1. Understanding Partitions
+    Before looking at the strategies, you have to understand the destination.
+    A Topic in Kafka is divided into multiple Partitions.
+Parallelism: Each partition can be hosted on a different server (Broker), allowing Kafka to scale.
+Order: Kafka only guarantees the order of messages within a single partition, not across the whole topic.
+
+Partitioning Strategy (Key-Based):
+    This is the "intelligent" way to route data. 
+    When you send a message with a Key (e.g., customer_id or order_id), Kafka uses a partitioner to hash that key.
+    How it works: partition=hash(key)(modnum_partitions)
+    The Result: All messages with the same key will always go to the same partition.
+    Why use it? This is crucial for Stateful Processing.
+    If you are calculating a bank balance, you need all transactions for "Customer A" to arrive in the same order at the same consumer.
+
+Round Robin Strategy (No Key):
+    If you send a message without a key (null key), Kafka's default behavior is to distribute messages evenly across all available partitions.
+    How it works: Message 1 goes to Partition 0, Message 2 to Partition 1, Message 3 to Partition 2, and so on.
+    The Result: An even "smear" of data across the entire cluster.
+    Why use it? It provides maximum load balancing.
+    No single broker gets overwhelmed while others sit idle.
+    It is perfect for stateless data where the order relative to other messages doesn't matter (e.g., simple logging).
+
+Sticky Partitioner (The 2026 Context):
+    In modern Kafka versions (and certainly by 2026), the "Round Robin" logic has been optimized into the Sticky Partitioner.
+    Instead of jumping partitions for every single message (which is inefficient for network batching),
+    Kafka "sticks" to one partition for a small batch of messages before moving to the next.
+    This significantly reduces latency and CPU usage while still achieving a balanced distribution over time.
+
+Note: If you find that one partition is much larger than others (a "Hot Partition"),
+it usually means your Partitioning Key isn't diverse enough (e.g., partitioning by Country when 90% of your users are from one country).
+
+================================================================================
+ PART 2: RABBITMQ
+================================================================================
+  RABBITMQ CORE CONCEPTS (MENTAL MODEL)
+  ---------------------------------------
+  Think of RabbitMQ like a POST OFFICE:
+  - Producer   = Person sending a letter
+  - Exchange   = Post office sorting room
+  - Queue      = Post box / mailbox
+  - Binding    = Routing rule (which mailbox gets which letter)
+  - Consumer   = Person receiving mail
+  - Routing Key= Address on envelope
+
+  RABBITMQ EXCHANGE TYPES
+  ------------------------
+  1. DIRECT EXCHANGE (exact match routing)
+     ---------------------------------------
+     Producer sends with routingKey="payment"
+     Exchange routes to queue bound with key="payment"
+
+     Producer --> [Exchange] --(key=payment)--> [payment-queue] --> Consumer
+
+  2. FANOUT EXCHANGE (broadcast to all queues)
+     --------------------------------------------
+     All bound queues get a copy regardless of routing key
+
+     Producer --> [Exchange] --> [email-queue]     --> Email Consumer
+                            --> [sms-queue]       --> SMS Consumer
+                            --> [audit-queue]     --> Audit Consumer
+
+  3. TOPIC EXCHANGE (wildcard routing)
+     -------------------------------------
+     Routing key: "order.placed.chennai"
+     # = match zero or more words
+     * = match exactly one word
+
+     "order.#"         --> matches order.placed, order.placed.chennai
+     "order.*.chennai" --> matches order.placed.chennai
+     "#"               --> matches everything
+
+  4. HEADERS EXCHANGE (match on message headers)
+     -----------------------------------------------
+     Route by header values instead of routing key
+
+
+  RABBITMQ ARCHITECTURE FLOW
+  ---------------------------
+  Producer
+     |
+     | publish(exchange="order-exchange", routingKey="order.placed")
+     v
+  +-----------------+
+  |    Exchange     |  (applies routing rules)
+  | order-exchange  |
+  | type: topic     |
+  +-+---+---+-------+
+    |   |   |
+    |   |   +-- routingKey "order.#"    --> [order-queue]     --> Payment Svc
+    |   |
+    |   +------ routingKey "#"          --> [audit-queue]     --> Audit Svc
+    |
+    +---------- routingKey "order.placed" --> [email-queue]   --> Email Svc
+
+  Queue stores message until consumer picks it up.
+  Message DELETED from queue after consumer ACKs.
+
+
+  DEAD LETTER QUEUE (DLQ) FLOW
+  ------------------------------
+  Consumer fails to process
+         |
+         | NACK (negative acknowledgement)
+         v
+  [order-queue] -- x-dead-letter-exchange --> [order-dlq]
+                                                    |
+                                              Dead Letter Consumer
+                                              (alert, log, manual fix)
+
+
+--------------------------------------------------------------------------------
+ RABBITMQ DEPENDENCY
+--------------------------------------------------------------------------------
+  pom.xml:
+  <dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-amqp</artifactId>
+  </dependency>
+
+
+--------------------------------------------------------------------------------
+ RABBITMQ CONFIGURATION
+--------------------------------------------------------------------------------
+  application.yml:
+  ----------------
+  spring:
+    rabbitmq:
+      host: localhost
+      port: 5672
+      username: guest
+      password: guest
+      virtual-host: /
+      listener:
+        simple:
+          acknowledge-mode: manual    # manual ack for reliability
+          prefetch: 10               # max 10 unacked messages per consumer
+          retry:
+            enabled: true
+            max-attempts: 3
+            initial-interval: 1000
+            multiplier: 2.0          # exponential backoff
+
+
+  @Configuration
+  public class RabbitMQConfig {
+      // Queue with Dead Letter Queue configured
+      @Bean
+      public Queue orderQueue() {
+          return QueueBuilder.durable("order-queue")
+              .withArgument("x-dead-letter-exchange", "order-dlx")
+              .withArgument("x-dead-letter-routing-key", "order.dead")
+              .withArgument("x-message-ttl", 30000)  // 30s TTL
+              .build();
+      }
+
+      @Bean
+      public Queue deadLetterQueue() {
+          return QueueBuilder.durable("order-dlq").build();
+      }
+      // Topic exchange
+      @Bean
+      public TopicExchange orderExchange() {
+          return new TopicExchange("order-exchange");
+      }
+
+      @Bean
+      public DirectExchange deadLetterExchange() {
+          return new DirectExchange("order-dlx");
+      }
+      // Bind queue to exchange with routing pattern
+      @Bean
+      public Binding orderBinding(Queue orderQueue, TopicExchange orderExchange) {
+          return BindingBuilder
+              .bind(orderQueue)
+              .to(orderExchange)
+              .with("order.#");  // matches order.placed, order.cancelled etc.
+      }
+      @Bean
+      public Binding dlqBinding(Queue deadLetterQueue,
+                                DirectExchange deadLetterExchange) {
+          return BindingBuilder
+              .bind(deadLetterQueue)
+              .to(deadLetterExchange)
+              .with("order.dead");
+      }
+      // JSON message converter
+      @Bean
+      public Jackson2JsonMessageConverter jsonConverter() {
+          return new Jackson2JsonMessageConverter();
+      }
+      @Bean
+      public RabbitTemplate rabbitTemplate(ConnectionFactory cf) {
+          RabbitTemplate template = new RabbitTemplate(cf);
+          template.setMessageConverter(jsonConverter());
+          return template;
+      }
+  }
+
+--------------------------------------------------------------------------------
+ RABBITMQ PRODUCER
+--------------------------------------------------------------------------------
+  @Service
+  public class OrderEventPublisher {
+      @Autowired
+      private RabbitTemplate rabbitTemplate;
+      public void publishOrderPlaced(Order order) {
+          OrderEvent event = new OrderEvent(order.getId(), "ORDER_PLACED");
+          rabbitTemplate.convertAndSend(
+              "order-exchange",      // exchange name
+              "order.placed",        // routing key
+              event,                 // message (auto-converted to JSON)
+              message -> {           // message post-processor
+                  message.getMessageProperties().setMessageId(
+                      UUID.randomUUID().toString());
+                  message.getMessageProperties().setExpiration("30000");
+                  return message;
+              }
+          );
+      }
+  }
+
+--------------------------------------------------------------------------------
+ RABBITMQ CONSUMER
+--------------------------------------------------------------------------------
+  @Component
+  public class OrderEventConsumer {
+      // Basic listener
+      @RabbitListener(queues = "order-queue")
+      public void handleOrderEvent(OrderEvent event,
+                                   Channel channel,
+                                   @Header(AmqpHeaders.DELIVERY_TAG) long tag)
+              throws IOException {
+          try {
+              paymentService.processPayment(event);
+              channel.basicAck(tag, false);   // ack single message
+          } catch (BusinessException e) {
+              // Reject and DON'T requeue -> goes to DLQ
+              channel.basicNack(tag, false, false);
+          } catch (TransientException e) {
+              // Reject and requeue -> will be retried
+              channel.basicNack(tag, false, true);
+          }
+      }
+
+      // Fanout consumer (receives broadcast)
+      @RabbitListener(queues = "email-queue")
+      public void sendEmail(OrderEvent event) {
+          emailService.sendOrderConfirmation(event);
+      }
+
+      // DLQ consumer
+      @RabbitListener(queues = "order-dlq")
+      public void handleFailedMessage(OrderEvent event) {
+          log.error("Dead letter received: {}", event);
+          alertService.sendAlert("Message processing failed", event);
+      }
+  }
+
+================================================================================
+ RABBITMQ FLOW DIAGRAM (COMPLETE)
+================================================================================
+  Producer                Exchange              Queues            Consumers
+  --------                --------              ------            ---------
+  OrderService            order-exchange        order-queue
+  .publishOrder()         (topic type)          [msg1][msg2]  --> Payment Svc
+       |                       |                               (processes,
+       | publish(              | routing:                       acks msg)
+       |  exchange=            | "order.#"
+       |  "order-exchange",    |-----> order-queue
+       |  key=                 |
+       |  "order.placed",      | routing:        audit-queue
+       |  body=OrderEvent)     | "#"             [msg1][msg2]  --> Audit Svc
+       |                       |-----> audit-queue
+       +---------------------->|
+                               | routing:        email-queue
+                               | "order.placed"  [msg1][msg2]  --> Email Svc
+                               |-----> email-queue
+
+  Failure path:
+  order-queue NACK --> order-dlx --> order-dlq --> Alert/Fix Consumer
+
+
+================================================================================
+ PART 3: AZURE SERVICE BUS
+================================================================================
+  AZURE SERVICE BUS CORE CONCEPTS
+  ---------------------------------
+
+  Think of Azure Service Bus like a MANAGED COURIER SERVICE:
+  - Namespace  = Courier company (top-level container)
+  - Queue      = Package drop-off (one receiver picks it up)
+  - Topic      = Broadcast channel (multiple subscribers get copy)
+  - Subscription = Subscriber's personal mailbox with filter
+  - Session    = Labeled batch (guarantees ordering per label)
+
+  QUEUE vs TOPIC IN SERVICE BUS
+  ------------------------------
+  Queue (point-to-point):
+  Sender --> [Queue] --> ONE receiver (competing consumers)
+
+  Topic (pub/sub):
+  Sender --> [Topic] --> [Sub A: filter="status=NEW"] --> Consumer A
+                     --> [Sub B: filter="amount>1000"] --> Consumer B
+                     --> [Sub C: no filter]            --> Consumer C
+
+
+  AZURE SERVICE BUS ARCHITECTURE
+  --------------------------------
+  +------------------------------------------------------+
+  |  Azure Service Bus Namespace                         |
+  |  (servicebus.windows.net)                            |
+  |                                                      |
+  |  Queue: order-queue                                  |
+  |  +--------------------------------------------------+|
+  |  | [msg1: lock 30s][msg2: lock 30s][msg3]...        ||
+  |  |  ^-- consumer locks msg, processes, then deletes ||
+  |  |  If not completed in 30s --> lock released       ||
+  |  +--------------------------------------------------+|
+  |                                                      |
+  |  Topic: order-events                                 |
+  |  +--------------------------------------------------+|
+  |  |                                                  ||
+  |  |  Subscription: payment-sub (filter: all)         ||
+  |  |  Subscription: vip-sub (filter: amount > 10000)  ||
+  |  |  Subscription: audit-sub (filter: all)           ||
+  |  +--------------------------------------------------+|
+  |                                                      |
+  |  Dead Letter Queue (auto-created per queue/sub)      |
+  |  Max delivery count: 10 (configurable)               |
+  +------------------------------------------------------+
+
+
+  SERVICE BUS vs KAFKA vs RABBITMQ
+  ----------------------------------
+  Feature             Kafka           RabbitMQ        Azure Svc Bus
+  ------------------- --------------- --------------- ---------------
+  Type                Log/Stream      Queue/Exchange  Queue/Topic
+  Managed             Self/Confluent  Self/CloudAMQP  Fully managed
+  Throughput          Very High       High            Medium-High
+  Message replay      Yes             No              No
+  Ordering            Per partition   No (mostly)     Per session
+  Dead letter         Manual (DLT)    Manual (DLQ)    Auto built-in
+  Message size        Default 1MB     128MB           256KB/100MB
+  Best for            Event streaming Task queues     Enterprise Azure
+  Protocol            Kafka protocol  AMQP            AMQP / JMS 2.0
+  Cost                Infra cost      Infra cost      Pay per message
+
+
+--------------------------------------------------------------------------------
+ AZURE SERVICE BUS DEPENDENCY
+--------------------------------------------------------------------------------
+  pom.xml:
+  <dependency>
+    <groupId>com.azure.spring</groupId>
+    <artifactId>spring-cloud-azure-starter-servicebus-jms</artifactId>
+  </dependency>
+
+  OR for Spring Cloud Stream:
+  <dependency>
+    <groupId>com.azure.spring</groupId>
+    <artifactId>spring-cloud-azure-stream-binder-servicebus</artifactId>
+  </dependency>
+
+--------------------------------------------------------------------------------
+ AZURE SERVICE BUS CONFIGURATION
+--------------------------------------------------------------------------------
+  application.yml (JMS approach):
+  --------------------------------
+  spring:
+    jms:
+      servicebus:
+        connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}
+        pricing-tier: premium      # standard or premium
+        idle-timeout: 1800000      # 30 min connection keep-alive
+    jms:
+      listener:
+        acknowledge-mode: CLIENT_ACKNOWLEDGE  # manual ack
+
+  application.yml (Spring Cloud Stream approach):
+  ------------------------------------------------
+  spring:
+    cloud:
+      azure:
+        servicebus:
+          connection-string: ${AZURE_SERVICEBUS_CONNECTION_STRING}
+      stream:
+        bindings:
+          publishOrder-out-0:
+            destination: order-events    # topic name
+          consumeOrder-in-0:
+            destination: order-events
+            group: payment-sub           # subscription name
+        servicebus:
+          bindings:
+            consumeOrder-in-0:
+              consumer:
+                sub-queue: deadLetterQueue  # or none
+                max-concurrent-sessions: 5
+                session-enabled: true       # for ordered processing
+
+
+--------------------------------------------------------------------------------
+ AZURE SERVICE BUS PRODUCER (JMS approach)
+--------------------------------------------------------------------------------
+  @Service
+  public class OrderMessageSender {
+      @Autowired
+      private JmsTemplate jmsTemplate;
+      // Send to Queue
+      public void sendToQueue(Order order) {
+          jmsTemplate.convertAndSend("order-queue",
+              new OrderEvent(order.getId(), "ORDER_PLACED"),
+              message -> {
+                  message.setStringProperty("orderId",
+                      order.getId().toString());
+                  message.setLongProperty("amount",
+                      order.getAmount().longValue());
+                  // Session ID for ordering guarantee
+                  ((ServiceBusJmsMessage) message)
+                      .setSessionId(order.getCustomerId().toString());
+                  return message;
+              });
+      }
+
+      // Send to Topic
+      public void sendToTopic(Order order) {
+          jmsTemplate.convertAndSend("order-events",
+              new OrderEvent(order.getId(), "ORDER_PLACED"));
+      }
+
+      // Scheduled message (send to future)
+      public void sendScheduled(Order order, Instant deliverAt) {
+          jmsTemplate.convertAndSend("order-queue",
+              new OrderEvent(order.getId(), "ORDER_PLACED"),
+              message -> {
+                  message.setLongProperty(
+                      ServiceBusMessageProperties.SCHEDULED_ENQUEUE_TIME_UTC,
+                      deliverAt.toEpochMilli());
+                  return message;
+              });
+      }
+  }
+
+
+--------------------------------------------------------------------------------
+ AZURE SERVICE BUS CONSUMER (JMS approach)
+-------------------------------------------------------------------------------
+  @Component
+  public class OrderMessageReceiver {
+
+      // Listen to Queue
+      @JmsListener(destination = "order-queue",
+                   containerFactory = "jmsListenerContainerFactory")
+      public void receiveFromQueue(OrderEvent event, Session session)
+              throws JMSException {
+          try {
+              paymentService.processPayment(event);
+              session.commit();             // acknowledge (complete message)
+          } catch (Exception e) {
+              session.rollback();           // nack -> retry -> DLQ after max
+          }
+      }
+
+      // Listen to Topic Subscription
+      @JmsListener(
+          destination = "order-events",
+          containerFactory = "topicFactory",
+          subscription = "payment-sub"     // subscription name
+      )
+      public void receiveFromTopic(OrderEvent event) {
+          paymentService.processPayment(event);
+      }
+
+      // Listen to Dead Letter Queue
+      @JmsListener(destination = "order-queue/$deadletterqueue")
+      public void handleDeadLetter(Message message) throws JMSException {
+          log.error("Dead letter: reason={}, desc={}",
+              message.getStringProperty("DeadLetterReason"),
+              message.getStringProperty("DeadLetterErrorDescription"));
+          alertService.notify(message);
+      }
+  }
+
+
+================================================================================
+ AZURE SERVICE BUS FLOW DIAGRAM
+================================================================================
+  Sender (Spring Boot)           Azure Service Bus          Receivers
+  --------------------           -----------------          ---------
+  OrderService                   Namespace
+  .placeOrder()                  (yourns.servicebus.windows.net)
+       |
+       | JmsTemplate                Topic: order-events
+       | .convertAndSend(           +--------------------+
+       |  "order-events",           | Subscription:      |
+       |   event)                   | payment-sub        |---> Payment Svc
+       +------------------------->  | (filter: all)      |
+                                    |                    |
+                                    | Subscription:      |
+                                    | vip-sub            |---> VIP Handler
+                                    | (amount > 10000)   |
+                                    |                    |
+                                    | Subscription:      |
+                                    | audit-sub          |---> Audit Svc
+                                    +--------------------+
+
+  Message lock flow:
+  Receiver gets msg --> Lock acquired (30s) --> Process
+       |                                           |
+       +--(success)--> Complete (delete from queue)|
+       |                                           |
+       +--(fail)-----> Abandon (release lock,      |
+                        retry count++)             |
+                        After max retries:         |
+                        --> Dead Letter Queue      |
+
+
+================================================================================
+ PART 4: SPRING CLOUD STREAM (UNIFIED ABSTRACTION)
+================================================================================
+  WHAT IS SPRING CLOUD STREAM?
+  ------------------------------
+  Spring Cloud Stream is an abstraction layer that lets you write
+  messaging code ONCE and switch between Kafka, RabbitMQ, or
+  Azure Service Bus by changing only the binder dependency.
+
+  Your Code                Binder              Broker
+  ---------                ------              ------
+  @Bean Function  ------>  Kafka Binder  ----> Apache Kafka
+  @Bean Function  ------>  Rabbit Binder ----> RabbitMQ
+  @Bean Function  ------>  Azure Binder  ----> Azure Service Bus
+
+
+  SPRING CLOUD STREAM ARCHITECTURE
+  ----------------------------------
+  +--------------------------------------------------------------+
+  |  Spring Boot Application                                     |
+  |                                                              |
+  |  +------------------+      +---------------------------+    |
+  |  |  Source          |      |  Sink                     |    |
+  |  |  (Producer)      |      |  (Consumer)               |    |
+  |  |  @Bean Supplier  |      |  @Bean Consumer           |    |
+  |  +--------+---------+      +------------+--------------+    |
+  |           |                             |                    |
+  |  +--------v-----------------------------v--------------+    |
+  |  |         Spring Cloud Stream Binder Layer             |    |
+  |  |   (Handles serialization, error, retry, DLQ)         |    |
+  |  +------------------------------------------------------+    |
+  +--------------------------------------------------------------+
+                    |                      |
+                    v                      ^
+             Message Broker (Kafka / RabbitMQ / Azure)
+
+
+  DEPENDENCY (switch binder to change broker):
+  --------------------------------------------
+  <!-- For Kafka -->
+  <dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-stream-binder-kafka</artifactId>
+  </dependency>
+
+  <!-- For RabbitMQ -->
+  <dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-stream-binder-rabbit</artifactId>
+  </dependency>
+
+  <!-- For Azure Service Bus -->
+  <dependency>
+    <groupId>com.azure.spring</groupId>
+    <artifactId>spring-cloud-azure-stream-binder-servicebus</artifactId>
+  </dependency>
+
+
+  FUNCTIONAL PROGRAMMING MODEL:
+  ------------------------------
+  @Configuration
+  public class OrderStreamFunctions {
+
+      // Supplier = produces messages on schedule
+      @Bean
+      public Supplier<OrderEvent> orderSupplier() {
+          return () -> orderService.getNextPendingOrder();
+      }
+
+      // Consumer = receives messages
+      @Bean
+      public Consumer<OrderEvent> processPayment() {
+          return event -> paymentService.process(event);
+      }
+
+      // Function = receive, transform, and forward
+      @Bean
+      public Function<OrderEvent, PaymentEvent> orderToPayment() {
+          return order -> new PaymentEvent(order.getId(), order.getAmount());
+      }
+  }
+
+  application.yml (same code, just change binder):
+  -------------------------------------------------
+  spring:
+    cloud:
+      stream:
+        bindings:
+          processPayment-in-0:
+            destination: order-events     # topic/queue name
+            group: payment-group
+          processPayment-out-0:
+            destination: payment-events
+        kafka:                            # kafka-specific settings
+          bindings:
+            processPayment-in-0:
+              consumer:
+                start-offset: earliest
+
+
+================================================================================
+ PART 5: ADVANCED PATTERNS
+================================================================================
+  PATTERN 1: SAGA PATTERN (Distributed Transactions)
+  ----------------------------------------------------
+
+  Problem: Order service and Payment service need to either BOTH
+           succeed or BOTH fail, but they are separate services.
+
+  Solution: Saga - a sequence of local transactions with compensating
+            transactions on failure.
+
+  CHOREOGRAPHY SAGA (event-driven):
+  ----------------------------------
+
+  Order Svc         Kafka            Payment Svc      Inventory Svc
+  ---------         -----            -----------      -------------
+  place order
+       |
+       | publish "order.created"
+       +----------->
+                    |
+                    | consume "order.created"
+                    +-------------------->
+                                     process payment
+                                          |
+                                          | publish "payment.success"
+                                          +-------->
+                                                   consume "payment.success"
+                                                   reserve inventory
+                                                          |
+                                                          | publish "inventory.reserved"
+                                                          +-------->
+                                                   Order Svc consumes
+                                                   --> order CONFIRMED
+
+  Failure:
+  Payment fails --> publish "payment.failed"
+  Order Svc consumes --> publish "order.cancelled" (compensate)
+
+
+  PATTERN 2: OUTBOX PATTERN (Guaranteed Delivery)
+  ------------------------------------------------
+  Problem: Service saves to DB and publishes event.
+           What if publish fails after DB save?
+           --> DB updated but event never sent.
+
+  Solution: Write event to OUTBOX table in same DB transaction.
+            Separate poller reads outbox and publishes to broker.
+
+  OrderService                DB               Kafka
+  ------------                --               -----
+  @Transactional
+  placeOrder():
+       |
+       | INSERT orders (order data)         +-----------+
+       |-----------------------------------> | orders    |
+       |                                    +-----------+
+       | INSERT outbox (event data)
+       |-----------------------------------> +-----------+
+       |                                    | outbox    |
+       v                                    +-----------+
+  transaction committed                          |
+                                                 | Outbox Poller (every 1s)
+                                                 | reads unpublished rows
+                                                 |
+                                                 +-----> publish to Kafka
+                                                         mark as published
+
+
+  PATTERN 3: COMPETING CONSUMERS (Load Balancing)
+  -------------------------------------------------
+  Queue: order-queue
+  [msg1][msg2][msg3][msg4][msg5][msg6]
+
+  Consumer Instance 1: picks msg1, msg4  (processes in parallel)
+  Consumer Instance 2: picks msg2, msg5
+  Consumer Instance 3: picks msg3, msg6
+
+  --> Scale consumers horizontally to handle more load
+  --> Kafka: add more partitions + consumers in same group
+  
+
+  PATTERN 4: MESSAGE FILTERING (Content-Based Routing)
+  ------------------------------------------------------
+  One topic, different consumers for different message types:
+  Kafka:
+  @KafkaListener(topics = "order-events",
+    filter = "orderTypeFilter")   // Spring bean that returns true/false
+  public void handleVIPOrders(OrderEvent event) { ... }
+
+  @Bean
+  public RecordFilterStrategy<String, OrderEvent> orderTypeFilter() {
+      return record -> !record.value().getCustomerType().equals("VIP");
+      // return true = skip (filter out), false = process
+  }
+
+  RabbitMQ: Use topic routing key patterns or headers exchange.
+  Azure SB: Use subscription SQL filter expressions.
+
+  PATTERN 5: REQUEST-REPLY (Sync over Async)
+  -------------------------------------------
+  Sometimes you need a response from async messaging.
+
+  Requestor                   Broker              Responder
+  ---------                   ------              ---------
+  create replyTo queue: "reply-queue-xyz"
+       |
+       | publish to "order-request-queue"
+       | header: replyTo = "reply-queue-xyz"
+       | header: correlationId = "abc123"
+       +------------------------------>
+                                       consume "order-request-queue"
+                                       process request
+                                            |
+                                            | publish to "reply-queue-xyz"
+                                            | header: correlationId="abc123"
+                                            +--------->
+       |
+       | receive from "reply-queue-xyz"
+       | match correlationId = "abc123"
+       | <------------------------------
+  got response!
+  // Spring RabbitMQ built-in support:
+  Object response = rabbitTemplate.convertSendAndReceive(
+      "order-exchange", "order.request", requestEvent);
+
+================================================================================
+ PART 6: ERROR HANDLING ACROSS ALL BROKERS
+================================================================================
+  ERROR HANDLING FLOW (UNIVERSAL)
+  ---------------------------------
+  Message arrives
+       |
+       v
+  Consumer processes
+       |
+       +-- SUCCESS --> ACK --> message deleted/committed
+       |
+       +-- FAILURE --> NACK / no ack
+                    |
+                    v
+              Retry attempt 1 (wait 1s)
+                    |
+              Retry attempt 2 (wait 2s)
+                    |
+              Retry attempt 3 (wait 4s)
+                    |
+              Max retries exceeded
+                    |
+                    v
+              Dead Letter Queue / Topic
+              (DLQ / DLT)
+                    |
+              DLQ Consumer
+              (alert / log / manual fix / replay)
+
+
+  KAFKA ERROR HANDLING:
+  ---------------------
+  @Bean
+  public DefaultErrorHandler errorHandler(
+          KafkaTemplate<String, OrderEvent> kt) {
+      DeadLetterPublishingRecoverer recoverer =
+          new DeadLetterPublishingRecoverer(kt);
+      return new DefaultErrorHandler(recoverer,
+          new ExponentialBackOff(1000L, 2.0)); // 1s, 2s, 4s...
+  }
+
+  RABBITMQ ERROR HANDLING:
+  ------------------------
+  spring:
+    rabbitmq:
+      listener:
+        simple:
+          retry:
+            enabled: true
+            max-attempts: 3
+            initial-interval: 1000
+            multiplier: 2.0
+            max-interval: 10000
+
+  AZURE SERVICE BUS ERROR HANDLING:
+  ----------------------------------
+  // Max delivery count set on queue/subscription (default 10)
+  // After max, message auto-moves to $deadletterqueue
+  // No config needed -- built in!
+
+================================================================================
+ PART 7: SERIALIZATION & MESSAGE FORMATS
+================================================================================
+  JSON (most common):
+  -------------------
+  // Kafka
+  spring.kafka.producer.value-serializer=
+    org.springframework.kafka.support.serializer.JsonSerializer
+  spring.kafka.consumer.value-deserializer=
+    org.springframework.kafka.support.serializer.JsonDeserializer
+  spring.kafka.consumer.properties.spring.json.trusted.packages=*
+
+  // RabbitMQ -- auto with Jackson2JsonMessageConverter bean
+  @Bean
+  public Jackson2JsonMessageConverter converter() {
+      return new Jackson2JsonMessageConverter();
+  }
+
+  AVRO (schema registry -- enterprise):
+  ---------------------------------------
+  // Enforces schema, backward/forward compatibility
+  // Used with Confluent Schema Registry
+  spring.kafka.producer.value-serializer=
+    io.confluent.kafka.serializers.KafkaAvroSerializer
+  spring.kafka.properties.schema.registry.url=
+    http://schema-registry:8081
+
+  MESSAGE ENVELOPE PATTERN (best practice):
+  ------------------------------------------
+  {
+    "eventId":   "uuid-1234",
+    "eventType": "ORDER_PLACED",
+    "version":   "1.0",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "source":    "order-service",
+    "payload": {
+      "orderId": "ord-789",
+      "amount":  1500.00,
+      "items":   [...]
+    }
+  }
+  -- eventId for idempotency (don't process same event twice)
+  -- version for schema evolution
+  -- eventType for routing / filtering
+
+
+================================================================================
+ PART 8: MONITORING & OBSERVABILITY
+================================================================================
+  KAFKA MONITORING:
+  -----------------
+  // Expose Kafka metrics via Actuator + Micrometer
+  management:
+    endpoints:
+      web:
+        exposure:
+          include: health, metrics, kafka
+    metrics:
+      tags:
+        application: order-service
+
+  Key metrics to watch:
+  - kafka.consumer.lag        --> how far behind consumer is
+  - kafka.producer.record.send.rate --> messages/second
+  - kafka.consumer.fetch.rate --> fetch requests/second
+
+  RABBITMQ MONITORING:
+  --------------------
+  // RabbitMQ Management UI at http://localhost:15672
+  // Spring Boot Actuator exposes rabbit health
+  management:
+    health:
+      rabbit:
+        enabled: true
+
+  Key metrics: queue depth, consumer count, message rate
+
+  AZURE SERVICE BUS MONITORING:
+  ------------------------------
+  // Azure Monitor + Application Insights auto-integration
+  spring:
+    cloud:
+      azure:
+        servicebus:
+          connection-string: ...
+  // Metrics in Azure Portal: message count, DLQ count, active messages
+
+
+================================================================================
+ PART 9: IDEMPOTENCY (PROCESS MESSAGE EXACTLY ONCE)
+================================================================================
+  Problem: Consumer processes message, crashes BEFORE acking.
+  Broker redelivers. Message processed TWICE.
+  --> Duplicate payment, duplicate email, etc.
+
+  Solution: Idempotency key (eventId)
+
+  @Service
+  public class PaymentConsumer {
+      @Autowired
+      private ProcessedEventRepository processedEvents;
+      @KafkaListener(topics = "order-events")
+      public void handle(OrderEvent event, Acknowledgment ack) {
+          // Check if already processed
+          if (processedEvents.existsByEventId(event.getEventId())) {
+              log.warn("Duplicate event {}, skipping", event.getEventId());
+              ack.acknowledge();  // ack to prevent re-delivery
+              return;
+          }
+
+          // Process in transaction with idempotency record
+          processedEvents.save(new ProcessedEvent(event.getEventId()));
+          paymentService.charge(event);
+          ack.acknowledge();
+      }
+  }
+
+  @Entity
+  public class ProcessedEvent {
+      @Id
+      private String eventId;    // UUID from message envelope
+      private Instant processedAt;
+  }
+
+
+================================================================================
+ COMPARISON: WHEN TO USE WHICH BROKER
+================================================================================
+  USE KAFKA WHEN:
+  ---------------
+  - You need very high throughput (millions of msgs/sec)
+  - You need message replay / event sourcing
+  - You are building event-driven microservices at scale
+  - You need stream processing (Kafka Streams / Flink)
+  - You want a distributed commit log
+  - Example: user activity tracking, financial transactions,
+             IoT data ingestion, audit logs
+
+  USE RABBITMQ WHEN:
+  ------------------
+  - You need complex routing (multiple exchange types)
+  - You need task queues (background jobs, work distribution)
+  - You need request-reply patterns
+  - You want simpler setup than Kafka
+  - Message ordering is NOT critical
+  - Example: email sending, report generation, task scheduling
+
+  USE AZURE SERVICE BUS WHEN:
+  ---------------------------
+  - You are on Azure and want fully managed messaging
+  - You need guaranteed message ordering (sessions)
+  - You need enterprise features (transactions, dedup)
+  - You use JMS 2.0 standard API
+  - You want to avoid managing broker infrastructure
+  - Example: enterprise Azure workloads, lift-and-shift from
+             JMS/ActiveMQ, government/regulated workloads
+
+
+================================================================================
+ COMPLETE END-TO-END FLOW: ORDER SYSTEM
+================================================================================
+
+  CLIENT                GATEWAY           ORDER SVC          KAFKA
+  ------                -------           ---------          -----
+  POST /orders
+       |
+       +------------->
+                    route to order-svc
+                         |
+                         +----------->
+                                    validate order
+                                    save to DB
+                                    publish event
+                                         |
+                                         | "order.placed"
+                                         +------------>
+                                                      [order-events topic]
+                                                            |
+              +---------------------------------------------+
+              |                    |                    |
+              v                    v                    v
+     payment-group          email-group           audit-group
+     Payment Svc            Email Svc             Audit Svc
+     charge card            send email            log event
+          |                      |
+          | success              | sent
+          |                      |
+          | publish              |
+          | "payment.success"    |
+          +----> [payment-events]
+                      |
+                      v
+              Order Svc consumes
+              update order status=CONFIRMED
+              publish "order.confirmed"
+              --> Email Svc sends confirmation
+
+
+================================================================================
+ DEPENDENCY QUICK REFERENCE
+================================================================================
+  Broker              Dependency Artifact
+  ------------------- ------------------------------------------
+  Apache Kafka        spring-kafka
+  RabbitMQ            spring-boot-starter-amqp
+  Azure Svc Bus JMS   spring-cloud-azure-starter-servicebus-jms
+  Azure Svc Bus Stream spring-cloud-azure-stream-binder-servicebus
+  ActiveMQ (legacy)   spring-boot-starter-activemq
+  Spring Cloud Stream spring-cloud-stream (+ binder of choice)
+
+
+================================================================================
+ PORT REFERENCE
+================================================================================
+  Service                    Default Port
+  -------------------------- ------------
+  Kafka Broker               9092
+  Kafka Zookeeper            2181
+  Kafka Schema Registry      8081
+  Kafka Control Center UI    9021
+  RabbitMQ AMQP              5672
+  RabbitMQ Management UI     15672
+  Azure Service Bus          AMQP 5671 (TLS)
+  ActiveMQ                   61616
+
+
+================================================================================
+ OLD vs NEW MESSAGING COMPARISON
+================================================================================
+  Concern          ActiveMQ/JMS       Kafka            RabbitMQ
+  ---------------- ------------------ ---------------- ----------------
+  Throughput       Thousands/sec      Millions/sec     Hundreds K/sec
+  Replay           No                 Yes              No
+  Persistence      File/DB            Log (disk)       RAM + disk
+  Routing          Basic              By key/partition Exchange types
+  Dead Letter      Manual config      DLT topic        Auto DLQ
+  Cluster          Basic              Built-in         Mirrored queues
+  Cloud managed    No                 Confluent Cloud  CloudAMQP
+  Spring support   JmsTemplate        KafkaTemplate    RabbitTemplate
+  Config style     XML heavy          application.yml  application.yml
+  Protocol         JMS/OpenWire       Kafka protocol   AMQP
+
