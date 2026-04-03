@@ -1,0 +1,132 @@
+What is Spring MVC?
+  Spring MVC is the web framework module of Spring that implements the Model-View-Controller design pattern
+  It sits on top of the Java Servlet API and handles the full HTTP request-response lifecycle
+  Every incoming HTTP request goes through a central dispatcher, gets routed to the right controller, processed, and a response is returned
+  Spring Boot auto-configures Spring MVC with sensible defaults — zero XML, zero web.xml needed
+  Spring WebFlux is the reactive alternative introduced in Spring 5 — non-blocking, event-driven, built on Project Reactor
+
+MVC Pattern — What Each Part Does
+  Model — the data. A POJO, a Map, or a domain object that carries data between controller and view
+  View — the presentation. Can be HTML (Thymeleaf), JSON (REST), XML, PDF, or any rendered output
+  Controller — the coordinator. Receives the request, calls the service layer, prepares the model, returns a view or response body
+
+Request Lifecycle — Text Diagram:
+  Browser / Client
+       │
+       │  HTTP Request (GET /api/orders/1)
+       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                   DispatcherServlet                             │
+  │              (Front Controller — single entry point)            │
+  │                                                                 │
+  │  1. Receives ALL requests mapped to "/"                         │
+  │  2. Delegates to HandlerMapping → finds the right controller    │
+  │  3. Delegates to HandlerAdapter → invokes the controller method │
+  │  4. Receives ModelAndView back from controller                  │
+  │  5. Delegates to ViewResolver → resolves view name to template  │
+  │  6. Renders view / writes JSON response body                    │
+  └────────────────────────────┬────────────────────────────────────┘
+                               │
+          ┌────────────────────┼─────────────────────┐
+          ▼                    ▼                      ▼
+  ┌───────────────┐   ┌─────────────────┐   ┌────────────────────┐
+  │HandlerMapping │   │  HandlerAdapter │   │   ViewResolver     │
+  │               │   │                 │   │                    │
+  │ Maps URL to   │   │ Invokes method  │   │ Resolves view name │
+  │ controller    │   │ handles args,   │   │ to actual template │
+  │ method        │   │ return value    │   │ (Thymeleaf, JSON)  │
+  └───────────────┘   └────────┬────────┘   └────────────────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │    Your Controller  │
+                    │  @GetMapping("/1")  │
+                    │  findOrder(Long id) │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   Service Layer     │
+                    │   orderService      │
+                    │   .findById(id)     │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  Repository / DB    │
+                    └──────────┬──────────┘
+                               │
+                               ▼ (response travels back up)
+                    ┌─────────────────────┐
+                    │  JSON / HTML sent   │
+                    │  back to client     │
+                    └─────────────────────┘
+
+
+  FILTER CHAIN (runs before DispatcherServlet):
+  ──────────────────────────────────────────────
+  Request → [Filter1] → [Filter2] → [Filter3] → DispatcherServlet
+  Response← [Filter1] ← [Filter2] ← [Filter3] ← DispatcherServlet
+
+  Filters handle: CORS, authentication, logging, compression, encoding
+
+  Interceptor vs Filter — Flow Diagram:
+  Request
+     │
+     ▼
+  [Servlet Filter]          ← Servlet API, runs BEFORE DispatcherServlet
+     │                        Access: raw HttpServletRequest/Response
+     │                        Use for: auth, CORS, encoding, rate limiting
+     ▼
+  DispatcherServlet
+     │
+     ▼
+  [HandlerInterceptor]      ← Spring MVC, runs INSIDE DispatcherServlet
+     │  preHandle()           Access: handler (controller method), ModelAndView
+     ▼                        Use for: auth token check, logging, audit
+  Controller Method
+     │
+     ▼
+  [HandlerInterceptor]
+     │  postHandle()          ← after controller, before view render
+     ▼
+  View Rendered
+     │
+     ▼
+  [HandlerInterceptor]
+     │  afterCompletion()     ← after everything, even on exception
+     ▼
+  [Servlet Filter]           ← response passes back through filter chain
+     │
+     ▼
+  Response to Client
+
+Spring Boot Auto-Configuration for MVC:
+    Spring Boot detects spring-boot-starter-web on classpath and auto-configures everything
+    No DispatcherServlet registration needed — Boot registers it automatically at /
+    No ViewResolver bean needed for REST — MappingJackson2HttpMessageConverter handles JSON automatically
+    WebMvcAutoConfiguration applies sensible defaults — content negotiation, static resources, error handling
+
+<!-- pom.xml — all you need -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+
+# application.yml — common MVC settings
+server:
+  port: 8080
+  servlet:
+    context-path: /app        # all URLs prefixed with /app
+
+spring:
+  mvc:
+    format:
+      date: yyyy-MM-dd        # global date format
+  jackson:
+    default-property-inclusion: non_null   # exclude nulls from JSON
+    serialization:
+      write-dates-as-timestamps: false
+
+Controllers — Building REST APIs:
+Basic Controller:
