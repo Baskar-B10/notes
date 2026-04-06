@@ -69,6 +69,12 @@ The "Sidecar" Pattern
       Orchestration: Using Kubernetes (AKS) to manage scaling, self-healing, and deployments.
       Observability: Distributed tracing (using tools like Jaeger or Zipkin) to follow a single request as it travels through 10 different services.
 
+1. How to maintain data consistency in database for multiple micro services:
+  1. The Saga Pattern (The Gold Standard)
+  2. Two-Phase Commit (2PC)
+  3. The Transactional Outbox Pattern
+  4. Change Data Capture (CDC)
+  5. Event Sourcing
 Saga Pattern :
 The Saga Pattern is a failure management pattern used in microservices to manage distributed transactions.
 
