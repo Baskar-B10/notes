@@ -1,3 +1,52 @@
+Docker:
+  Docker operates on a Client-Server architecture that leverages low-level Linux kernel features to provide isolation.
+  Instead of hardware virtualization (like a VM), Docker uses OS-level virtualization, making it significantly faster and more lightweight.
+
+1. The High-Level Architecture
+  Docker is split into three main components that communicate via a REST API:
+      The Client: This is where you type commands (e.g., docker run). 
+                It acts as the user interface and sends your instructions to the Daemon.
+      The Daemon (dockerd): The "brain" of Docker. 
+                It runs in the background on the Host machine and manages images, containers, networks, and volumes.
+      The Registry: A store for Docker Images. 
+                Docker Hub is the default public registry, but you can also have private ones.
+
+2. How it works "Under the Hood"
+    Docker isn't magic; it uses two specific features of the Linux Kernel to create the "bubble" that is a container:
+    A. Namespaces (Isolation)
+        Namespaces provide the isolation layer. 
+        They make the container think it has its own dedicated resources, even though it's sharing the host's kernel.
+            PID Namespace: Provides isolated process IDs (Process #1 inside the container is not Process #1 on your laptop).
+            Net Namespace: Gives the container its own network stack (IP addresses, routing tables).
+            Mnt Namespace: Isolates filesystem mount points (The container has its own root /).
+    B. Control Groups / cgroups (Resource Limits)
+        While namespaces provide isolation, cgroups provide limitations. 
+        They ensure a single container doesn't "hog" all the RAM or CPU of the host machine. 
+        You can tell a container: "You are only allowed to use 512MB of RAM."
+
+3. The Lifecycle of a docker run Command
+    When you type docker run hello-world, the following chain reaction occurs:
+        Client sends a request to the Daemon.
+        Daemon checks if the hello-world Image exists locally.
+        If not, the Daemon Pulls it from the Registry (Docker Hub).
+        The Daemon creates a Container from that image (like a class instance from a blueprint).
+        The Daemon allocates a read-write layer on top of the read-only image layers.
+        The Daemon creates a network interface and assigns an IP.
+        The application inside the container executes.
+
+4. Layered File System (UnionFS)
+      Docker images are built in layers. 
+      Each instruction in a Dockerfile (like RUN apt-get install) creates a new layer.
+        Read-Only Layers: All layers of an image are immutable.
+        Copy-on-Write: When a container is running and you modify a file, Docker copies that file to the top "Container Layer" (Read-Write) and modifies it there. 
+            This makes image sharing extremely efficient because multiple containers can share the same base image layers.
+
+Feature       Docker (Container)            Virtual Machine (VM)
+Architecture  Shares the Host OS Kernel.    Includes a full Guest OS.
+Size          Megabytes (Very Small).       Gigabytes (Large).
+Startup Time  Milliseconds.                 Minutes.
+Efficiency    High (Low overhead).          Lower (High hardware emulation).
+
 Feature	            Application Logs	                      Kubectl Logs
 Who creates it?	    Your code / Logic.	                    The Kubernetes API / Container Runtime.
 Where is it stored?	Disk, Console, or Remote Log Server.	  Local disk of the Worker Node.
