@@ -24,3 +24,47 @@ The Weaknesses:
   Data Consistency: Maintaining data integrity across different databases (Distributed Transactions) is notoriously difficult.
   Network Latency: Constant communication over the network adds overhead that doesn't exist in a monolith.
 
+
+In a microservice architecture, an application is built as a suite of small, independent services, 
+each running in its own process and communicating with lightweight mechanisms—often an HTTP resource API or message-driven patterns.
+
+1. Core Characteristics:
+    Unlike a monolith, where every component shares the same memory and database, microservices follow these strict principles:
+        Single Responsibility: Each service focuses on one specific business capability (e.g., "Payment Service" or "Inventory Service").
+        Decentralized Data: Each service owns its own database (SQL, NoSQL, etc.). This prevents "hidden coupling" where one service modifies another's data directly.
+        Independent Deployment: You can update the "Shipping Service" without touching or restarting the "User Profile" service.
+        Failure Isolation: If the "Recommendation" service crashes, the "Checkout" service should continue to function.
+
+2. Key Component Layers:
+A. API Gateway:
+    The entry point for all clients (Mobile, Web). It handles:
+        Routing: Directing requests to the correct service.
+        Authentication: Verifying JWT tokens before the request hits internal services.
+        Rate Limiting: Protecting services from being overwhelmed.
+
+B. Service Discovery
+    In cloud environments like Kubernetes, service IP addresses change constantly. 
+    A Service Discovery mechanism (like CoreDNS in K8s) allows services to find each other by name (e.g., http://inventory-service) rather than static IPs.
+
+C. Inter-Service Communication
+Services talk to each other in two main ways:
+  Synchronous (REST/gRPC): Service A calls Service B and waits for a response. Best for immediate data needs.
+  Asynchronous (Message Brokers): Service A publishes an event to Azure Service Bus or Kafka.
+  Service B listens and reacts whenever it’s ready. This is the backbone of Event-Driven Architecture.
+
+Advanced Design Patterns:
+Database per Service & Eventual Consistency
+  Since services don't share a database, you cannot use traditional ACID transactions across services. Instead, we use:
+    Saga Pattern: A sequence of local transactions. If one fails, the system executes "compensating transactions" to undo the previous steps.
+    Transactional Outbox: Ensuring that a database update and a message publication happen atomically, preventing data loss if the broker is down.
+
+The "Sidecar" Pattern
+    Commonly used in service meshes like Istio.
+    A small container runs alongside your service to handle "infrastructure" tasks like logging, security, and retries, 
+    so your Java code stays focused purely on business logic.
+
+4. Strategic Implementation (The "Ops" Side)
+    To run microservices effectively, especially in a professional cloud environment, you need:
+      Containerization: Using Docker to package the service and its dependencies.
+      Orchestration: Using Kubernetes (AKS) to manage scaling, self-healing, and deployments.
+      Observability: Distributed tracing (using tools like Jaeger or Zipkin) to follow a single request as it travels through 10 different services.
