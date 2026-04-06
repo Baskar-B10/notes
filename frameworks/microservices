@@ -155,6 +155,29 @@ B. Polling Publisher
         Pros: Very simple to implement in Java.
         Cons: Adding polling load to the database can impact performance if the volume is massive.
 
+    IMPLEMENTATION (Spring Boot + Polling):
+      @Transactional
+      public void placeOrder(Order order) {
+          orderRepository.save(order);
+          OutboxEvent event = OutboxEvent.builder()
+              .aggregateId(order.getId())
+              .eventType("ORDER_CREATED")
+              .payload(toJson(order))
+              .status("PENDING")
+              .build();
+          outboxRepository.save(event);
+      }
+    
+      @Scheduled(fixedDelay = 5000)
+      public void relayOutboxEvents() {
+          List<OutboxEvent> events =
+              outboxRepository.findByStatus("PENDING");
+          for (OutboxEvent e : events) {
+              kafkaTemplate.send(topic, e.getPayload());
+              e.setStatus("PUBLISHED");
+              outboxRepository.save(e);
+          }
+      }
 Why We Prefer the Outbox Pattern:
   A. Guaranteed "At-Least-Once" Delivery:
       Because the message is part of the database transaction, it is impossible to lose a message if the database update was successful. 
