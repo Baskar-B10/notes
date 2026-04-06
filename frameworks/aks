@@ -1,0 +1,14 @@
+Feature	            Application Logs	                      Kubectl Logs
+Who creates it?	    Your code / Logic.	                    The Kubernetes API / Container Runtime.
+Where is it stored?	Disk, Console, or Remote Log Server.	  Local disk of the Worker Node.
+What does it show?	Whatever the dev decided to log.	      Only the stdout and stderr streams.
+Visibility	        Requires access to the file/stream.	    Requires RBAC permissions to the K8s cluster.
+Command	            tail -f app.log (on a server).         	kubectl logs <pod-name>.
+
+The "Golden Rule" for Kubernetes:
+  To make your application logs visible via kubectl logs, you must follow the Twelve-Factor App principle: Treat logs as event streams. 
+  Instead of writing to files inside the container, configure your app to write everything to the console (System.out in Java, console.log in Node, etc.). 
+  This allows Kubernetes to capture the data and allows tools like Fluentd or Splunk to easily scrape them for long-term storage.
+
+  Pro Tip: If your app is stuck writing to a file and you can't change the code, you can use a Sidecar Pattern.
+  A small second container runs in the same Pod, reads your log file, and pipes it to stdout so that kubectl logs works again.
