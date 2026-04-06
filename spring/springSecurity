@@ -478,6 +478,53 @@ With Okta Flow: User → Okta login → Backend → JWT → Microservices
 1. Why use filter instead of interceptor? 👉 Because Spring Security works before controller layer
 2. Why OncePerRequestFilter? 👉 Ensures filter runs once per request
 
+ @EnableWebSecurity:
+  It is a marker annotation that tells Spring to activate the Spring Security framework and apply it to your web application.
+  While modern Spring Boot (2.7+ and 3.x) has made this annotation optional in many cases,
+  it remains the "on switch" for customizing how your application handles authentication and authorization.
+
+1. What does it actually do?
+    When you add @EnableWebSecurity to a configuration class, it performs several behind-the-scenes tasks:
+      Registers the Filter Chain: It sets up the springSecurityFilterChain, 
+              which is a stack of filters that intercept every incoming request to check for credentials, CSRF tokens, and session cookies.
+      Enables Spring MVC Integration: It allows Spring Security to "talk" to your Spring MVC controllers,
+              enabling things like @AuthenticationPrincipal to inject the current user into your methods.
+      Activates Default Security: If you don't provide your own configuration, 
+              it applies the default "Form Login" and "HTTP Basic" security to all endpoints.
+
+2. Modern Implementation (Spring Boot 3.x / Security 6.x)
+    In older versions, you had to extend WebSecurityConfigurerAdapter.That is now deprecated. 
+    Today, you use @EnableWebSecurity along with a @Bean of type SecurityFilterChain to define your security rules.
+        @Configuration
+        @EnableWebSecurity
+        public class SecurityConfig {
+            @Bean
+            public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+                http
+                    .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/public/**").permitAll() // No login needed
+                        .anyRequest().authenticated()             // Everything else needs login
+                    )
+                    .formLogin(Customizer.withDefaults())         // Enable default login page
+                    .httpBasic(Customizer.withDefaults());        // Enable basic auth for APIs
+        
+                return http.build();
+            }
+        }
+3. Do I always need to type it?
+      If you are using Spring Boot and have the spring-boot-starter-security dependency in your pom.xml,
+      Spring Boot automatically detects this and acts as if @EnableWebSecurity is present.
+      However, you should still use it explicitly when:
+            You want to be explicit about where your security configuration lives.
+            You are using a standard Spring MVC application (without Boot).
+            You are creating highly customized security setups that might override Boot's auto-configuration.
+
+4. Related Annotations
+    Often, you’ll see @EnableWebSecurity paired with these:
+    @Configuration: Required so Spring knows this class contains @Bean definitions.
+    @EnableMethodSecurity: Use this if you want to protect specific methods using annotations like @PreAuthorize("hasRole('ADMIN')").
+
+
 The Big Picture — Spring Security Architecture:
       [Client]
             |
