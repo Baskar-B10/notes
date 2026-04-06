@@ -365,6 +365,29 @@ Comparator (Java 8+ Methods 🔥)
              list.sort(Comparator.comparingInt(Student::getId));
               Avoids boxing (performance)
 
+       The Old Way (Pre-Java 8):
+         Comparator<User> ageComparator = new Comparator<User>() {
+             @Override
+             public int compare(User u1, User u2) {
+                 return u1.getAge() - u2.getAge();
+             }
+         };
+       The Modern Java 8+ Way (Method References):
+          This is the standard for clean, readable code.
+          // Sort by age ascending
+          Comparator<User> ageComparator = Comparator.comparingInt(User::getAge);
+          // Sort by name descending
+          Comparator<User> nameDescComparator = Comparator.comparing(User::getName).reversed();
+
+          Chaining Comparators:
+              One of the most powerful features of the Java 8 Comparator is the ability to chain sorting logic. 
+              For example, if two users have the same age, you might want to sort them by name.
+               List<User> users = ...;
+               users.sort(
+                   Comparator.comparingInt(User::getAge)
+                             .thenComparing(User::getName)
+               );
+
 Comparable vs Comparator:
     Feature	     Comparable	              Comparator
     Package	     java.lang	               java.util
