@@ -409,11 +409,18 @@ HAS-A (Composition) -  Represents object contains another object
         }
         Car HAS-A Engine
 
-Feature	        IS-A	        HAS-A
-Type	        Inheritance	    Composition
-Reuse	        Tight coupling	Loose coupling
-Flexibility	    Less	        More
-Prefer HAS-A over IS-A (composition over inheritance)
+Feature            Is-A (Inheritance)                             Has-A (Composition)
+Relationship       TypeStrong / Tight Coupling                    Weak / Loose Coupling
+Defined By         Class hierarchy (extends)                      Instance variables (Members)
+Visibility         Child sees protected members of Parent         Class only sees public methods of the component
+When to use?       When a class is a "subtype."                   When a class "uses" another's functionality.
+Change Impact      High (Changing parent affects all children)    Low (Changing component is isolated)
+
+The "Design Rule":
+    Most experienced developers follow the rule: "Favor Composition over Inheritance."
+    Inheritance is very rigid.
+    If you use Is-A for everything, you end up with deep, complex class trees that are impossible to change.
+    Use Has-A whenever possible, and only use Is-A when there is a clear, permanent hierarchical relationship.
 
 
 Marker Interface:
