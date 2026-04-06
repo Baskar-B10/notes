@@ -75,6 +75,8 @@ The "Sidecar" Pattern
   3. The Transactional Outbox Pattern
   4. Change Data Capture (CDC)
   5. Event Sourcing
+
+
 Saga Pattern :
 The Saga Pattern is a failure management pattern used in microservices to manage distributed transactions.
 
@@ -254,3 +256,46 @@ If you are working in the Java/Spring ecosystem, you have three primary choices:
           If the Gateway logic (like heavy aggregation) is poorly written, it can slow down the entire system.
     Configuration Complexity: As your microservices grow, the Gateway routing rules can become massive and difficult to manage.
 
+
+Service discovery pattern:
+  In a microservices architecture, service instances are dynamic. 
+  They scale up and down, crash, and move across different IP addresses and ports.
+  Service Discovery is the mechanism that allows Service A to find the network location of Service B without hardcoding IPs.
+  There are two primary ways to implement this: Client-Side and Server-Side.
+    1. Client-Side Discovery
+        In this pattern, the service client (the caller) is responsible for determining the network locations of available service instances.
+            Service Registry: A database containing the network locations of service instances (e.g., Netflix Eureka, Consul).
+            Registration: When a service starts, it registers its IP and port with the Registry.
+            Lookup: The client queries the Registry to get a list of healthy instances.
+            Load Balancing: The client uses an algorithm (like Round Robin) to pick one instance and calls it directly.
+        Pros: Fewer network hops; the client can make intelligent load-balancing decisions.
+        Cons: Couples the client to the Service Registry; you need client-side discovery logic for every programming language used in your stack.
+        
+    2. Server-Side Discovery
+        The client makes a request to a Load Balancer (router) via a fixed location.
+        The Load Balancer then queries the Service Registry and routes the request to an available instance.
+            Registration: Same as client-side; services register themselves.
+            Request: The client just hits a DNS name or a static IP of the Load Balancer.
+            Abstraction: The Load Balancer handles the lookup and redirection behind the scenes.
+        Pros: Simpler client code; the client doesn't need to know about the registry. 
+          This is the default behavior in Kubernetes (using Kube-Proxy and ClusterIP).
+       Cons: Adds an extra network hop (Client -> Load Balancer -> Service).
+
+  The Service Registry:
+      Regardless of the pattern, you need a Service Registry. 
+      It is a highly available database that acts as the "Source of Truth.
+          Self-Registration: The service itself notifies the registry when it starts and stops.
+          Third-Party Registration: A separate "Registrar" tool monitors the environment (like Docker events) and updates the registry automatically.
+          Health Checks: The registry periodically "pings" services. 
+                        If a service doesn't respond, it is removed from the list to prevent clients from hitting a dead instance.
+
+Comparison Summary
+Feature    	            Client-Side	                Server-Side
+Who performs lookup?	  The Client Service	        The Load Balancer
+Network Hops	          1 (Direct)	                2 (Via LB)
+Common Tools	          Netflix Eureka, Ribbon	    Kubernetes, AWS ELB, NGINX
+Complexity	            High (Client-side logic)	  Low (Handled by infrastructure)
+
+Which should you use?
+    If you are using Kubernetes, you are already using Server-Side Discovery (Services and DNS). It's built-in and invisible.
+    If you are running a Spring Cloud stack on traditional VMs or bare metal, Client-Side Discovery with Eureka is a very popular choice.
