@@ -177,3 +177,51 @@ Database Schema: A typical Outbox table looks like this:
     type (e.g., "OrderCreated")
     payload (JSON string)
     created_at (Timestamp)
+
+API Gateway:
+    In a microservices architecture, the API Gateway acts as the single entry point for all clients (web, mobile, or external partners). 
+    Instead of a client calling ten different microservices to load a single page, it calls the Gateway,
+    which then routes the requests to the appropriate backend services.
+
+1. Core Responsibilities:
+  The Gateway is more than just a proxy; it handles "cross-cutting concerns" so your individual Java microservices don't have to.
+    Routing: Maps a public URL (e.g., /api/orders) to an internal service destination (e.g., http://order-service:8080).
+    Authentication & Authorization: Validates JWT tokens or API keys at the edge. If the token is invalid, the request never even touches your backend services.
+    Protocol Translation: Can translate between a client-friendly protocol (HTTP/REST) and backend-optimized protocols (gRPC or AMQP).
+    Rate Limiting & Throttling: Protects your services from "noisy neighbors" or DDoS attacks by limiting how many requests a specific user can make per second.
+    Load Balancing: Distributes incoming traffic across multiple instances of a service running in your AKS cluster.
+
+2. Advanced Features:
+    A. Request Aggregation (Fan-out)
+        If a mobile dashboard needs data from the User Service, Order Service, and Payment Service, 
+        the Gateway can call all three in parallel (using something like CompletableFuture internally) and merge the results into a single JSON response for the client. 
+        This drastically reduces network latency for mobile users.
+    B. Service Discovery Integration:
+        The Gateway doesn't use hardcoded IPs. 
+        It integrates with a Service Registry (like Kubernetes DNS).
+        When the Gateway receives a request for the "Inventory Service," it asks the registry for a healthy pod IP and forwards the request there.
+    C. Backend for Frontends (BFF)
+        A variation where you have different gateways for different clients. 
+        For example, a Mobile Gateway might return a smaller, stripped-down JSON payload, while a Desktop Gateway returns a full dataset.
+
+Why We Prefer the API Gateway:
+Benefit                  Description
+Security                Services are hidden in a private network; only the Gateway is exposed to the internet.
+Simplicity for Clients  Clients only need to know one URL and one authentication method.
+Observability            Provides a central place to log every request and track global metrics (latency, error rates).
+Loose Coupling           You can rename or split services on the backend without breaking the client's code, as long as the Gateway route stays the same.
+
+Popular Implementation Options
+If you are working in the Java/Spring ecosystem, you have three primary choices:
+      Spring Cloud Gateway: The modern, non-blocking choice built on Project Reactor. It’s highly customizable using Java code or YAML.
+      Netflix Zuul: The older, blocking-based gateway (largely replaced by Spring Cloud Gateway in new projects).
+      Cloud-Native Gateways: Tools like Azure API Management (APIM) or NGINX / Kong. 
+              These are often preferred if you want to manage policies via a UI or CLI without writing Java code.
+
+5. The "Drawbacks" to Watch Out For
+    Single Point of Failure: If the Gateway goes down, your entire application is unreachable. 
+          High availability (running multiple instances) is mandatory.
+    Performance Bottleneck: Every request adds an extra "hop." 
+          If the Gateway logic (like heavy aggregation) is poorly written, it can slow down the entire system.
+    Configuration Complexity: As your microservices grow, the Gateway routing rules can become massive and difficult to manage.
+
