@@ -38,3 +38,53 @@ Liveness: Your Redeliver Service can safely re-send old data from the "Received 
           because the long timestamp check will automatically ignore the re-delivered "old" data if the CDM is already more current.
 Verdict: A long timestamp is excellent for 95% of use cases. 
         As long as you generate the timestamp at the entry point and use a "Strictly Greater Than" check in your Writer, your data consistency will be solid.
+
+
+Web Adapter Pattern:
+    In a Hexagonal Architecture (also known as Ports and Adapters), a Web Adapter is the entry point for your application. 
+    It sits in the outermost layer and is responsible for translating HTTP requests into a format the core business logic (the "Inside") can understand.
+
+    It essentially bridges the gap between the Web (REST, JSON, Cookies) and your Use Cases (Java Objects, Commands).
+
+1. The Role of a Web Adapter
+        A Web Adapter shouldn't contain any business logic. Its responsibilities are strictly technical:
+            Mapping: Convert JSON/HTTP parameters into a "Command" or "Query" object.
+            Validation: Check for basic input errors (e.g., "Email format is invalid" or "Field is missing").
+            Routing: Map a specific URL and HTTP Method (GET, POST) to a specific business function.
+            Response Formatting: Convert the result from the business layer back into JSON and the correct HTTP Status Code (200 OK, 201 Created, etc.).
+
+2. Anatomy of a Web Adapter (Spring Boot)
+        In Spring, your @RestController classes serve as the Web Adapters. 
+        They "plug into" a Port (an interface defined in the domain layer).
+            @RestController
+            @RequiredArgsConstructor // Generates constructor for the final Port
+            public class RegisterUserWebAdapter {
+                // This is the "Inbound Port" (an Interface in your Domain layer)
+                private final RegisterUserUseCase registerUserUseCase;
+                @PostMapping("/v1/users")
+                public ResponseEntity<UserResponse> register(@RequestBody RegisterUserRequest request) {
+                    // 1. Map Web Request to a Domain Command
+                    RegisterUserCommand command = new RegisterUserCommand(
+                        request.getEmail(),
+                        request.getPassword()
+                    );
+                    // 2. Call the Use Case (The "Inside" of the Hexagon)
+                    User user = registerUserUseCase.register(command);
+                    // 3. Map Domain Result back to a Web Response
+                    return ResponseEntity.status(HttpStatus.CREATED)
+                                         .body(new UserResponse(user.getId()));
+                }
+            }
+3. Why Use This Pattern?
+        If you put all your code in a Controller, your business logic becomes "married" to the Web framework.
+        If you ever wanted to move from REST to a Message Queue (Kafka) or a CLI tool, you'd have to rewrite everything.
+        With a Web Adapter:
+            Framework Independence: Your business logic doesn't know it's being called by Spring MVC.
+            Testability: You can unit test your logic without mocking complex HttpServletRequest objects.
+            Clean Separation: The Web Adapter cares about HTTP codes; the Service cares about Business Rules.
+
+Feature        Web Adapter (@RestController)        Service Layer (@Service)
+Input          HTTP Request (JSON)                   Domain Objects / Commands
+Logic          Formatting & Validation               Business Rules & Transactions
+Output         "HTTP Response (200, 404, etc.)"      Domain Model / Entity
+Dependencies   "Depends on ""Inbound Ports"""        "Depends on ""Outbound Ports"" (DB)"
