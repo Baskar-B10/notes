@@ -1,0 +1,26 @@
+Monolithic Architecture:
+In a monolith, all components of an application—the database, the UI, and the business logic—are bundled together into a single codebase and deployed as one unit.
+
+The Strengths:
+  Simplicity: It is much easier to develop, test, and deploy initially. You only have one repository and one build pipeline.
+  Performance: Since all components reside in the same memory space, communication between them is near-instant (no network latency).
+  Cross-cutting Concerns: Handling logging, security, and caching is straightforward because everything is in one place.
+
+The Weaknesses:
+  Scaling Issues: You cannot scale a specific part of the app. If the "payment" module is under heavy load, you must scale the entire application.
+  Tight Coupling: A single bug in one module can potentially crash the entire system.
+  Technology Lock-in: You are usually stuck with one language or framework for the whole project.
+
+Microservices Architecture:
+  Microservices break an application into a collection of small, independent services that communicate over a network (usually via REST, gRPC, or Message Queues).
+
+The Strengths:
+  Independent Scalability: You can scale only the services that need more resources.
+  Resilience: If one service fails (e.g., the "recommendation" service), the rest of the app (like "checkout") can keep running.
+  Tech Diversity: Teams can use different languages or databases (SQL for one, NoSQL for another) depending on what best fits the service's needs.
+
+The Weaknesses:
+  Operational Complexity: You now have to manage multiple deployments, complex networking, and distributed logging.
+  Data Consistency: Maintaining data integrity across different databases (Distributed Transactions) is notoriously difficult.
+  Network Latency: Constant communication over the network adds overhead that doesn't exist in a monolith.
+
