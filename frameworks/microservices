@@ -69,7 +69,7 @@ The "Sidecar" Pattern
       Orchestration: Using Kubernetes (AKS) to manage scaling, self-healing, and deployments.
       Observability: Distributed tracing (using tools like Jaeger or Zipkin) to follow a single request as it travels through 10 different services.
 
-
+Saga Pattern :
 The Saga Pattern is a failure management pattern used in microservices to manage distributed transactions.
 
 In a monolithic application, you have the luxury of ACID transactions (Atomicity, Consistency, Isolation, Durability) because everything happens in one database. 
@@ -121,3 +121,59 @@ Availability "Low (if one node is down, all block)"  High (async processing)
 Complexity    Handled by the DB/Middleware           Handled by the Developer (Code)
 Performance   Slow due to locking                    Fast (No locking)
 
+Transactional Outbox :
+  The Transactional Outbox Pattern is a critical design pattern for microservices that need to maintain data consistency between a Database and a Message Broker (like Kafka, RabbitMQ, or Azure Service Bus).
+  In a distributed system, you often need to update your local database and notify other services via a message.
+  If you do these as two separate steps, you run the risk of the database succeeding but the message failing (or vice versa), leading to data inconsistency.
+
+The Problem: The "Dual Write" Issue:
+    Imagine an Order Service. When a user places an order, the service must:
+        Save the order to the Orders table ($SQL$).
+        Publish an OrderCreated event to a Message Broker so the Inventory Service can react.
+    What could go wrong?
+        If the DB commit succeeds but the network fails before the message is sent, the order exists, but the inventory is never updated.
+        If you send the message first and the DB transaction fails/rolls back, the inventory is updated for an order that doesn't actually exist.
+
+How the Outbox Pattern Works:
+  Instead of sending the message directly to the broker, you use a local "Outbox" table as a temporary buffer within the same database transaction.
+  The Step-by-Step Flow:
+    Start Transaction: Begin a local $SQL$ transaction.
+    Update Business Table: Insert the new record into the Orders table.
+    Insert into Outbox: Insert a JSON representation of the event into a dedicated OUTBOX table in the same database.
+    Commit Transaction: Both inserts succeed or fail together (Atomicity).
+    Message Relayer: A separate, independent process (the "Message Relay") polls the OUTBOX table,
+                    reads the messages, publishes them to the broker, and marks them as PROCESSED or deletes them.
+
+How to Implement the "Message Relay":
+There are two common ways to move messages from the Outbox table to the Broker:
+A. Transaction Log Tailing (Change Data Capture - CDC)
+    Instead of polling the database (which can be slow), a tool like Debezium watches the database's internal transaction logs (like Postgres WAL or MySQL Binlog).
+        Pros: Extremely high performance; zero impact on the application's query performance.
+        Cons: Complex to set up and requires specific database permissions.
+B. Polling Publisher
+    A scheduled background task (e.g., using @Scheduled in Spring Boot) queries the Outbox table every few milliseconds.
+        Pros: Very simple to implement in Java.
+        Cons: Adding polling load to the database can impact performance if the volume is massive.
+
+Why We Prefer the Outbox Pattern:
+  A. Guaranteed "At-Least-Once" Delivery:
+      Because the message is part of the database transaction, it is impossible to lose a message if the database update was successful. 
+      Even if the Message Relay crashes, it will pick up where it left off when it restarts.
+  B. Avoids Distributed Transactions (2PC):
+      Distributed transactions are slow and often not supported by modern cloud-native databases or message brokers.
+      Outbox gives you the same reliability using simple, local $SQL$ transactions.
+  C. Improved Resilience:
+      If your Message Broker (Kafka/Service Bus) goes down, your microservice can still accept orders!
+      The messages will simply pile up in the Outbox table and be sent automatically once the broker is back online.
+
+Key Implementation Details for Java Developers
+  Idempotent Consumers: Since the pattern guarantees at-least-once delivery, a message might occasionally be sent twice 
+                        (e.g., if the relay crashes exactly after sending but before marking as processed). 
+  Your downstream services must handle duplicate messages using a sync_id or order_id.
+
+Database Schema: A typical Outbox table looks like this:
+    id (UUID)
+    aggregate_id (The Order ID)
+    type (e.g., "OrderCreated")
+    payload (JSON string)
+    created_at (Timestamp)
