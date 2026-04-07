@@ -749,6 +749,67 @@ ddl-auto=create in production — drops and recreates all tables on startup.
   ✔ Option 4: Open Session in View (OSIV) ✔ Keeps session open till view
               👉 Even without @Transactional: ✔ Spring Boot may keep session open till view layer. Controller → Service → View
               ⚠️ But: Not recommended for heavy apps Can cause performance issues
+  
+@transactional won’t work for private method:
+  If you annotate a private method with @Transactional, Spring will simply ignore it, and no transaction will be started.  
+  The reason for this lies in how Spring handles transactions under the hood using AOP (Aspect-Oriented Programming) Proxies.
+  1. The Proxy Mechanism:
+        When you use @Transactional, Spring doesn't actually modify your class code. Instead, it creates a Proxy object that wraps your bean.
+        When a caller invokes a method, they are actually calling the Proxy.
+        The Proxy starts the transaction, then calls the "real" method in your bean.
+        After the real method finishes, the Proxy commits or rolls back the transaction.
+        The Catch: For the Proxy to intercept the call, the method must be public.
+                  A Proxy cannot "see" or override a private method from the outside.
+  2. The "Self-Invocation" Problem
+      Even if your method is public, @Transactional will fail if you call it from within the same class.
+      @Service
+      public class UserService {
+          public void registerUser() {
+              // This call stays INSIDE the 'this' object.
+              // It bypasses the Proxy, so NO transaction starts!
+              saveData(); 
+          }
+          @Transactional
+          public void saveData() { 
+              // Database logic here
+          }
+      }
+      Because registerUser() calls saveData() directly (using the this reference), the Proxy is never triggered. 
+      To Spring, it looks like a standard Java method call.
+  3. How to Fix It
+      If you find yourself needing a transaction on a private method, you have three main options: 
+      A. Refactor to Public (Most Common)
+        Make the method public and call it from a different bean (e.g., call ServiceB.method() from ServiceA). 
+        This ensures the call goes through the Proxy.
+      B. Use Programmatic Transactions
+        If you absolutely must keep the logic inside a private method or the same class, use TransactionTemplate.
+        This does not rely on Proxies or visibility.
+            @Autowired
+            private TransactionTemplate transactionTemplate;
+            private void myPrivateMethod() {
+                transactionTemplate.execute(status -> {
+                    // Your transactional code goes here
+                    return null;
+                });
+            }
+      C. Self-Injection (The "Hack")
+          You can inject a bean into itself. This forces the call to go through the Proxy even when calling a method in the same class.
+          Note: This is generally considered a "code smell" and should be avoided if possible.
+          @Service
+          public class UserService {
+              @Autowired
+              private UserService self; // Injecting the proxy of itself
+              public void start() {
+                  self.saveData(); // Now the proxy is triggered!
+              }
+              @Transactional
+              public void saveData() { ... }
+          }
+Summary Checklist:
+    For @Transactional to work, the method must be:
+    Public (not private, protected, or package-private).
+    Called from an external bean (not a local call within the same class).
+    In a Spring-managed Bean (annotated with @Service, @Component, etc.).
 
 @Transactional gotcha — self-invocation
     If method A calls method B in the same class, and B is @Transactional, 
