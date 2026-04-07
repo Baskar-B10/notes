@@ -701,3 +701,46 @@ A Bulkhead ensures you have resources available to handle a failure, while a Cir
 4. When to Use It
   When a single application communicates with multiple downstream services of varying reliability.
   When you have a mix of high-priority and low-priority tasks (e.g., don't let a slow report-generation task block user login requests).
+
+Strangler Fig pattern:
+  The Strangler Fig pattern is the gold standard for migrating a monolithic application to a microservices architecture.
+  
+  The name comes from the strangler fig plant, which grows around an existing tree.
+  Over time, the fig grows until it eventually replaces the original tree entirely, leaving a hollow center where the host once stood.
+  In software, you "wrap" the legacy system with new services until the monolith can be safely decommissioned.
+
+1. How It Works: The Process
+  The migration happens in three distinct phases that repeat for every feature:
+    Transform: Create a new microservice that implements a specific piece of functionality currently residing in the monolith.
+    Coexist: Run both the monolith and the new service at the same time.
+    Eliminate: Once the new service is proven stable, "strangle" the old code by redirecting all traffic to the new service and removing the logic from the monolith.
+
+2. The Architectural "Hook": The Proxy
+  To make this work without the user noticing, you need a Request Router or an API Gateway (like NGINX, Spring Cloud Gateway, or an Azure Application Gateway).
+  Initial State: The router sends 100% of traffic to the monolith.
+  Transition State: The router is configured with rules. For example:
+      GET /api/orders $\rightarrow$ New Order Microservice
+      GET /api/users $\rightarrow$ Legacy Monolith
+  Final State: The router sends all paths to microservices; the monolith is turned off.
+
+3. Why Use It?
+  Incremental Value: You don't have to wait two years for a "Big Bang" rewrite. You can go live with one microservice in weeks.
+  Reduced Risk: If the new service fails, you can quickly point the router back to the monolith.
+  Modernization: It allows you to adopt new stacks (e.g., moving from a legacy Java 8 monolith to a Java 21/Spring Boot 3 microservice) one piece at a time.
+
+4. Common Challenges
+Challenge              Strategy
+Data Synchronization  "If both the monolith and service need the same data,
+                      use a ""Synchronizer"" pattern or CDC (Change Data Capture) to keep databases in sync during the transition."
+Shared State/Sessions Move session management to a distributed store like Redis so both systems can recognize the user.
+Service Boundaries    "It can be hard to ""peel off"" a feature if the code is tightly coupled. You may need to refactor the monolith internally first."
+
+Strangler Fig in Cloud-Native Environments
+  If you are running on Azure Kubernetes Service (AKS), this pattern is often implemented using an Ingress Controller.
+
+  By updating your Ingress YAML, you can shift traffic between the "legacy" Service and the "new" Service based on URL paths.
+  This makes the "Eliminate" phase as simple as changing a routing rule and deleting a deployment.
+
+Comparison of Migration Patterns
+    Big Bang: Scrapping the old and building the new from scratch. (High risk, high failure rate).
+    Strangler Fig: Incremental replacement. (Low risk, takes longer, but maintains uptime).
