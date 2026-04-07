@@ -1046,6 +1046,38 @@ Java 16 Features:
           ❌ Fields are final
           ❌ Not suitable for mutable objects
 
+      Is it Immutable?
+          Yes, but with a small technical caveat.
+          By design, a Record is shallowly immutable. 
+          Here is what that means in practice:
+              Final Fields: When you define a record, Java automatically marks every field as final. 
+                    You cannot reassign a field once the record is created.
+              No Setters: Records do not have setter methods.
+                        They only have accessor methods (e.g., product.name() instead of getName()).
+              Final Class: A record is implicitly final, meaning it cannot be extended by another class.
+              The "Shallow" Warning: If one of your record's fields is a mutable object (like a List or a Date), 
+                  the reference to that list is final, but the contents of the list can still be changed.
+       
+        public record Product(String name, double rate) {}
+        public record Customer(String name, List<Product> products) {}
+        // Usage in your Stream
+        List<String> names = customers.stream()
+            .filter(c -> c.products().stream()
+                .anyMatch(p -> p.rate() > 500.0))
+            .map(Customer::name)
+            .collect(Collectors.toList());
+
+  Feature      Regular Class              Record (Java 17)
+  Boilerplate  High (Getters/Equals/etc)   Zero
+  Immutability Optional                    Built-in (Shallow)
+  Inheritance  Can extend other classes    Cannot extend (Implicitly final)
+  Field Access obj.getName()               obj.name()
+
+  Action                            Result
+  Reassigning a final field         Compiler Error: The code won't run.
+  "Calling a ""mutator"" method"    New Object: A new instance is created; original is safe.
+  Modifying an internal List/Map    "Data Corruption: The object ""changes"" unexpectedly (Shallow Immutability)."
+
 Java 17 (LTS) Features:
    1. Sealed Classes
       sealed class Shape permits Circle, Square {}
