@@ -555,3 +555,52 @@ Distributed tracing:
             2026-04-05 10:00:00 INFO [service-name, traceId, spanId] ... message
       This allows you to take a Trace ID from a log file, paste it into a tool like Jaeger,
       and see the visual timeline of that specific request across the entire cluster.
+
+Circuit Breaker:
+The Circuit Breaker pattern is a critical stability pattern used in microservices to prevent a cascading failure.
+Just like an electrical circuit breaker in a house, it "trips" to stop the flow of requests to a failing service, allowing that service time to recover.
+1. The Three States
+    A circuit breaker operates as a state machine with three primary modes:
+    Closed: The default state. Requests flow through normally. The breaker tracks the number of recent failures.
+          If the failure rate stays below a specific threshold, it remains closed.
+    Open: If failures exceed the threshold, the breaker "trips." 
+          All subsequent requests fail immediately with an error (or return a fallback) without ever hitting the target service. 
+          This gives the struggling service a "breathing room."
+    Half-Open: After a predetermined "sleep window," the breaker enters this state.
+              It allows a limited number of test requests to pass through.
+
+    If these succeed, the breaker switches back to Closed.
+    If they fail, it returns to Open and restarts the sleep timer.
+
+2. Why Use It?
+    Resilience: It prevents a single unresponsive service from dragging down the entire ecosystem.
+    Resource Conservation: It stops threads, memory, and CPU from being wasted on requests that are likely to fail or time out.
+    Self-Healing: It provides an automated way for a system to recover once the underlying issue is resolved.
+
+3. Implementation Strategies
+    In modern cloud-native environments, you typically implement this using libraries or service meshes:
+    With the deprecation of Netflix Hystrix, Resilience4j is the industry standard for Spring Boot and Java 17+ applications.
+    It is lightweight and designed for functional programming.
+    
+    // Example configuration snippet
+    CircuitBreakerConfig config = CircuitBreakerConfig.custom()
+      .failureRateThreshold(50) // Trip if 50% of requests fail
+      .waitDurationInOpenState(Duration.ofMillis(10000)) // Wait 10s before Half-Open
+      .slidingWindowSize(100) // Look at the last 100 calls
+      .build();
+Infrastructure Level (Service Mesh)
+    If you are running on Kubernetes (AKS/EKS), you can offload this logic to a service mesh like Istio or Linkerd. 
+    This allows you to manage circuit breaking at the proxy level (Envoy) without changing your application code.
+
+4. Fallback Mechanisms
+    A key part of the pattern is what happens when the circuit is Open. 
+    Instead of returning a 500 error to the user, you should provide a Fallback:
+        Static Response: Return a default value or an empty list.
+        Cache: Return the last known good data from a local cache (e.g., Redis).
+        Alternative Path: Call a secondary "backup" service.
+
+5. Key Metrics to Monitor
+    To tune a circuit breaker effectively, keep an eye on:
+        Failure Rate: The percentage of calls resulting in exceptions or timeouts.
+        Slow Call Rate: Calls that succeed but take longer than a defined duration (e.g., > 2 seconds).
+        State Transitions: How often the breaker is flipping between Open and Closed.
