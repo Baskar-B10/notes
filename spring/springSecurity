@@ -110,6 +110,125 @@ JWT Authentication (Stateless):
           http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
      Key Points: Stateless (no session), Scalable (used in microservices) and Token expiry important
 
+Jwt token structure:
+      A JWT (JSON Web Token) is a compact, URL-safe way of representing claims to be transferred between two parties. 
+      To the naked eye, it looks like a long string of random characters, but it is actually composed of three distinct parts separated by dots (.).
+      The structure follows this pattern: header.payload.signature
+      1. The Header (The "How")
+        The header typically consists of two parts: 
+            the type of the token (JWT) and the signing algorithm being used, such as HMAC SHA256 or RSA.
+              {
+                "alg": "HS256",
+                "typ": "JWT"
+              }
+          This JSON is Base64Url encoded to form the first part of the JWT.
+      2. The Payload (The "What")
+          The payload contains the claims. 
+          Claims are statements about an entity (typically, the user) and additional data.
+          There are three types of claims:Registered claims:
+            Predefined claims like iss (issuer), exp (expiration time), sub (subject/user ID), and aud (audience).
+            Public claims: These can be defined at will by those using JWTs.
+            Private claims: Custom claims created to share information between parties that agree on using them (like roles or department).
+                {
+                  "sub": "1234567890",
+                  "name": "Madhu Baskar",
+                  "roles": ["ADMIN", "EDITOR"],
+                  "iat": 1516239022
+                }
+          This JSON is Base64Url encoded to form the second part of the JWT.
+      3. The Signature (The "Trust")
+          The signature is used to verify that the sender of the JWT is who it says it is and to ensure that the message wasn't changed along the way.
+          To create the signature part, you take the encoded header, the encoded payload, a secret (for HMAC), or a private key (for RSA),
+          and sign it using the algorithm specified in the header.
+            The Logic:$$Signature = HMACSHA256(base64UrlEncode(header) + "." + base64UrlEncode(payload), secret)$$
+      4. Visual Representation
+            When you put it all together, it looks like this:
+            Red Section: Header
+            Purple Section: Payload
+            Blue Section: Signature
+      5. Critical Security Note
+          It is a common misconception that JWTs "hide" or "encrypt" data.
+          They do not. Base64Url encoding is not encryption; it is just a way to represent binary data as a string.
+          Anyone who intercepts a JWT can decode the header and payload using a simple Base64 decoder.
+          Never put sensitive information like passwords or credit card numbers in the JWT payload.
+          In a Java Context, If you are using Java 17, you would often map the decoded Payload into a Record for safe, immutable handling within your microservices:
+          public record UserTokenClaims(
+              String sub, 
+              List<String> roles, 
+              long exp
+          ) {}
+
+Restrict user based on JWT:
+  To allow or restrict users based on JWT (JSON Web Token) roles in a Java microservices environment (typically Spring Boot),
+  you need to implement Role-Based Access Control (RBAC).
+  The process involves two main steps: extracting the roles from the JWT "Claims" and then securing your API endpoints using those roles.
+
+1. The JWT Structure
+    A JWT contains a Payload (Claims). For role-based access, 
+    your Auth Server (like Keycloak or Auth0) must include a custom claim, usually named roles or authorities.
+      {
+        "sub": "madhu_baskar",
+        "roles": ["ROLE_ADMIN", "ROLE_USER"],
+        "iat": 1712345678
+      }
+2. Extracting Roles in Spring Security
+    In Spring Security 5/6, you use a JwtAuthenticationConverter to map the text inside the JWT to Spring's internal GrantedAuthority objects.
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/admin/**").hasRole("ADMIN") // Protects path
+                .requestMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
+                .anyRequest().authenticated()
+            )
+            .oauth2ResourceServer(oauth2 -> oauth2
+                .jwt(jwt -> jwt.jwtAuthenticationConverter(makePermissionsConverter()))
+            );
+        return http.build();
+    }
+
+    private JwtAuthenticationConverter makePermissionsConverter() {
+        JwtGrantedAuthoritiesConverter extractor = new JwtGrantedAuthoritiesConverter();
+        extractor.setAuthoritiesClaimName("roles"); // Tell Spring where roles are
+        extractor.setAuthorityPrefix("ROLE_");     // Spring expects ROLE_ prefix
+    
+        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(extractor);
+        return converter;
+    }
+3. Method-Level Security (The Modern Way)
+    Instead of defining all rules in a central config file, you can use Annotations directly on your Java methods.
+    This is cleaner and more maintainable.
+    First, enable the feature:
+    
+    @Configuration
+    @EnableMethodSecurity // Replaces @EnableGlobalMethodSecurity
+    public class MethodSecurityConfig { }
+    Then, use it in your Service or Controller:
+    
+    Java
+    @RestController
+    @RequestMapping("/api/products")
+    public class ProductController {
+    
+        @GetMapping
+        @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+        public List<Product> getAllProducts() {
+            return productService.findAll();
+        }
+    
+        @PostMapping
+        @PreAuthorize("hasRole('ADMIN')")
+        public void createProduct(@RequestBody ProductRequest request) {
+            // Only Admins can reach this code
+        }
+    }
+4. Handling Roles in Microservices (Gateway vs Service)
+  In a microservices architecture, you have two choices for where to check these roles:
+    Location        Strategy                                                            Best For
+    API Gateway    The Gateway checks the JWT and roles before routing the request.    Centralized security; prevents unauthorized traffic from hitting internal networks.
+    Microservice   Each service validates the JWT and checks its own specific roles.   "Fine-grained control; ""Zero Trust"" architecture where services don't trust the gateway blindly."
+
 SAML Authentication (SSO):
     Security Assertion Markup Language (SAML) is used for Single Sign-On (SSO).
     Used in enterprise systems.
