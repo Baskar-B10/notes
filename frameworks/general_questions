@@ -344,6 +344,55 @@ Since you’re looking to squeeze more power out of your system,
         Partitioning: Break a massive table (e.g., billions of logs) into smaller, manageable pieces based on a key like date.
         Caching: Use Redis or Memcached to store the results of expensive queries so you don't even have to hit the database.
 
+Why indexing cause write slows what’s is working behaviour?
+    Indexing makes your database significantly faster for Read operations (SELECT),
+    but it introduces a "tax" on every Write operation (INSERT, UPDATE, DELETE). 
+    To understand why, you have to look at how the database manages its internal data structures.
+
+1. The Core Reason: Dual Writes
+    When you don't have an index, the database simply appends a new row to the end of a data file (the "Heap"). 
+    This is a very fast, linear operation.
+    However, when you add an index, the database must perform two writes for every one change:
+        The Table Write: It writes the actual data row to the table.
+        The Index Update: It must find the correct spot in the B-Tree (the most common index structure) to insert a pointer to that new row.
+2. The Internal Working Behavior: B-Tree Balancing 
+    Most relational databases (PostgreSQL, MySQL, SQL Server) use a B-Tree structure for indexing. 
+    This structure must remain "balanced" to keep search speeds fast ($O(\log n)$).
+    What happens during an INSERT:
+        Search and Navigate: The database starts at the "Root" node of the tree and traverses down to the "Leaf" node where the new value should live.
+        Node Splitting: If the leaf node (a block of memory) is full, the database must split that node into two.
+        Cascading Updates: This split might force the "Parent" node to split, and so on, all the way back up to the root. 
+                            This involves significant CPU and I/O overhead.
+    What happens during an UPDATE:
+        If you update a column that is indexed, the database must remove the old entry from the B-Tree 
+        and re-insert the new value in its correct sorted position. 
+        This is much slower than updating a non-indexed column.
+    What happens during a DELETE:
+        The database must find the entry in the index and mark it as deleted or remove it. 
+        Over time, this can lead to Index Fragmentation, where the tree has many "holes,"
+        requiring the database to periodically reorganize the tree (maintenance overhead).
+3. The "Write Tax" Factors
+    The slowdown isn't constant; it depends on how many indexes you have:
+        Action        0 Indexes        5 Indexes                        10 Indexes
+        Insert 1 Row  1 Write           6 Writes (1 Table + 5 Index)    11 Writes (1 Table + 10 Index)
+        I/O Impact    Minimal            Moderate                        High
+4. Java/Microservices Context (sbk8-poc)
+    In your Java microservices, this "Write Slowdown" can manifest as Transaction Timeouts.
+        Batch Processing: If you are using Spring Batch or a simple forEach to save 10,000 records,
+                each record is fighting the B-Tree balancing logic. 
+                This is why we often drop indexes before a massive data migration and rebuild them after the data is loaded.
+        UUID vs. Sequential IDs: Using a random UUID as a primary key (and thus a clustered index) is much slower for writes than a sequential Long ID. 
+                Why? Because a random UUID forces the database to jump all over the B-Tree, causing constant node splits. 
+                A sequential ID always appends to the "right side" of the tree.
+
+5. Best Practices to Balance Performance
+    Index for Queries, Not "Just Because": Only index columns that appear in your WHERE, JOIN, or ORDER BY clauses.
+    Monitor "Unused Indexes": Many DBs (like Postgres) allow you to see index usage statistics.
+                            Delete indexes that aren't being used by your queries.
+    Use Composite Indexes Wisely: One index on (last_name, first_name) is often better and cheaper than two separate indexes.
+    Covering Indexes: Try to include all columns needed by a frequent query in the index itself (using INCLUDE in SQL Server or similar features in Postgres)
+                    so the DB doesn't have to look at the main table at all.
+
 
 Multiple consumers in same application:
     To achieve high-speed parallel processing with multiple consumers in a single application, 
