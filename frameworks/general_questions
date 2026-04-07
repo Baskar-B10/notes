@@ -301,3 +301,10 @@ Two Different SQL DBs       "Medium: Requires the manual configuration shown abo
                             You must separate your Repository interfaces into different packages (e.g., repo.mysql and repo.postgres)."
 Distributed Transactions    Hard: If you save to DB1 and DB2 in the same method, a failure in DB2 won't automatically roll back DB1. 
                             You need JTA (Java Transaction API) or the Saga Pattern."
+Key Challenges:
+Package Scanning: You must organize your code so that entities and repositories for DB1 are in a different package than DB2. Otherwise,
+                    Spring will try to map a MySQL entity to a PostgreSQL schema.
+Transaction Management: By default, @Transactional only points to one Transaction Manager.
+                    If you need to span both, you must specify the qualifier: @Transactional("secondaryTransactionManager").
+Connection Pooling: Each DataSource creates its own connection pool (e.g., HikariCP). 
+                    Monitor your memory usage, as two pools will consume twice the resources.
