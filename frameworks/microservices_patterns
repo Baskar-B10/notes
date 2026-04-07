@@ -397,3 +397,48 @@ Feature      Benefits                                                         Dr
 Scalability  Scale reads and writes separately.                               Complexity: More code and moving parts.
 Security     Easier to ensure only the right people can "change" data.        Eventual Consistency: The Read DB might be a few milliseconds behind the Write DB.
 Performance  Queries are simple because data is already shaped for the UI.    Maintenance: Keeping two models in sync requires effort.
+
+Distributed tracing:
+  In a microservices architecture, a single user request can travel through dozens of different services (Auth, Order, Inventory, Payment, Shipping)
+  before a response is sent back. If that request fails or is slow, finding the bottleneck is nearly impossible without Distributed Tracing.
+
+  Distributed tracing is the method used to profile and monitor applications by "tagging" a request and tracking its entire journey across service boundaries.
+
+  1. Core Concepts: Spans and Traces:
+      To understand tracing, you need to know these two terms:
+      Span: The smallest unit of work. 
+            It represents a single operation within a service (e.g., a database query, an HTTP call, or a specific method execution).
+            It has a start time, an end time, and metadata (tags).
+      Trace: The complete "story" of a request. 
+              A Trace is a collection of Spans arranged in a tree structure that shows the end-to-end path.
+  2. How it Works: Context Propagation
+    The "magic" that connects Service A to Service B is called Context Propagation.
+        Instrumentation: When a request hits the first service, a unique Trace ID is generated.
+        Injection: When Service A calls Service B, it "injects" that Trace ID into the HTTP Header (or Message Queue metadata).
+        Extraction: Service B "extracts" the Trace ID from the header and attaches its own work (a new Span) to that same Trace ID.
+        Reporting: Each service sends its span data to a central collector (like Jaeger or Zipkin) asynchronously
+                  so that it doesn't slow down the actual user request. 
+  3. Why Use It?
+      Latency Analysis: You can see exactly which service is taking 2 seconds to respond.
+      Root Cause Analysis: If an error occurs in Service G, you can trace it back to the specific input that entered Service A.
+      Service Dependency Mapping: It automatically generates a map of which services talk to which, helping you understand your system's "topology."
+      
+  4. Popular Tools and Standards
+      OpenTelemetry (The Standard):
+          In the past, every tool had its own format. 
+          Today, OpenTelemetry (OTel) is the industry standard.
+          it provides a single set of APIs and SDKs to capture traces, metrics, and logs, allowing you to switch back-ends without rewriting your code.
+
+      Backend/Visualization Tools:
+        Tool                  Description
+        Jaeger                "An open-source, end-to-end distributed tracing system (originally by Uber)."
+        Zipkin                "One of the original tracing systems, inspired by Google's Dapper paper."
+        AWS X-Ray             A managed tracing service specifically for AWS environments.
+        Honeycomb / Datadog   Commercial platforms that provide advanced analytics on top of trace data.
+
+  5. Implementation Example (Spring Boot)
+      If you are using Java, Micrometer Tracing (formerly Spring Cloud Sleuth) handles most of this automatically. 
+      By just adding a dependency, your logs will suddenly include a Trace ID:
+            2026-04-05 10:00:00 INFO [service-name, traceId, spanId] ... message
+      This allows you to take a Trace ID from a log file, paste it into a tool like Jaeger,
+      and see the visual timeline of that specific request across the entire cluster.
