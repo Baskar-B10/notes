@@ -446,3 +446,53 @@ Summary Checklist for your Code:
 Use a dedicated ThreadPool: Don't use the default ForkJoinPool for I/O tasks; create a custom Executor so your API calls don't starve other parts of the app.
 Context Propagation: Remember that if you use Security (like JWT), you must manually pass the Security Context to the new parallel threads.
 Error Handling: Use .exceptionally() or onErrorResume() to handle what happens if one consumer fails while others succeed.
+
+How to avoid Duplicate messages at producer level:
+    must address the "At Least Once" delivery guarantee that most messaging systems (like Kafka or Azure Service Bus) use by default.
+    This usually happens when a producer sends a message, the broker receives it, but the ACK (acknowledgment) fails to reach the producer due to a network glitch.
+    The producer then retries, causing a duplicate.
+    Here is how you handle this in a modern Java ecosystem:
+
+1. Enabling Idempotent Producers (Kafka)
+In modern Kafka (0.11+), you can enable Idempotent Delivery. 
+This ensures that even if a producer sends the same message multiple times, the broker only writes it to the log once.
+Mechanism: The broker assigns a Producer ID (PID) and a Sequence Number to every message. 
+        If the broker receives a sequence number it has already processed for that PID, it discards the duplicate.
+    Java Configuration:
+        Properties props = new Properties();
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true"); // The key setting
+        props.put(ProducerConfig.ACKS_CONFIG, "all"); // Required for idempotence
+        props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+
+2. Application-Level Deduplication (The ID Pattern)
+If your messaging system doesn't support native idempotence, 
+    or if you want an extra layer of safety, you should implement a Unique Message ID.
+    Generate a UUID: Assign a unique ID to every message before sending it.
+    Database Check (Consumer Side): While this is technically handled at the consumer, 
+                            the producer's job is to ensure the message_id is consistent across retries.
+    Business Key: Instead of a random UUID, use a natural key (e.g., Order_ID + Status).
+
+3. Transactional Outbox Pattern
+    This is the "Gold Standard" for Java microservices. 
+    Instead of sending a message directly to the broker, you save the message in your Local Database as part of the same ACID transaction as your business data.
+        Step 1: Save the Order to the Orders table.
+        Step 2: Save the OrderCreatedEvent to an Outbox table (same transaction).
+        Step 3: A separate Message Relay (or a Debezium connector) reads from the Outbox table and publishes to the broker.
+    This guarantees that a message is only produced if the database update was successful, and it provides a reliable record to prevent duplicates during retries.
+
+4. Proper Exception Handling in Java
+    When coding your producer, how you handle onCompletion or Future.get() determines if you create duplicates.
+        producer.send(record, (metadata, exception) -> {
+            if (exception != null) {
+                // If the exception is 'Retriable', Kafka handles it.
+                // If it's 'DuplicateSequenceException', you can safely ignore it 
+                // because it means the broker already got the message!
+                log.error("Send failed", exception);
+            }
+        });
+5. Summary Table: Prevention Strategies
+        Strategy                Complexity        Effectiveness        Best For
+        Idempotent Producer     Low (Config only) High                 Kafka-based systems
+        Message ID / UUID       Medium            High                 "Any broker (RabbitMQ, Service Bus)"
+        Transactional Outbox    High              Maximum              Critical financial/data integrity
+        Deduplication Store     Medium            Medium               High-volume streams
