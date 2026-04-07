@@ -431,3 +431,27 @@ Summary Checklist for Implementation:
 [ ] Correlate: Does every error response include a traceId extension?
 [ ] Shield: Does the Gateway have a fallback for every critical route?
 [ ] Alert: Do you have a Prometheus alert for http_server_requests_seconds_count{exception="OrderNotFoundException"}?
+
+Spring boot latest version:
+    As of April 2026, the current generation of Spring Boot is Spring Boot 4.x, which represents a significant leap forward in the Java ecosystem.
+Release Type         Version Number    Release Date
+Current GA (Stable)  4.0.5            "March 26, 2026"
+Latest Milestone     4.1.0-M4          "March 26, 2026"
+Maintenance (3.x)    3.5.13            "March 26, 2026"
+
+Key Features of Spring Boot 4.0
+Spring Boot 4.0 (released in late 2025) and its subsequent patches focus heavily on modernizing the stack and
+                integrating AI-driven development patterns.
+Java 25 Support: While maintaining compatibility with Java 17, 
+            it is optimized for the latest Long-Term Support (LTS) version, Java 25.
+Modularization: The internal codebase has been completely modularized, allowing you to create smaller, 
+            faster-starting executable JARs by only including the specific components your app needs.
+First-Class API Versioning: You no longer need third-party libraries for complex API versioning; 
+            it's now a built-in feature of the framework.
+OpenTelemetry by Default: Tracing and observability are now handled by a dedicated OpenTelemetry starter, 
+            replacing older Micrometer-only setups for better cross-platform compatibility.
+JSpecify Null Safety: Better integration with the JSpecify standard to reduce NullPointerExceptions at compile time,
+            particularly helpful for Kotlin and Java mixed-language projects.
+HTTP Service Clients: New declarative interfaces for REST-based applications, 
+            making service-to-service communication much cleaner.
+
