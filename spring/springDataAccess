@@ -403,6 +403,16 @@ StatelessSession — Session Without the Magic
                           @AttributeOverride(name = "street", column = @Column(name = "shipping_street"))
                       })
                       private Address shippingAddress;
+
+            Feature	                One-to-Many	                              Many-to-One
+            Owner of Relationship	  Usually the "Inverse" side (mappedBy).  	Usually the Owner (holds the Foreign Key).
+            Code Representation	    List<Entity> entities;	                  Entity entity;
+            Fetch Strategy        	LAZY (by default)              	          EAGER (by default)
+            Database Table	        Does not hold the FK column.	            Holds the FK column (e.g., dept_id).
+
+            The Golden Rule: Always use the mappedBy attribute on the @OneToMany side. 
+            This tells Java: "Hey, the Many-to-One side is the one actually in charge of the database column; just mirror what it does."
+
         2. Entity Lifecycle States:
               An entity can be in one of four states 
               — this is fundamental to understanding what Hibernate does:
