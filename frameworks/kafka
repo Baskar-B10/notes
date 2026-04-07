@@ -1,0 +1,48 @@
+Apache Kafka
+Apache Kafka is a distributed event streaming platform designed to handle trillions of events a day. 
+To understand how it scales so effectively, you have to look at the relationship between its physical components (Brokers)
+and its logical components (Topics/Partitions).
+
+1. The Core Components
+  The architecture is built on a "Producer-Consumer" model with a distributed cluster in the middle.
+    Producers: Applications that publish (write) data to Kafka topics.
+    Consumers: Applications that subscribe to (read) data from topics.
+    Brokers: The servers that form the Kafka cluster. 
+            They store the data and serve the clients.
+    Topics: A logical category or feed name to which records are published. 
+          Think of a topic like a table in a database (but without the constraints).
+
+2. Topics, Partitions, and Offsets
+    This is where the performance "magic" happens.
+              A topic is spread across multiple Partitions.
+    Partitions: Topics are divided into partitions for scalability.
+              Each partition is an ordered, immutable sequence of records.
+    Offsets: Each message in a partition is assigned a unique sequential ID called an offset.
+    Parallelism: Since a topic is split into partitions, 
+                multiple consumers can read from the same topic at the same time (one consumer per partition).
+
+3. Replication and Fault Tolerance
+  Kafka is designed to stay alive even if a server fails.
+      Replication Factor: Data in a partition is replicated across multiple brokers. 
+              If you have a replication factor of 3, your data exists on three different servers.
+      Leader and Followers: For every partition, 
+                        one broker is the Leader (handles all reads/writes)
+                        and the others are Followers (passive stay-in-sync copies).
+      In-Sync Replicas (ISR): If the leader fails, one of the "in-sync" followers is automatically elected as the new leader.
+
+4. Consumer Groups:
+    Kafka uses Consumer Groups to allow a pool of processes to divide the work of consuming and processing records.
+        If you have a topic with 4 partitions and a consumer group with 4 members, each member handles exactly 1 partition.
+        If a consumer fails, Kafka triggers a Rebalance, and the remaining consumers take over the orphaned partitions.
+
+5. Zookeeper vs. KRaft
+    Historically, Kafka relied on Apache ZooKeeper to manage cluster metadata (who is the leader? which brokers are alive?).
+        Legacy (ZooKeeper): External coordination. It often became a bottleneck for clusters with millions of partitions.
+        Modern (KRaft): Starting with Kafka 3.x, Kafka can run in "ZooKeeper-less" mode using the Kafka Raft (KRaft) consensus protocol.
+                      This stores metadata directly inside Kafka, making it faster and easier to manage.
+
+6. Why is Kafka so fast?
+  From a Java coding perspective, Kafka achieves its massive throughput via:
+      Sequential I/O: It appends data to the end of a log file rather than seeking all over the disk.
+      Zero Copy: It uses the OS sendfile system call to move data directly from the disk cache to the network card without copying it into the application heap.
+      Batching: It groups small messages together to reduce network overhead.
