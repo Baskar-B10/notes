@@ -159,62 +159,53 @@ Loading a cache in a multi-node environment:
                 Node B is forced to go to the Database and gets the new value.
                 Note: This is only used for non-critical data (like a "Top 10 Trending Topics" list).
 
-Session strategy
+Session strategy:
+  In a modern distributed system (like Microservices or a multi-node cluster), managing user sessions is a critical architectural decision. 
+  Since HTTP is stateless, the server needs a way to remember who the user is between requests.
 
-Gemini said
-In a modern distributed system (like Microservices or a multi-node cluster), managing user sessions is a critical architectural decision. Since HTTP is stateless, the server needs a way to remember who the user is between requests.
+  Here are the four primary session management strategies used today:
+    1. Sticky Sessions (Session Affordance)
+        The Load Balancer ensures that a specific user is always routed to the same server node for the duration of their session.
+        How it works: The Load Balancer looks at a cookie or IP and "sticks" the user to Node A.
+                     Node A stores the session in its local RAM.
+        Pros: Very fast (no network calls to a database).
+        Cons: Low Reliability. If Node A crashes, all users "stuck" to it lose their session data and must log in again. 
+             It also makes load balancing uneven. 
+    2. Session Replication
+        Every node in the cluster shares session data with every other node.
+        How it works: When Node A creates a session, it broadcasts that data to Node B, C, and D.
+        Pros: High availability. If any node fails, any other node can pick up the request.
+        Cons: Poor Scalability. As you add more nodes, the "noise" of broadcasting session updates creates massive network overhead.
+    
+    3. Centralized Session Store (Distributed Session)
+        This is the industry standard for scalable production apps. 
+        Session data is moved out of the application nodes and into a fast, external "Data Store."
+        How it works: All nodes connect to a central, high-speed NoSQL database (usually Redis or Memcached).
+        The Flow:
+                User logs in via Node A.
+                Node A saves session in Redis.
+                User's next request hits Node B.
+                Node B asks Redis: "Is this session valid?"
+                Redis says "Yes," and Node B processes the request.
+        Pros: Nodes are truly stateless. You can kill or add nodes without affecting users.
+        
+    4. Stateless Sessions (JWT / Token-Based)
+    The server stores nothing. Instead, the session state is encrypted and sent to the client (browser).
+        How it works: After login, the server sends a JSON Web Token (JWT) to the user. 
+                     The user sends this token back in the header of every request.
+        Pros: Maximum scalability. No database lookups needed at all.
+        Cons: Security/Revocation. It is very difficult to "Log out" a user before the token expires because the server has no central record to delete.
+    
+    Strategy Comparison Table
+    Strategy	    Storage Location	Scalability	    Reliability	    Complexity
+    Sticky        	Local RAM	        Low	            Low	            Easy
+    Replicated	    All Nodes	        Very Low	    High	        Medium
+    Centralized	    Redis/External	    High	        High	        Medium
+    Stateless	    Client (JWT)	    Extreme	        High            High (Security)
 
-Here are the four primary session management strategies used today:
+Which one should you use?
+    For Monoliths: Sticky sessions are often fine for simple internal tools.
+    For Enterprise/Spring Boot: Centralized Store (Redis) is the sweet spot. 
+        It provides the best balance of speed and reliability.
+    For Public APIs: Stateless (JWT) is preferred because it allows different services to verify users without sharing a database.
 
-1. Sticky Sessions (Session Affordance)
-The Load Balancer ensures that a specific user is always routed to the same server node for the duration of their session.
-
-How it works: The Load Balancer looks at a cookie or IP and "sticks" the user to Node A. Node A stores the session in its local RAM.
-
-Pros: Very fast (no network calls to a database).
-
-Cons: Low Reliability. If Node A crashes, all users "stuck" to it lose their session data and must log in again. It also makes load balancing uneven.
-
-2. Session Replication
-Every node in the cluster shares session data with every other node.
-
-How it works: When Node A creates a session, it broadcasts that data to Node B, C, and D.
-
-Pros: High availability. If any node fails, any other node can pick up the request.
-
-Cons: Poor Scalability. As you add more nodes, the "noise" of broadcasting session updates creates massive network overhead.
-
-3. Centralized Session Store (Distributed Session)
-This is the industry standard for scalable production apps. Session data is moved out of the application nodes and into a fast, external "Data Store."
-
-How it works: All nodes connect to a central, high-speed NoSQL database (usually Redis or Memcached).
-
-The Flow:
-
-User logs in via Node A.
-
-Node A saves session in Redis.
-
-User's next request hits Node B.
-
-Node B asks Redis: "Is this session valid?"
-
-Redis says "Yes," and Node B processes the request.
-
-Pros: Nodes are truly stateless. You can kill or add nodes without affecting users.
-
-4. Stateless Sessions (JWT / Token-Based)
-The server stores nothing. Instead, the session state is encrypted and sent to the client (browser).
-
-How it works: After login, the server sends a JSON Web Token (JWT) to the user. The user sends this token back in the header of every request.
-
-Pros: Maximum scalability. No database lookups needed at all.
-
-Cons: Security/Revocation. It is very difficult to "Log out" a user before the token expires because the server has no central record to delete.
-
-Strategy Comparison Table
-Strategy	Storage Location	Scalability	Reliability	Complexity
-Sticky	Local RAM	Low	Low	Easy
-Replicated	All Nodes	Very Low	High	Medium
-Centralized	Redis/External	High	High	Medium
-Stateless	Client (JWT)	Extreme	High
