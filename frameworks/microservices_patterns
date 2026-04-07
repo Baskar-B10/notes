@@ -24,6 +24,61 @@ The Weaknesses:
   Data Consistency: Maintaining data integrity across different databases (Distributed Transactions) is notoriously difficult.
   Network Latency: Constant communication over the network adds overhead that doesn't exist in a monolith.
 
+Exception handling in External API calls in Microservices:
+    When making external calls (REST APIs, gRPC, etc.), exception handling is no longer just about try-catch. 
+    You have to account for network instability, downstream service downtime, and timeouts.
+    In a Spring Boot environment, you should use a combination of Defensive Coding and Resilience Patterns.
+      1. Handling HTTP Client Exceptions:
+          If you use RestTemplate or WebClient, they throw specific exceptions when the remote service returns a 4xx or 5xx error.
+          For RestTemplate:
+          HttpClientErrorException: For 4xx errors (Client side).
+          HttpServerErrorException: For 5xx errors (Server side).
+              try {
+                  ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+              } catch (HttpClientErrorException.NotFound ex) {
+                  // Handle 404 specifically
+                  log.error("Resource not found: {}", ex.getMessage());
+              } catch (HttpServerErrorException ex) {
+                  // Handle 5xx errors
+                  log.error("External service is down: {}", ex.getResponseBodyAsString());
+              } catch (RestClientException ex) {
+                  // Handle timeout or connectivity issues
+                  log.error("Network failure: {}", ex.getMessage());
+              }
+      2. The Circuit Breaker Pattern (Resilience4j):
+          If an external service is down, you shouldn't keep hammering it with requests.
+          This wastes resources and can cause your own application to crash (Cascading Failure).
+          
+          The Circuit Breaker "trips" after a certain number of failures, 
+          immediately returning an error or a fallback response without even attempting the network call.
+                @CircuitBreaker(name = "externalService", fallbackMethod = "fallbackResponse")
+                public String callExternalApi() {
+                    return restTemplate.getForObject("https://api.external.com/data", String.class);
+                }
+                // This runs when the circuit is OPEN or an exception occurs
+                public String fallbackResponse(Exception e) {
+                    return "Service is temporarily unavailable. Please try later.";
+                }
+      3. Retries with Exponential Backoff
+            Sometimes a call fails due to a temporary "blip." 
+            Instead of giving up immediately, you can retry.
+            However, never retry immediately—it can overwhelm the downstream service. 
+            Use Exponential Backoff (wait 1s, then 2s, then 4s...).
+      
+                @Retry(name = "retryApi", fallbackMethod = "fallbackResponse")
+                public String callWithRetry() {
+                    return restTemplate.getForObject(url, String.class);
+                }
+      4. Setting Timeouts (Crucial!):
+            The most common cause of microservice failure is an external call that hangs forever.
+            Always set a Connect Timeout and a Read Timeout.
+              @Bean
+              public RestTemplate restTemplate(RestTemplateBuilder builder) {
+                  return builder
+                          .setConnectTimeout(Duration.ofMillis(500)) // Time to establish connection
+                          .setReadTimeout(Duration.ofMillis(2000))    // Time to wait for data
+                          .build();
+              }
 
 In a microservice architecture, an application is built as a suite of small, independent services, 
 each running in its own process and communicating with lightweight mechanisms—often an HTTP resource API or message-driven patterns.
@@ -300,61 +355,6 @@ Which should you use?
     If you are using Kubernetes, you are already using Server-Side Discovery (Services and DNS). It's built-in and invisible.
     If you are running a Spring Cloud stack on traditional VMs or bare metal, Client-Side Discovery with Eureka is a very popular choice.
 
-Exception handling in External API calls in Microservices:
-    When making external calls (REST APIs, gRPC, etc.), exception handling is no longer just about try-catch. 
-    You have to account for network instability, downstream service downtime, and timeouts.
-    In a Spring Boot environment, you should use a combination of Defensive Coding and Resilience Patterns.
-      1. Handling HTTP Client Exceptions:
-          If you use RestTemplate or WebClient, they throw specific exceptions when the remote service returns a 4xx or 5xx error.
-          For RestTemplate:
-          HttpClientErrorException: For 4xx errors (Client side).
-          HttpServerErrorException: For 5xx errors (Server side).
-              try {
-                  ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
-              } catch (HttpClientErrorException.NotFound ex) {
-                  // Handle 404 specifically
-                  log.error("Resource not found: {}", ex.getMessage());
-              } catch (HttpServerErrorException ex) {
-                  // Handle 5xx errors
-                  log.error("External service is down: {}", ex.getResponseBodyAsString());
-              } catch (RestClientException ex) {
-                  // Handle timeout or connectivity issues
-                  log.error("Network failure: {}", ex.getMessage());
-              }
-      2. The Circuit Breaker Pattern (Resilience4j):
-          If an external service is down, you shouldn't keep hammering it with requests.
-          This wastes resources and can cause your own application to crash (Cascading Failure).
-          
-          The Circuit Breaker "trips" after a certain number of failures, 
-          immediately returning an error or a fallback response without even attempting the network call.
-                @CircuitBreaker(name = "externalService", fallbackMethod = "fallbackResponse")
-                public String callExternalApi() {
-                    return restTemplate.getForObject("https://api.external.com/data", String.class);
-                }
-                // This runs when the circuit is OPEN or an exception occurs
-                public String fallbackResponse(Exception e) {
-                    return "Service is temporarily unavailable. Please try later.";
-                }
-      3. Retries with Exponential Backoff
-            Sometimes a call fails due to a temporary "blip." 
-            Instead of giving up immediately, you can retry.
-            However, never retry immediately—it can overwhelm the downstream service. 
-            Use Exponential Backoff (wait 1s, then 2s, then 4s...).
-      
-                @Retry(name = "retryApi", fallbackMethod = "fallbackResponse")
-                public String callWithRetry() {
-                    return restTemplate.getForObject(url, String.class);
-                }
-      4. Setting Timeouts (Crucial!):
-            The most common cause of microservice failure is an external call that hangs forever.
-            Always set a Connect Timeout and a Read Timeout.
-              @Bean
-              public RestTemplate restTemplate(RestTemplateBuilder builder) {
-                  return builder
-                          .setConnectTimeout(Duration.ofMillis(500)) // Time to establish connection
-                          .setReadTimeout(Duration.ofMillis(2000))    // Time to wait for data
-                          .build();
-              }
 
 CQRS Pattern:
     stands for Command Query Responsibility Segregation.
