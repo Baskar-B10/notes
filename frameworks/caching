@@ -91,6 +91,62 @@ Data Sharing   Harder (Requires Clustering)    Easy (Centralized)
 Language       Java/JVM Centric                Language Agnostic
 Complexity     Simple (Library)                Higher (Needs a Server)
 
+
+1. The cleanest way to handle caching is to use @Cacheable. 
+This follows the Cache-Aside pattern automatically: it checks the cache first and only executes the method body if the data is missing.
+        @Service
+        public class ProductService {
+        
+            // "products" matches the cache name in your ehcache.xml
+            @Cacheable(value = "products", key = "#id")
+            public Product getProductById(Long id) {
+                // This block only runs on a cache miss
+                simulateSlowService(); 
+                return repository.findById(id);
+            }
+        
+            @CacheEvict(value = "products", key = "#product.id")
+            public void updateProduct(Product product) {
+                repository.save(product);
+                // This removes the stale data from the cache
+            }
+        }
+2. Java 8 Functional Approach (Ehcache API)
+    If you aren't using Spring, or you need more granular control, you can use the Ehcache 3.x API.
+    Java 8's Optional and Lambda expressions make this much cleaner than older versions.
+    
+    CacheManager cacheManager = CacheManagerBuilder.newCacheManagerBuilder().build(true);
+    Cache<Long, String> userCache = cacheManager.createCache("userCache",
+        CacheConfigurationBuilder.newCacheConfigurationBuilder(Long.class, String.class,
+            ResourcePoolsBuilder.heap(100)));
+    
+    public String getUserData(Long id) {
+        // Functional approach: Check cache, if null, compute and put
+        return Optional.ofNullable(userCache.get(id))
+                .orElseGet(() -> {
+                    String val = database.fetchName(id);
+                    userCache.put(id, val);
+                    return val;
+                });
+    }
+3. Configuration (ehcache.xml)
+    To make your Java code work, you need a configuration file in your src/main/resources.
+    This is where you define the Tiers (Heap, Off-heap, Disk).
+    XML
+    <config xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' ...>
+      <cache alias="products">
+        <key-type>java.lang.Long</key-type>
+        <value-type>com.example.Product</value-type>
+        <expiry>
+          <ttl unit="minutes">30</ttl> </expiry>
+        <resources>
+          <heap unit="entries">1000</heap>
+          <offheap unit="MB">128</offheap>
+        </resources>
+      </cache>
+    </config>
+
+
 Loading a cache in a multi-node environment:
     In a distributed system, It  is tricky because you have to balance data consistency (making sure all nodes see the same thing)
     with availability (making sure the cache is fast).
