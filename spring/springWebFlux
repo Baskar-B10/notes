@@ -1,0 +1,44 @@
+Spring WebFlux is a fully non-blocking, reactive web framework designed to handle a massive number of concurrent connections with very few threads.
+Unlike standard Spring MVC (which uses a "Thread-per-Request" model), WebFlux uses an Event Loop architecture, similar to Node.js.
+
+1. Core Architecture: Blocking vs. Non-Blocking
+    Spring MVC (Servlet Stack)
+    Model: One thread is dedicated to every single HTTP request.
+    Bottleneck: If the thread has to wait for a database or an external API, it sits idle ("blocked"). 
+            To handle 1,000 concurrent slow requests, you need 1,000 threads, which consumes a lot of memory (RAM).
+
+Spring WebFlux (Reactive Stack)
+    Model: A small, fixed number of threads (usually equal to CPU cores) handle all requests.
+    Mechanism: When a request needs to wait for I/O (like a DB query), the thread registers a callback and moves on to handle the next request.
+          When the DB is ready, an event is triggered, and a thread picks the work back up.
+
+2. Key Components
+    Project Reactor: The library providing the reactive foundation (Mono and Flux).
+    Netty: The default high-performance, non-blocking server (replaces Tomcat).
+    WebClient: The non-blocking, functional alternative to RestTemplate.
+    Reactive Streams: The standard that ensures "Backpressure" (the consumer telling the producer to slow down so it doesn't get overwhelmed).
+
+3. Implementation Styles
+  WebFlux allows you to write code in two ways:
+  A. Annotated Controllers (Familiar Style)
+      Looks exactly like Spring MVC, but returns Mono or Flux. 
+  B. Functional Endpoints (Modern Style)
+      Uses Router Functions and Handler Functions. This is more lightweight and easier to test.
+
+4. How to Implement (Step-by-Step)
+  Step 1: Add Dependencies
+    In your pom.xml, include the reactive starter:
+  Step 2: Use a Reactive Driver
+      WebFlux is useless if you use a blocking JDBC driver. You must use R2DBC (for SQL) or a reactive NoSQL driver (MongoDB, Cassandra, Redis).
+  Step 3: Call External APIs with WebClient
+  Avoid RestTemplate. Use WebClient to maintain the non-blocking chain.
+
+5. Parallelism in WebFlux (Scatter-Gather)
+    If you need to call three different APIs and combine them as fast as possible:
+
+6. When to Use WebFlux vs. MVC
+  Critical Warning: The "Blocking" Poison
+  If you call a blocking method (like Thread.sleep() or a standard JPA repository) inside a WebFlux flow, you will freeze the entire server.
+  Since there are only a few threads, blocking one of them can stop all incoming requests.
+  
+  Rule: Never block an event loop thread. If you must use a blocking library, run it on a separate BoundedElastic scheduler.
