@@ -237,6 +237,100 @@ Service Versioning:
     Kafka Schema Registry: If using Kafka for communication,
           use the Confluent Schema Registry to ensure that your producers and consumers are always using compatible versions of the message.
 
+Database per Service pattern:
+  The Database per Service pattern is the most fundamental architectural principle for building truly decoupled microservices. 
+  In this model, each microservice manages its own private data store, and no other service can access that data directly.
+1. The Core Philosophy
+    In a monolith, you typically have one giant relational database with hundreds of tables.
+    In a microservices world, this becomes a "distributed monolith" if everyone still points to that same database.
+    Database per Service mandates that:
+    Data is Private: Only the service that "owns" the data can read or write to its database.
+    API-Only Access: If Service A needs data from Service B, it must call Service B’s API (REST, gRPC) or subscribe to its events. 
+            It cannot run a SQL JOIN against Service B's tables.
+    Polyglot Persistence: Since the databases are isolated, you can choose the best tool for the job. 
+            Service A might use PostgreSQL (Relational), while Service B uses MongoDB (Document) and Service C uses Neo4j (Graph).
+
+2. Implementation Strategies
+    There are three common ways to physically isolate the data, depending on your infrastructure and budget:
+      Strategy                    Isolation Level                                    Cost/Complexity
+      Private Tables              "Logical (Shared DB instance, different tables)"   Low (Easy to manage)
+      Schema per Service          "Logical (Shared DB instance, private schemas)"    Medium (Prevents naming collisions)
+      Database Server per Service  Physical (Dedicated DB instance/cluster)          High (Maximum isolation and scaling)
+  In a production environment like AKS, the "Schema per Service" or "Dedicated Instance" 
+  (via Azure SQL or Cosmos DB) is the most common approach to ensure performance doesn't leak between services.
+
+3. The "Big Challenge": Distributed Data
+  When you split your database, you lose two things: ACID Transactions and SQL Joins. 
+  You must solve these using new patterns:
+  A. How to Join Data? (API Composition vs. CQRS)
+  API Composition: A "Composer" service calls the Order Service and the Customer Service, then joins the data in memory.
+            This is fine for simple UI screens.
+  
+  CQRS: You create a "Read View" database that subscribes to events from multiple services and keeps a pre-joined,
+      flattened version of the data ready for fast querying.
+  B. How to Maintain Consistency? (Saga Pattern)
+  Since you can't use a single transaction to update two databases, you use a Saga. 
+  If an Order is created in Database A but the Payment fails in Database B, 
+    the Saga triggers a "Compensating Transaction" to mark the Order as failed in Database A.
+
+4. Pros and Cons
+Benefits:
+  Independent Scaling: If the "Product Catalog" service has 10x the read traffic of the "Shipping" service, you can scale its database independently.
+  Fault Isolation: A database crash or a "locked table" in one service doesn't bring down the entire system.
+  Team Autonomy: Developers can change their schema or migrate from MySQL to PostgreSQL without coordinating with other teams.
+
+Drawbacks:
+  Management Overhead: Instead of managing one database, your DevOps team is now managing dozens.
+  Data Integrity: Enforcing referential integrity (Foreign Keys) across service boundaries is impossible at the DB level; it must be handled in the application code.
+  Reporting Complexity: Traditional BI tools struggle because they can't "join" across 50 different databases. 
+                  You usually need a Data Lake or Data Warehouse strategy to aggregate data for analytics.
+
+5. When to Use It
+    Scale: When your team size grows and coordination on a single schema becomes a bottleneck.
+    Complexity: When different parts of your system have vastly different data requirements (e.g., one part needs high-speed search, another needs strict ACID).
+    Modernization: If you are migrating a monolith to AKS, this is the target end-state for your data layer.
+
+Shared Database (Anti-Pattern / Transition Pattern):
+  The Shared Database pattern is a setup where multiple microservices connect to a single, centralized database and often access the same tables.
+  While it is the standard for monolithic applications, in a microservices world, it is widely considered an anti-pattern for long-term architecture.
+  However, it remains a common transition pattern during the migration from a monolith to a decoupled system.
+1. Why it is an Anti-Pattern (The Risks)
+    When you have multiple services sharing a database, you lose the primary benefits of microservices:
+    Tight Coupling: If the "Order Service" team wants to rename a column or change a data type, 
+            they might accidentally break the "Inventory Service" or "Shipping Service" that also reads that table.
+    Single Point of Failure: If the shared database goes down or becomes locked due to a heavy query from one service, the entire ecosystem crashes.
+    Scalability Bottleneck: You cannot scale the data layer independently.
+                If one service needs high-write throughput and another needs complex read-heavy joins, they compete for the same CPU and Memory.
+    Runtime Interference: A "noisy neighbor" (a service running a massive report) can slow down critical transaction processing for every other service.
+
+2. Why it is a Transition Pattern (The Utility)
+    Despite the risks, the shared database is often a "necessary evil" during a Strangler Fig migration.
+    Step-by-Step Migration: You can "peel off" code into a new microservice but keep it pointed at the old database. 
+            This allows you to test the service logic without the complexity of data synchronization or Sagas.
+    Atomic Transactions: During early migration, 
+          you might still need the ACID properties of a single database to ensure data integrity before you are ready to implement the Saga Pattern.
+    Reporting: It's easier to run existing BI and reporting tools against a single source of truth while the application code is being refactored.
+
+3. Best Practices for the "Transition" Phase
+  If you must use a shared database temporarily, follow these "damage control" strategies:
+  A. Logical Separation (Schemas)
+        Instead of sharing tables, give each service its own Schema (e.g., orders_schema, catalog_schema). 
+        This prevents services from accidentally touching each other's data while staying on the same physical server.
+  B. Use an Interface (Views/Stored Procs)
+        Have services access data through Database Views rather than raw tables. 
+        This creates a "contract" that allows the database team to change the underlying table structure without breaking the service code immediately.
+  C. Resource Governance
+        In a cloud environment like Azure SQL,
+            use Resource Governor or elastic pools to ensure that one service doesn't hog all the DTUs (Database Transaction Units) or vCores.
+
+4. The Exit Strategy
+    The goal should always be to move toward a Database per Service model. The typical path looks like this:
+    Monolith: Single App → Single DB.
+    Transition: Microservices A, B, and C → Single DB (Shared Tables).
+    Logical Split: Microservices A, B, and C → Single DB (Private Schemas).
+    Physical Split: Microservices A, B, and C → Dedicated DB Instances.
+
+
 1. How to maintain data consistency in database for multiple micro services:
   1. The Saga Pattern (The Gold Standard)
   2. Two-Phase Commit (2PC)
