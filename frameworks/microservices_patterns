@@ -355,3 +355,45 @@ Exception handling in External API calls in Microservices:
                           .setReadTimeout(Duration.ofMillis(2000))    // Time to wait for data
                           .build();
               }
+
+CQRS Pattern:
+    stands for Command Query Responsibility Segregation.
+    At its heart, it is a simple but powerful architectural pattern:
+    it separates the part of the system that changes data from the part of the system that reads data.
+
+    In traditional CRUD (Create, Read, Update, Delete) architectures, we use the same data model to both write to and read from a database. 
+    CQRS argues that for complex systems, these two tasks have very different requirements.
+
+1. The Core Components
+    The Command Side (Writes)
+        Purpose: To perform actions that change the state of the system (Create, Update, Delete).
+        Focus: Task-based operations (e.g., "CheckOutOrder" instead of "SetStatus=3"). It handles business logic and validation.
+        Return Value: Usually returns nothing (void) or a simple acknowledgment (Success/Failure).
+    The Query Side (Reads)
+        Purpose: To retrieve data to display to a user or another system.
+        Focus: Speed and UI requirements.
+        Return Value: Returns a Data Transfer Object (DTO) specifically shaped for the view.
+
+2. Why use CQRS? (Usage Scenarios)
+    CQRS isn't for every project—it adds complexity. However, it is a lifesaver in the following situations:
+    High Performance Requirements: If your app has 1,000 reads for every 1 write, 
+                                  you can scale your "Read" servers independently from your "Write" servers.
+    Complex Business Logic: When the logic to save data is very different from how you need to see it.
+    Collaborative Systems: Applications where many users access the same data simultaneously (e.g., a hotel booking system).
+    Event Sourcing: CQRS is often paired with Event Sourcing, where the "Command" side stores a sequence of events, 
+                    and the "Query" side builds a "Projections" table for fast reading.
+
+3. The "Two Database" Strategy
+    While you can use CQRS with a single database, the pattern shines when you use two:
+        Write Database: Optimized for consistency and normalization (often Relational/SQL).
+        Read Database: Optimized for speed and searches (often NoSQL like MongoDB or Elasticsearch).
+    
+    How they stay in sync:
+    When the Command side updates the Write DB, it emits an Event.
+    A "Projector" or "Event Handler" listens for that event and updates the Read DB accordingly.
+
+ Pros vs. Cons:
+Feature      Benefits                                                         Drawbacks
+Scalability  Scale reads and writes separately.                               Complexity: More code and moving parts.
+Security     Easier to ensure only the right people can "change" data.        Eventual Consistency: The Read DB might be a few milliseconds behind the Write DB.
+Performance  Queries are simple because data is already shaped for the UI.    Maintenance: Keeping two models in sync requires effort.
