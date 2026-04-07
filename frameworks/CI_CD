@@ -1,0 +1,51 @@
+How to incorporate code vulnerability checks in pipeline:
+    To incorporate code vulnerability checks into your pipeline, you should follow a "Shift Left" strategy. 
+    This means moving security as close to the developer as possible, catching flaws at the source code level before they ever reach production.
+    In a modern Java microservices environment (like your sbk8-poc project), a high-performing DevSecOps pipeline typically includes these four layers of defense
+1. SAST (Static Application Security Testing):
+    SAST tools scan your source code without executing it.
+    They look for patterns associated with SQL injection, hardcoded credentials, and unsafe deserialization.
+            Tooling: SonarQube, Snyk, or Checkmarx.
+            Pipeline Integration: Run this during the build or test stage.
+            Java 17 Tip: Ensure your SAST tool is configured to recognize modern Java features like Records to avoid false positives or missed logic.
+    Example GitLab CI snippet for SonarQube
+            sonarqube-check:
+              stage: test
+              script:
+                - mvn verify sonar:sonar -Dsonar.projectKey=sbk8-poc
+              only:
+                - merge_requests
+2. SCA (Software Composition Analysis)
+    Since microservices rely heavily on third-party libraries (Spring Boot, Hibernate, etc.), you must scan your dependencies for known CVEs.
+        Tooling: OWASP Dependency-Check, Snyk, or GitHub Dependabot.
+        Mechanism: It compares your pom.xml or build.gradle against a database of vulnerable versions.
+        Action: Fail the build if a dependency has a "High" or "Critical" vulnerability.
+
+3. Container Scanning
+    Because you are working with Azure Kubernetes Service (AKS), scanning the Docker image itself is critical. 
+    This catches vulnerabilities in the base OS layer (e.g., a vulnerable version of Alpine or Debian).
+        Tooling: Trivy, Grype, or Azure Container Registry (ACR) scanning.
+        Strategy: Scan the image immediately after it is built and before it is pushed to the registry.
+        Best Practice: Use "Distroless" or minimal base images to reduce the attack surface.
+            Bash
+            # Example Trivy command in a pipeline
+            trivy image --severity HIGH,CRITICAL my-registry.azurecr.io/sbk8-poc:latest
+
+4. DAST (Dynamic Application Security Testing)
+    DAST acts like a "black-box" attacker.
+    It scans your running application in a staging or QA environment to find runtime flaws like broken authentication or misconfigured headers.
+        Tooling: OWASP ZAP, StackHawk, or Burp Suite Enterprise.
+        Pipeline Integration: Trigger this after the deployment to a test environment is successful.
+
+5. Security Gates (The "Breaking" Point)
+    A vulnerability check is useless if it doesn't stop bad code. You must define Quality Gates.
+    Category         Typical Gate Policy
+    Critical/High    FAIL BUILD immediately.No exceptions.
+    Medium            "Allow build but create a high-priority ticket (e.g., in Azure Boards)."
+    Low               Log for monthly technical debt review.
+
+Summary Checklist for your Microservices:
+    [ ] Pre-commit: Use a tool like git-secrets to prevent committing API keys.
+    [ ] Build Stage: Run SAST (SonarQube) and SCA (Snyk/OWASP).
+    [ ] Package Stage: Run Container Scanning (Trivy) on the Docker image.
+    [ ] Post-Deploy: Run a lightweight DAST scan against the staging endpoint.
