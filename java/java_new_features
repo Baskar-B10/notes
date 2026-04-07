@@ -719,6 +719,27 @@ Why Primitive Streams Exist?  To avoid boxing/unboxing overhead
 ✔ orElseThrow() - opt.orElseThrow(() -> new RuntimeException());
 ✔ map() - opt.map(String::length);
 
+  Feature      orElse                             orElseGet
+  Argument     A plain object/value               A Lambda (Supplier)
+  Evaluation   Always evaluated (Eager)           Evaluated only if empty (Lazy)
+  Performance  Slower if value is expensive       Faster for expensive defaults
+  Side Effects Any method inside runs every time  Method runs only if needed
+
+    public String getCacheData() {
+        System.out.println("Generating default data..."); // Side effect!
+        return "Default Value";
+    }
+    
+    Optional<String> data = Optional.of("Actual Data");
+    
+    // CASE 1: orElse
+    String res1 = data.orElse(getCacheData());
+    // Output: "Generating default data..." is printed, even though we had "Actual Data".
+    
+    // CASE 2: orElseGet
+    String res2 = data.orElseGet(() -> getCacheData());
+    // Output: Nothing is printed. The method is ignored because data was present.
+
 Optional<User> user = repo.findById(id);
   String name = user
       .map(User::getName)
