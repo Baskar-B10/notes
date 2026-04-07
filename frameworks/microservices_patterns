@@ -471,6 +471,64 @@ Database Schema: A typical Outbox table looks like this:
     payload (JSON string)
     created_at (Timestamp)
 
+Event Sourcing:
+  Event Sourcing is a paradigm shift in how we handle data. 
+  Instead of storing the current "snapshot" of an object (the way we do in a traditional CRUD database),
+  we store the entire sequence of state-changing events that have occurred over time.
+
+1. The Core Concept: The "Append-Only" Log:
+    In a traditional system, if a user changes their address, you run an UPDATE command, and the old address is gone forever. 
+    In Event Sourcing, you append a new event: UserAddressChanged.
+        To get the current state of an object (known as an Aggregate), 
+        the application fetches all events for that specific ID from the Event Store and "replays" them in order.
+    The Mathematical LogicCurrent State = $\sum (\text{Initial State} + \text{Event}_1 + \text{Event}_2 + \dots + \text{Event}_n)$
+
+2. Key Components
+  A. The Event Store
+    A specialized database that is optimized for appending and retrieving events by an ID.
+    It must be immutable—events are never deleted or modified.
+    Examples: EventStoreDB, Apache Kafka (with compaction), or a standard RDBMS like PostgreSQL using a dedicated schema.
+  B. Projections (Read Models)
+    Since replaying 5,000 events to find a user's current phone number is slow, we use Projections. 
+    A background process listens to the event stream and updates a "Read Database" (like Elasticsearch or a flat SQL table) 
+      that holds the current state for quick querying.
+      This is where Event Sourcing naturally pairs with CQRS.
+  C. Snapshots
+      For aggregates with thousands of events, replaying every single one becomes a performance bottleneck.
+      A Snapshot is a point-in-time recording (e.g., at event #500). 
+      The system loads the snapshot and then only replays the events that occurred after that point.
+
+3. Why Use It? (The Benefits)
+    Auditability & Compliance: You have a 100% accurate history of everything that happened.
+              You never have to ask "How did the data get into this state?"
+    Time Travel: You can reconstruct the state of the system at any specific point in the past.
+          This is invaluable for debugging production issues or regulatory reporting.
+    High Performance Writes: Appending to a log is significantly faster than performing complex updates and maintaining indexes in a relational DB.
+    Reactive Architecture: It makes building event-driven systems natural.
+            Other services can simply subscribe to the event stream to react to changes.
+
+4. The Challenges (The Trade-offs)
+    Complexity: It requires a total mental shift for the dev team. Debugging and monitoring become harder.
+    Event Evolution (Versioning): What happens when the structure of an event changes? 
+          You have to handle "upcasting" (transforming old event formats into new ones during replay).
+    Eventual Consistency: The read model (Projection) might be a few milliseconds behind the event store. 
+          Your UI must be designed to handle this.
+    External Systems: If an event triggers an email, you must ensure that replaying events during a "State Recovery" doesn't send that email again.
+
+5. Practical Example: 
+      A Bank Account
+      Event 1: AccountOpened (Balance: 0)
+      Event 2: MoneyDeposited (Amount: 100)
+      Event 3: MoneyWithdrawn (Amount: 40)
+      Current State: $0 + 100 - 40 = 60$If the customer disputes a balance,
+      you don't just show them the number "60"; you show them the immutable ledger of events that created that number.
+
+6. Implementation in the Java/Spring Ecosystem
+    If you're building this in Spring Boot, the most popular choice is the Axon Framework. It provides:
+        An Event Bus and Command Bus.
+        Built-in support for Snapshots and Upcasters.
+        Integration with Axon Server (a dedicated Event Store).
+
 API Gateway:
     In a microservices architecture, the API Gateway acts as the single entry point for all clients (web, mobile, or external partners). 
     Instead of a client calling ten different microservices to load a single page, it calls the Gateway,
@@ -947,3 +1005,169 @@ TECHNOLOGY MAPPING
   Messaging           Apache Kafka, RabbitMQ,
                       Azure Service Bus
   ---------------------------------------------------
+
+Aggregator Design pattern:
+  The Aggregator design pattern is a specialized structural pattern in microservices used to consolidate data from multiple services into a single response.
+  It is often considered a specific implementation of API Composition, but with a focus on business logic, data transformation,
+  and providing a unified interface to the client.
+  In a microservices environment, a single user action (like viewing a "My Account" page) often requires data from five or six different services. 
+  The Aggregator handles the complexity of these multiple calls so the client doesn't have to.
+
+1. How the Aggregator Works
+    The Aggregator sits between the client (Mobile/Web) and the individual microservices. 
+    It receives a single request, orchestrates the downstream calls, and "aggregates" the results.
+    The Basic Workflow:
+        Request: The Client sends one request to the Aggregator.
+        Dispatch: The Aggregator identifies the required services (e.g., User Service, Order Service, Loyalty Service).
+        Execution: It calls these services—ideally in parallel to save time.
+        Aggregation: It collects the JSON/XML responses, filters out unnecessary fields, and merges them.
+        Response: A single, clean payload is sent back to the client.
+
+2. Common Variations
+  A. Proxy Aggregator
+      The simplest form. It just forwards the request to multiple services and zips the responses together without adding any business logic.
+      Use Case: Creating a unified "User Profile" from three different data sources.
+  B. Chained Aggregator
+      Service A is called first; its output is used to call Service B. Finally, both results are combined and returned.
+      Use Case: Calling a "Product Service" to get an ID, then using that ID to call a "Review Service."
+  C. Branch Aggregator
+      A hybrid where the aggregator calls multiple "chains" or groups of services simultaneously and then merges the final results of each branch.
+      Use Case: A travel site fetching Flights, Hotels, and Car Rentals (each of which might involve multiple sub-service calls).
+
+3. Implementation in Java (Spring Boot)
+    Since you are working with Java 21, you have powerful tools to implement this efficiently:
+    CompletableFuture: Use this to fire multiple non-blocking requests in parallel.
+    Virtual Threads: In Java 21, you can simply use blocking code within virtual threads. 
+              The JVM handles the concurrency, making your Aggregator code look like simple sequential code while performing like high-speed asynchronous code.
+    Spring WebClient: The reactive alternative to RestTemplate, perfect for handling multiple downstream streams.
+
+4. Key Considerations for Production
+    Performance & Latency
+        The Aggregator's response time is limited by the slowest downstream service.
+        Strategy: Use Timeouts. If the "Loyalty Points" service takes more than 500ms,
+                the Aggregator should return the rest of the data and leave the loyalty field empty rather than making the user wait.
+    Error Handling
+        If one of the four services fails (returns a 500 error), should the whole Aggregation fail?
+        Strategy: Implement Fallbacks. Provide default values or cached data for the failing service so the user still sees most of the page.
+    Security
+        The Aggregator usually handles Token Propagation.
+          It receives a JWT from the client, validates it,
+          and passes it (or a specialized internal token) to the downstream services to ensure the user is authorized for each specific piece of data.
+
+5. Aggregator vs. API Gateway vs. BFF
+    Pattern                    	Scope	Primary         Goal
+    API Gateway	                Infrastructure level	Routing, Auth, Rate Limiting.
+    Aggregator	                Business/Logic level	Consolidating data from multiple services.
+    BFF (Backend for Frontend)	User-Interface level	A specific Aggregator tailored for one device (e.g., one for Mobile, one for Web).
+
+6. Pros and Cons
+Pros: Reduces network chatter between client and server; simplifies client-side logic; provides a clean, decoupled API.
+Cons: Can become a "Fat Service" or a bottleneck if too much logic is added; adds an extra network hop (latency); 
+      availability is dependent on downstream services.
+
+
+API composition:
+  The API Composition pattern is the most common solution for the "Join Problem" in microservices.
+  Since each service has its own private database, a client (like a mobile app or frontend) cannot perform a standard SQL join to get data from multiple services.
+  API Composition acts as a coordination layer that fetches data from multiple providers and merges it into a single response.
+1. How it Works: The Three Roles
+    The pattern involves three distinct participants:
+        The API Composer: A dedicated service or an API Gateway that orchestrates the data retrieval.
+        Provider Services: The downstream microservices (e.g., Order Service, Customer Service, Shipping Service) that own the data.
+        The Client: The requester (Frontend, Mobile, or another service) that receives the final "composed" result.
+        The Execution Flow:
+            The Client sends a request to the Composer (e.g., GET /order-details/123).
+            The Composer identifies which services hold the required data.
+            The Composer calls those services concurrently (in parallel) to minimize latency.
+            The Composer joins the JSON responses in memory based on a common key (like customer_id).
+            The final, unified object is sent back to the Client.
+
+2. Implementation Strategies
+    A. API Gateway as Composer
+        You can use a gateway like Spring Cloud Gateway or Azure API Management to perform simple aggregation.
+        Best for: Very simple joins with minimal business logic.
+        Risk: Can turn the gateway into a "fat" bottleneck if complex logic is added.
+    B. Dedicated Aggregator Service
+        A standalone microservice (often called a BFF - Backend For Frontend) is created specifically to handle complex compositions.
+        Best for: Scenarios where you need to filter, sort, or transform the data before sending it to the UI.
+
+3. Performance & Technical Considerations
+    Concurrent Execution
+    In a Java/Spring Boot environment, you should never call downstream services sequentially (one after another).
+    Using Java 21 Virtual Threads or Project Reactor (WebClient) allows you to fire all requests simultaneously.
+      $$Total\ Latency \approx \max(ServiceA,\ ServiceB,\ ServiceC) + Overhead$$
+
+Error Handling & Partial Results:
+What happens if the "Shipping Service" is down but "Order" and "Customer" are fine?
+    Fail Fast: The Composer returns an error for the whole request.
+    Partial Success: The Composer returns the Order and Customer data but leaves the Shipping field as null or an empty object.
+              This is often better for user experience.
+
+Advantages                                      
+  Simple to Implement: No complex event-driven logic or secondary databases needed.
+  "Real-time Data: You are always getting the most ""current"" state from the source DBs.
+  Separation of Concerns: Client only cares about one endpoint.
+
+Disadvantages
+  Network Overhead: Multiple round-trips between the Composer and Providers.
+  Memory Pressure: Joining massive datasets in the Composer's JVM memory can lead to OutOfMemory errors.
+  Reduced Availability: The Composer's availability depends on the availability of all downstream services.
+
+5.When to Avoid (and use CQRS instead)
+  API Composition starts to fail when:
+      You need to perform complex filtering or sorting across services 
+          (e.g., "Find all customers in Chennai who ordered a specific motorcycle part in the last 24 hours").
+      The number of downstream calls becomes too high (the "N+1 query problem" at the service level).
+      The datasets are too large to be joined efficiently in memory.
+   In these cases, you would move toward CQRS, where data is pre-joined into a read-optimized view as events happen.
+
+Decompostion pattern:
+  Decomposition patterns provide the logical framework for breaking a monolithic application into a set of loosely coupled microservices.
+  Choosing the right boundary is the most critical decision in microservices architecture, as poor decomposition leads to "distributed monoliths" 
+  where services are too tightly coupled to change independently.
+
+1. Decompose by Business Capability
+    This pattern is derived from Business Architecture. 
+    A business capability is something that a business does to generate value.
+      The Logic: Identify the high-level functions of the organization (e.g., Sales, Marketing, Orders, Inventory) and create a service for each.
+      Example: For an e-commerce platform like a motorcycle parts distributor:
+        Order Management Service
+        Inventory Service
+        Shipping Service
+      Pros: Business capabilities are relatively stable; they rarely change even if the technology does.
+      Cons: It can be difficult to identify boundaries if the business processes are highly integrated.
+
+2. Decompose by Sub-domain (Domain-Driven Design)
+    Based on Domain-Driven Design (DDD), this pattern uses "Sub-domains" and "Bounded Contexts" to define service boundaries.
+    This is generally considered the most robust approach for complex systems.
+        The Logic: Divide the large domain into smaller sub-domains.
+              Each sub-domain has a Bounded Context—a boundary within which a particular domain model is defined and applicable.
+    Categories of Sub-domains:
+        Core: The "secret sauce" of the business (e.g., a custom pricing engine).
+        Supporting: Related to what the business does but not the core differentiator (e.g., Inventory).
+        Generic: Not specific to the business (e.g., Identity/Auth, Email).
+    Pros: Aligns perfectly with the language and mental models of the business experts.
+
+3. Decompose by Transactions / Strangler Fig
+    This is a more tactical approach often used during a migration from a monolith.
+    The Logic: Identify a specific transaction or "hotspot" in the monolith that needs to scale or changes frequently.
+                Extract that specific transaction into its own service.
+        Example: If the "Payment Processing" module in your Java monolith is causing frequent crashes or needs higher security, you decompose it first.
+    Pros: Provides immediate ROI by solving a specific pain point.
+
+4. Decompose by Team / Organizational Structure
+    Often referred to as Conway’s Law, which states that "organizations design systems which mirror their own communication structure."
+    The Logic: If you have a team in Chennai and a team in Bangalore, 
+            you might decompose the system so that each team owns a complete, independent service.
+    Pros: Reduces cross-team coordination and "merge hell."
+    Cons: Can lead to sub-optimal architecture if the team structure doesn't align with business logic.
+
+5. Challenges of Decomposition
+    No matter which pattern you choose, you will face these common hurdles:
+    Challenge            Strategy
+    Network Latency      "If Service A calls Service B too much, the boundary might be wrong. 
+                          Consider merging them or using API Composition."
+    Data Consistency      "Once decomposed, you lose ACID. You must implement the Saga Pattern."
+    God Classes"          Objects used everywhere (like User or Product). 
+                          Strategy: Each service should only have the fields it needs 
+                          (e.g., Order Service only needs ProductId and Price, not the full Product description)."
