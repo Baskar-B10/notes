@@ -112,6 +112,81 @@ Canary              Fast                    Medium            Very Low
 Rolling Update      Moderate                Low               Medium
 Feature Toggle      Instant                 Low             Low (Logic based)
 
+Resilience4j:
+    Resilience4j is currently the industry standard for fault tolerance in Java, especially since Netflix Hystrix entered maintenance mode.
+    It’s designed as a lightweight, modular library that works exceptionally well with functional programming and modern Spring Boot stacks.
+    1. Key Modules & Patterns
+        The library is "choose your own adventure"—you only include the modules you actually need.
+        CircuitBreaker: Prevents cascading failures by "tripping" when a service is failing or slow.
+        Retry: Automatically re-attempts transient failures (e.g., network glitches).
+        RateLimiter: Controls the rate of incoming requests to prevent overloading a downstream dependency.
+        Bulkhead: Limits concurrent calls to a specific service to ensure one slow service doesn't exhaust all application threads.
+        TimeLimiter: Sets a timeout for a specific operation.
+        
+    2. Spring Boot 3 Integration
+        In 2026, for a Spring Boot 3 application, the integration is highly annotation-driven and managed via application.yml.
+        Dependency (Maven):
+        XML
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>2.2.0</version> </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+        Configuration (application.yml):
+        YAML
+        resilience4j:
+          circuitbreaker:
+            instances:
+              externalService:
+                slidingWindowSize: 10
+                failureRateThreshold: 50
+                waitDurationInOpenState: 10s
+                permittedNumberOfCallsInHalfOpenState: 3
+          retry:
+            instances:
+              externalService:
+                maxAttempts: 3
+                waitDuration: 500ms
+    3. Usage in Code
+            You apply these patterns using annotations. 
+            A common pattern is combining Retry and CircuitBreaker.    
+        Note on Order: The Retry usually wraps the CircuitBreaker. If the call fails, it retries first;
+                        the CircuitBreaker only "sees" the failure if all retries fail.
+            Java
+            @Service
+            public class IntegrationService {
+            
+                @CircuitBreaker(name = "externalService", fallbackMethod = "fallback")
+                @Retry(name = "externalService")
+                public String callRemoteApi() {
+                    // Your logic to call a remote service
+                    return restTemplate.getForObject("/api/data", String.class);
+                }
+            
+                // Fallback must have same signature + Exception param
+                public String fallback(Exception ex) {
+                    return "Default response: Service is currently unavailable.";
+                }
+            }
+    4. Advanced: Functional & Reactive
+        Unlike older libraries, Resilience4j allows you to decorate functions directly, which is great for Spring WebFlux or Java 21 Virtual Threads:
+            Supplier<String> supplier = () -> remoteApi.getData();
+            Supplier<String> decorated = Decorators.ofSupplier(supplier)
+                .withCircuitBreaker(circuitBreaker)
+                .withRetry(retry)
+                .decorate();
+            
+            String result = Try.ofSupplier(decorated)
+                .recover(throwable -> "Fallback Data")
+                .get();
+    5. Why use it over Hystrix?
+        Modularity: You don't have to pull in the entire library.
+        Performance: It doesn't force every call into a separate thread (unlike Hystrix's default), which reduces overhead.
+        Observability: Integrates natively with Micrometer and Spring Boot Actuator for real-time monitoring via Prometheus/Grafana.
+
 1. Rate Limiting (The Hard Cap):
     Rate Limiting defines how many requests a user or client can make in a specific timeframe (e.g., "100 requests per minute").
     Primary Goal: Fairness and Security.
