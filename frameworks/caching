@@ -1,1 +1,69 @@
+Loading a cache in a multi-node environment:
+    In a distributed system, It  is tricky because you have to balance data consistency (making sure all nodes see the same thing)
+    with availability (making sure the cache is fast).
+    Here are the four most common strategies used in modern architecture:
+    1. Distributed Cache (Centralized)
+        Instead of each node having its own "island" of memory, all nodes connect to a single, external cache cluster (like Redis or Memcached).
+            How it works: Nodes act as clients. If Node A updates a value, Node B sees it immediately because they share the same source of truth.
+            Pros: High consistency; no memory wasted on duplicate data.
+            Cons: Network overhead (every cache hit requires a network call).
+    2. Near-Cache (Hybrid)
+        This is a "best of both worlds" approach. You have a Centralized Cache, but each node also keeps a small, local "hot" cache in its own memory.
+            How it works: When a node asks for data, it checks its local memory first. If missing, it goes to Redis.
+            Consistency: Usually handled via Pub/Sub. When Redis is updated, 
+                        it sends an "invalidation" message to all nodes to clear their local copies of that specific key.
+            Pros: Extreme speed for very frequently accessed data.
+    3. Replicated Cache
+        Every node maintains a full copy of the entire cache.
+            How it works: When Node A writes to its cache, the change is synchronously or asynchronously broadcast to every other node in the cluster.
+            Pros: Zero network latency for reads (everything is local).
+            Cons: Very expensive in terms of memory; write performance drops as you add more nodes (the "broadcast storm").
+    4. Cache Loading Patterns
+        Regardless of where the cache lives, you need a strategy for how the data gets in there:
+            A. Cache-Aside (Lazy Loading)
+                The application code is responsible for the cache.
+                Check cache.
+                If Miss: Read from DB, write to cache, return to user.
+                Best for: General purpose workloads where the cache shouldn't be "stale."
+            B. Read-Through / Write-Through
+                The application treats the cache as the main data store. The cache itself is responsible for talking to the database.
+                Best for: Keeping code clean; the "loading" logic is moved to the cache provider.
+            C. Refresh-Ahead (Proactive)
+                The cache automatically reloads data before it expires based on usage patterns.
+                Best for: Highly predictable data that must never have a "cold" start.
+
+ If one node update data how other node take that from cache:
+    This is the classic Cache Inconsistency problem.
+    If Node A updates the database and its own cache, Node B is left holding "stale" (old) data.
+    
+    To make sure Node B takes the updated data, you generally use one of the following three patterns.
+    1. The Invalidation Pattern (Pub/Sub):
+        This is the most common "Notification" strategy. 
+        Instead of Node A trying to update Node B's memory directly, it sends a shout-out.
+        How it works: You use a Message Broker (like Redis Pub/Sub, RabbitMQ, or Kafka).
+        The Flow:
+                Node A updates the Database.
+                Node A publishes a message to a "cache-clear" topic: "User 101 has changed!"
+                Node B (and all other nodes) is listening to that topic.
+                When Node B hears the message, it deletes "User 101" from its local cache.
+                The next time a user asks Node B for User 101, it sees the cache is empty and fetches the fresh data from the Database.
+    
+    2. The Distributed Cache (Single Source of Truth)
+        If you move the cache outside of the nodes, the problem disappears entirely.
+        How it works: Use a central Redis or Hazelcast cluster.
+        The Flow:
+                Node A updates the Database.
+                Node A updates the entry in Redis.
+                When Node B looks for that data, it looks in Redis.
+                Result: Node B automatically sees the change Node A made because they are looking at the exact same memory space.
+    
+    3. Time-to-Live (TTL) - The "Lazy" Way
+        If your data doesn't need to be 100% accurate every second, you can use Expiration.
+        How it works: Every item put in the cache is given an "expiry date" (e.g., 60 seconds).
+        The Flow:
+                Node A updates the Database.
+                Node B continues to serve the old data.
+                After 60 seconds, Node B's cache entry expires and disappears.
+                Node B is forced to go to the Database and gets the new value.
+                Note: This is only used for non-critical data (like a "Top 10 Trending Topics" list).
 
