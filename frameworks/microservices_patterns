@@ -660,3 +660,44 @@ Adapter         "A specific sidecar that reformats the app’s output (e.g., con
       However, as of Kubernetes 1.29, "Native Sidecar Containers" are a formal feature.
       By setting restartPolicy: Always inside an initContainer, you ensure the sidecar starts before the main app and keeps running,
                       solving old issues where the app would start before its proxy was ready.
+
+BulkHead Pattern:
+  The Bulkhead pattern is a design pattern that isolates critical resources to prevent a single failure from taking down the entire system.
+  The name comes from the shipbuilding industry.
+  A ship is divided into watertight compartments (bulkheads); if the hull is breached, only one compartment floods, preventing the entire ship from sinking.
+  In software, we apply this by partitioning service resources so that if one component fails or becomes overloaded, the others continue to function.
+
+1. How It Works
+  Without a bulkhead, a single service that starts responding slowly can consume all available threads in an application server. 
+  This leads to resource exhaustion, where the entire application stops responding to any request, even those unrelated to the failing service.
+  By implementing bulkheads, you define isolated resource pools:
+    Thread Pool Isolation: Assign a specific thread pool to each downstream service or critical component.
+    Connection Pool Isolation: Limit the number of database or network connections available to a specific operation.
+
+2. Implementation Strategies
+  Option A: Application Level (Resilience4j)
+    In a Java or Spring Boot environment, Resilience4j provides two ways to implement this:
+    Semaphore Bulkhead: Limits the number of concurrent requests. It is lightweight but does not provide thread isolation.
+    Fixed Thread Pool Bulkhead: Uses a dedicated thread pool and a waiting queue. This is more robust as it completely isolates the execution context.
+    // Configuration for a Thread Pool Bulkhead
+    ThreadPoolBulkheadConfig config = ThreadPoolBulkheadConfig.custom()
+      .maxThreadPoolSize(10)
+      .coreThreadPoolSize(5)
+      .queueCapacity(20)
+      .build();
+  Option B: Deployment Level (Container Isolation)
+    In Kubernetes, you can achieve bulkhead-like isolation by:
+    Resource Quotas: Setting CPU and memory limits for different namespaces or pods.
+    Node Affinity: Running critical services on dedicated worker nodes to ensure they aren't affected by "noisy neighbors" on shared hardware.
+
+3. Comparison with Circuit Breaker
+  While they both improve resilience, they solve different problems:
+    Pattern          Focus                                                        Analogy
+    Circuit Breaker  Stops requests to a failing service to allow it to recover.  An electrical fuse.
+    Bulkhead         Limits the damage by partitioning resources.                 Watertight ship compartments.
+Pro Tip: These patterns are most effective when used together. 
+A Bulkhead ensures you have resources available to handle a failure, while a Circuit Breaker ensures you don't keep hitting the failing service.
+
+4. When to Use It
+  When a single application communicates with multiple downstream services of varying reliability.
+  When you have a mix of high-priority and low-priority tasks (e.g., don't let a slow report-generation task block user login requests).
