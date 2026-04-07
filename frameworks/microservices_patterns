@@ -171,6 +171,72 @@ Inter-Service Communication in detail:
     Complexity   Simple                     Higher (Requires managing a broker)
     Example      Checking a user's password "Sending a ""Welcome"" email"
 
+Service Versioning:
+  In a microservices ecosystem, service versioning is the strategy used to manage changes to an API without breaking the clients (consumers) that rely on it. 
+  Since you are working with Java microservices and Kubernetes (AKS), how you version impacts your CI/CD pipelines and your deployment strategies.
+
+  There are two main levels of versioning: API Versioning (the contract) and Implementation Versioning (the artifact).
+
+1. API Versioning Strategies
+  This is how you tell the consumer which version of the "contract" they are using.
+  A. URI Versioning (Most Common)
+      The version is part of the URL path. It is easy to see, easy to cache, and easy to route in an API Gateway.
+      Format: https://api.sbk8-poc.com/v1/customers
+          Pros: Clear and explicit; works well with browser-based tools.
+          Cons: Can lead to "URL clutter" if not managed.
+  B. Header Versioning (Custom Headers)
+      The version is passed in a request header. This keeps the URL "clean" and identifies the resource consistently.
+      Header: X-API-VERSION: 2
+          Pros: Clean URLs; allows for a "default" version if the header is missing.
+          Cons: Harder to test in a browser; can be stripped by some proxies.
+  C. Media Type / Content Negotiation (Accept Header)
+      The client specifies the version in the Accept header. This is the most "RESTful" way (HATEOAS).
+      Header: Accept: application/vnd.sbk8.v2+json
+          Pros: Versioning is tied to the data format, not the endpoint.
+          Cons: Highly complex to implement and debug in Java/Spring controllers.
+2. Implementation Versioning (Java & Docker)
+    This refers to how you version the code itself and the resulting container image.
+        Semantic Versioning (SemVer): The industry standard (MAJOR.MINOR.PATCH).
+        Major: Breaking changes (e.g., changing a field name in a Record).
+        Minor: New features (e.g., adding a new optional field).
+        Patch: Bug fixes.
+        Docker Tags: In your AKS pipeline, never use latest for production.
+                  Always tag your images with the Git Commit SHA or the SemVer (e.g., sbk8-poc:1.2.4).
+3. Handling Breaking Changes in Java 17
+      When moving from v1 to v2, you often have to support both versions simultaneously during a migration period.
+      Using Spring Boot @RequestMapping
+      You can map multiple versions to different methods in the same controller:
+          @RestController
+          @RequestMapping("/api")
+          public class CustomerController {
+          
+              // V1 - Using legacy DTO
+              @GetMapping("/v1/customers/{id}")
+              public CustomerV1 getCustomerV1(@PathVariable Long id) {
+                  return service.findByIdV1(id);
+              }
+          
+              // V2 - Using modern Java 17 Record
+              @GetMapping("/v2/customers/{id}")
+              public CustomerRecord getCustomerV2(@PathVariable Long id) {
+                  return service.findByIdV2(id);
+              }
+          }
+4. Deployment Versioning Patterns
+    Once you have multiple versions, how do you roll them out?
+        Blue-Green Deployment: You have the old version (Blue) and the new version (Green) running at the same time. 
+                      You switch 100% of the traffic at once via the Load Balancer.
+        Canary Release: You route 5% of users to v2 to see if it throws exceptions, then slowly increase it to 100%.
+        Parallel Versioning: You keep both v1 and v2 alive for months until all clients have migrated their code.
+
+5. Backward Compatibility Checklist
+    To avoid a "Breaking Change," follow these Java 8/17 rules:
+    Don't Rename Fields: Only add new ones.
+    Keep Types Consistent: Don't change a Long id to a String UUID without a major version bump.
+    Default Values: If you add a new field to a JSON request, ensure your Java code handles a null value gracefully (use Optional).
+    Kafka Schema Registry: If using Kafka for communication,
+          use the Confluent Schema Registry to ensure that your producers and consumers are always using compatible versions of the message.
+
 1. How to maintain data consistency in database for multiple micro services:
   1. The Saga Pattern (The Gold Standard)
   2. Two-Phase Commit (2PC)
