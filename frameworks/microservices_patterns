@@ -124,6 +124,53 @@ The "Sidecar" Pattern
       Orchestration: Using Kubernetes (AKS) to manage scaling, self-healing, and deployments.
       Observability: Distributed tracing (using tools like Jaeger or Zipkin) to follow a single request as it travels through 10 different services.
 
+Inter-Service Communication in detail:
+    In a microservices architecture, how services talk to each other defines the system's reliability, speed, and complexity.
+    Communication is generally split into two categories: Synchronous (waiting for a response) and Asynchronous (fire-and-forget).
+
+1. Synchronous Communication (Request/Response)
+    The caller sends a request and waits for a response.
+    This is easy to reason about but can lead to "cascading failures" if one service in a chain is slow.
+    REST (HTTP/JSON): The most common approach. 
+                      It's language-agnostic and uses standard HTTP methods (GET, POST, etc.).
+    gRPC: Built by Google, it uses Protocol Buffers and HTTP/2.
+          It is significantly faster than REST because it is binary and supports streaming.
+           Best for: Internal service-to-service communication where performance is critical.  
+    GraphQL: Allows the caller to request exactly the data they need.
+           Best for: Frontend-to-Backend communication to reduce payload size.
+
+2. Asynchronous Communication (Event-Driven)
+    The caller sends a message to a broker (like Kafka) and immediately moves on. 
+    The receiver processes it whenever it's ready. This decouples services completely.
+        Message Queues (Point-to-Point): One message is consumed by exactly one receiver (e.g., RabbitMQ, Amazon SQS).
+        Pub/Sub (Publish/Subscribe): One message can be consumed by multiple services (e.g., Kafka, Google Pub/Sub).
+            Example: When an Order is created, the Shipping, Email, and Inventory services all react to that one event.
+
+3. Communication Patterns
+  Service Discovery:
+      Since microservices are dynamic (they spin up and down with different IP addresses), 
+      services don't hardcode each other's locations. Instead,
+      they use a Service Registry (like Netflix Eureka or Consul) to find where a service is currently running.
+  API Gateway:
+      Instead of the client (mobile/web) calling 50 different microservices, it calls one API Gateway. 
+      The gateway then routes the request to the correct internal service, handles authentication, and performs rate limiting.
+  Service Mesh (e.g., Istio, Linkerd)
+      A Service Mesh adds a "sidecar" proxy to every service. 
+      This proxy handles the "plumbing"—retries, timeouts, encryption (mTLS), and monitoring—so the developer doesn't have to code it into the Java application.
+
+4. Handling Failures: The Circuit Breaker
+    In a distributed system, network calls will fail. 
+    To prevent one slow service from hanging your entire application, we use the Circuit Breaker pattern (e.g., Resilience4j).
+        Closed: Requests flow normally.
+        Open: If failures cross a threshold, the "circuit" trips. All further calls fail immediately (returning a fallback) without hitting the slow service.
+        Half-Open: After a timeout, it allows a few "test" requests to see if the service has recovered.
+
+    Feature      REST / gRPC                Message Broker (Kafka/RabbitMQ)
+    Coupling     High (Temporal coupling)   Low (Decoupled)
+    Data Flow    Immediate result needed    Event-driven / Long-running
+    Complexity   Simple                     Higher (Requires managing a broker)
+    Example      Checking a user's password "Sending a ""Welcome"" email"
+
 1. How to maintain data consistency in database for multiple micro services:
   1. The Saga Pattern (The Gold Standard)
   2. Two-Phase Commit (2PC)
