@@ -535,6 +535,32 @@ exceptions in overriding:
      Broader Exception → NOT Allowed - parent throws  File Not found exception (child of IO) and child  throw IO (parent) - not possible
      New Checked Exception → NOT Allowed - parent no exception , child throws exception.
 
+public class OverloadTest {
+    public static void display(Object o) {
+        System.out.println("Object version called");
+    }
+    public static void display(String s) {
+        System.out.println("String version called");
+    }
+    public static void main(String[] args) {
+        display(null); // This will print: String version called
+    }
+}
+
+What if it's a "Tie"?
+    The "most specific" rule only works if there is a clear hierarchical relationship. 
+    If you have two types that are not related by inheritance, the compiler will throw a compile-time error because the call is truly ambiguous.
+
+Overload Types        Result of display(null)    Reason
+String vs Object      String                     String is a subtype of Object (More specific).
+Integer vs Object     Integer                    Integer is a subtype of Object.
+String vs Integer     Compile Error              No inheritance relationship; both are equally specific.
+
+How to force the Object version:
+    If you actually want to call the Object version with a null value,
+    you must explicitly cast the null so the compiler knows exactly which signature you are targeting:
+        display((Object) null); // This will invoke the Object version
+
   Dynamic Method Dispatch:
   When a method call is resolved at runtime based on the object type, not reference type
   also called runtime polymorphism or late binding
