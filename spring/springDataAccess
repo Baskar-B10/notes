@@ -867,6 +867,22 @@ IV. Serializable
     Cost: Massive performance hit.
           It uses heavy locking that can lead to frequent deadlocks and slow response times.
 
+  How to use it in Spring Boot:
+      You can set the isolation level directly on the @Transactional annotation.
+      If you don't specify it, Spring uses the default level of your underlying database.
+      @Transactional(isolation = Isolation.SERIALIZABLE)
+      public void highlyCriticalUpdate() {
+          // This will be very safe but very slow
+      }
+  4. Why not always use Serializable?
+      It's tempting to want 100% safety, 
+      but in a high-traffic app, Serializable is usually a disaster.
+      Locking: It places locks on ranges of data, causing other users to wait.
+      Throughput: Your database capacity will drop significantly.
+      Deadlocks: Because everything is waiting on everything else, the database may have to kill transactions to move forward.
+      The Pro-Tip: Most developers stay with Read Committed or Repeatable Read and use Optimistic Locking (using a @Version column) 
+      to handle specific conflict scenarios manually.
+
     How Rollback Works in @Transactional
     Default Behavior: Rollback ONLY on RuntimeException
           @Transactional
