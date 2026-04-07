@@ -977,3 +977,49 @@ Use WebFlux functional style for complex routing logic — annotated style for s
 Choose MVC if you use JPA/JDBC — WebFlux + blocking drivers defeats the purpose entirely
 Add spring-boot-starter-actuator to every service — /actuator/health and /actuator/metrics are free monitoring with zero code
 
+
+In Spring WebFlux (the reactive, non-blocking part of the Spring Framework), Flux and Mono are the two primary building blocks. 
+They both implement the Publisher interface from the Reactive Streams specification, but they represent different "cardinalities" of data.
+
+Think of them as the reactive versions of a single object versus a collection.
+1. Mono:
+    A Mono is a specialized publisher that emits at most one item.
+    Cardinality: 0 or 1.
+    Behavior: It completes after emitting its single item. If there is no data, it completes as "empty."
+    Analogy: A CompletableFuture<T> or an Optional<T>.
+    Use Case: * Fetching a single user by ID (findById).
+                An HTTP PUT or DELETE operation (where you return an empty Mono<Void>).
+                Performing a single calculation.
+2. Flux:
+    A Flux is a publisher that can emit zero to N items.
+    Cardinality: 0, 1, ..., ∞.
+    Behavior: It can emit multiple items over time and then either complete successfully or trigger an error.
+    Analogy: A reactive List<T> or a Stream<T> that stays open.
+    Use Case: Fetching all users from a database (findAll).
+              Streaming real-time data (like stock prices or Twitter feeds).
+              Reading a large file line by line.
+
+Feature                    Mono                                      Flux
+Items Emitted              0 or 1                                    0 to Many (N)
+Completion                 After 1st item or immediately if empty    "After the ""onComplete"" signal"
+Standard Java Equivalent   Optional<T> / CompletableFuture            List<T> / Stream<T>
+Typical Endpoint           GET /users/1                               GET /users
+
+How They Work Together:
+You can easily convert one into the other depending on your business logic requirements:
+  Flux to Mono: If you have a Flux<User> and you only want the first user, you call .next(), which returns a Mono<User>.
+                You can also use .collectList() to turn a Flux<T> into a Mono<List<T>>.
+  Mono to Flux: If you have a Mono<User> and want to treat it as a stream, you call .flux().
+
+The "Lazy" Factor
+  Crucially, neither Flux nor Mono starts doing work until you subscribe. > "Nothing happens until you subscribe."
+  In a WebFlux controller, you don't usually call .subscribe() yourself; the framework (Netty) does it for you when the HTTP request comes in.
+      // Returning a single object
+      public Mono<User> getUser(String id) {
+          return userRepository.findById(id); 
+      }
+
+// Returning a stream of objects
+public Flux<User> getAllUsers() {
+    return userRepository.findAll(); 
+}
