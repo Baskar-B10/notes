@@ -249,3 +249,55 @@ Blue-Green          Instant                 High                Low
 Canary              Fast                    Medium            Very Low
 Rolling Update      Moderate                Low               Medium
 Feature Toggle      Instant                 Low             Low (Logic based)
+
+
+Different db on same application:
+    Using multiple databases in a single Spring Boot application is a common requirement, 
+    especially when you are following the CQRS pattern (e.g., using MySQL for writes and MongoDB for reads) or integrating legacy systems with new ones.
+
+    In Spring Boot, the "Auto-configuration" magic usually handles one database perfectly.
+    To use two or more, you have to manually define the configuration for each.
+1. The Strategy: Manual Configuration
+    When you have multiple databases, you must disable the default auto-configuration for data sources and explicitly define:
+        DataSource: The connection details for each DB.
+        EntityManagerFactory: To manage the entities for that specific DB.
+        TransactionManager: To handle commits/rollbacks for that specific DB.
+2. Configuration Steps (Step-by-Step)
+    A. Define Properties
+        In your application.properties, use unique prefixes for each database.
+        Properties
+        # Primary Database (MySQL)
+        spring.datasource.primary.url=jdbc:mysql://localhost:3306/db1
+        spring.datasource.primary.username=root
+        spring.datasource.primary.password=pass
+        # Secondary Database (PostgreSQL)
+        spring.datasource.secondary.url=jdbc:postgresql://localhost:5432/db2
+        spring.datasource.secondary.username=user
+        spring.datasource.secondary.password=pass
+B. Create Configuration Classes
+    You need one @Configuration class for each database. 
+    You must mark one as @Primary so Spring knows which one to use by default if no specific name is provided.
+        Primary Configuration:
+        @Configuration
+        @EnableJpaRepositories(
+            basePackages = "com.app.repository.primary", // Scans only these repos
+            entityManagerFactoryRef = "primaryEntityManagerFactory",
+            transactionManagerRef = "primaryTransactionManager"
+        )
+        public class PrimaryDbConfig {
+            @Primary
+            @Bean
+            @ConfigurationProperties("spring.datasource.primary")
+            public DataSource primaryDataSource() {
+                return DataSourceBuilder.create().build();
+            }
+            // ... define EntityManagerFactory and TransactionManager beans here
+        }
+3. Common Use Case Scenarios
+Scenario                    Strategy
+SQL + NoSQL                "Easiest: Spring Data JPA handles the SQL, and Spring Data MongoDB handles the NoSQL. 
+                            They naturally use different repositories and configurations."
+Two Different SQL DBs       "Medium: Requires the manual configuration shown above. 
+                            You must separate your Repository interfaces into different packages (e.g., repo.mysql and repo.postgres)."
+Distributed Transactions    Hard: If you save to DB1 and DB2 in the same method, a failure in DB2 won't automatically roll back DB1. 
+                            You need JTA (Java Transaction API) or the Saga Pattern."
