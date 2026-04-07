@@ -22,9 +22,11 @@ FrameworkS/tech:
   Apache camel
   Caching
   orcika
-  CI/CD 
+  CI/CD  (invoke datadog to collect logs, intergate process like sonar , junit run , copilot - to write test case, modes, usage)
   AKS
-  design patterns like microservices(data consistency in DB , service discovery, handles external call failures, adapter, factory, saga , circuit breaker , reliance4j, single and multiple DB
+  design patterns like microservices(data consistency in DB , service discovery, handles external call failures, saga , circuit breaker , reliance4j, single and multiple DB
+  java design pattern like  adapter, factory, builder
+  
 
 
 
