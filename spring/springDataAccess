@@ -841,6 +841,31 @@ Summary Checklist:
     READ_COMMITTED(default)    ✗            ✓ possible            ✓ possible
     REPEATABLE_READ            ✗                ✗                 ✓ possible
     SERIALIZABLE                ✗                ✗                    ✗
+I. Read Uncommitted
+      This is the lowest level.
+      A transaction can read data that has been modified by another transaction but not yet committed.
+      Anomaly: Dirty Reads. 
+              If Transaction A changes a value and Transaction B reads it,
+              but Transaction A then rolls back, Transaction B is left with "garbage" data that never technically existed.
+      Use Case: Very rare; used only when speed is more important than accuracy (e.g., counting approximate page views).
+II. Read Committed (Default for PostgreSQL, SQL Server, Oracle)
+    A transaction can only read data that has been formally committed.
+    Anomaly solved: Dirty Reads.
+    New Anomaly: Non-Repeatable Reads. 
+                If you read a row twice in the same transaction, a different transaction could have updated and committed it in between,
+                giving you two different results for the same query.
+III. Repeatable Read (Default for MySQL/InnoDB)
+    This level guarantees that if you read a row, you will get the same result every time you read it again during that transaction.
+    Anomaly solved: Non-Repeatable Reads.
+    New Anomaly: Phantom Reads. 
+            While existing rows are "locked," another transaction could insert a new row that matches your search criteria. 
+            When you run the query again, a "phantom" row suddenly appears.
+IV. Serializable
+    The highest level.
+    It simulates transactions running one after another (sequentially) rather than at the same time.
+    Anomaly solved: Everything (including Phantoms).   
+    Cost: Massive performance hit.
+          It uses heavy locking that can lead to frequent deadlocks and slow response times.
 
     How Rollback Works in @Transactional
     Default Behavior: Rollback ONLY on RuntimeException
