@@ -39,6 +39,79 @@ Liveness: Your Redeliver Service can safely re-send old data from the "Received 
 Verdict: A long timestamp is excellent for 95% of use cases. 
         As long as you generate the timestamp at the entry point and use a "Strictly Greater Than" check in your Writer, your data consistency will be solid.
 
+
+AKS Strageies:
+Deploying and managing applications on Azure Kubernetes Service (AKS) requires a strategy that balances cost, reliability, and speed.
+Because AKS is a managed service, your focus shifts from managing the "Master Node" to optimizing your Worker Nodes and Traffic Flow.
+
+AKS Cluster Architecture Strategies
+    A. The Networking Strategy (CNI vs. Kubenet)
+        Choosing your network plugin is the most important "Day 1" decision because it’s hard to change later.
+        Azure CNI (Advanced): Every Pod gets a real IP from your Azure Virtual Network.
+                    Best for: Large enterprises needing direct connectivity to Pods from On-Premise.
+        Kubenet (Basic): Only Nodes get VNet IPs; Pods get internal IPs.
+                    Best for: Saving IP addresses if your VNet range is small.
+    B. Node Pool Strategy
+    Don't put everything in one bucket. Use multiple Node Pools:
+            System Pool: Runs critical K8s services (CoreDNS, Metrics). Keep this small and stable.
+            User Pool: Runs your actual apps. Use Spot Instances here for non-critical dev/test workloads to save up to 90% on costs.
+            GPU Pool: Dedicated pools for AI/ML tasks using N-Series VMs.
+
+Automation: GitOps vs. Push
+In AKS, you should avoid kubectl apply from your laptop.
+Push Strategy (Azure DevOps/GitHub Actions): Your CI/CD pipeline logs into the cluster and "pushes" the YAML.
+GitOps Strategy (Flux or ArgoCD): You install an agent inside AKS. 
+        It watches your Git repo. If you change a file in Git, the agent "pulls" the change into the cluster.
+    Why: This is the "self-healing" method. 
+        If someone manually deletes a Pod, the GitOps agent will recreate it to match Git.
+
+Scaling Strategy:
+   AKS offers three layers of scaling that must work together:
+        HPA (Horizontal Pod Autoscaler): Adds more Pods if CPU/RAM is high.
+        Cluster Autoscaler: Adds more VM Nodes if there is no room for the new Pods.
+        VPA (Vertical Pod Autoscaler): Automatically adjusts the CPU/RAM limits of your pods if they are under-provisioned.
+
+Deployment rollback Strategy:
+    A Deployment Rollback Strategy is the plan for how you revert your production environment to a previous stable state
+    when a new release fails health checks, shows bugs, or degrades performance.
+    In modern DevOps, "rolling back" isn't just about clicking an undo button; 
+    it’s about how you manage traffic and infrastructure to minimize the "blast radius" of a failure.
+
+1. Blue-Green Deployment (The "Mirror" Strategy)
+    This is the cleanest and fastest rollback method. 
+    You maintain two identical production environments.
+        How it works: "Blue" is the current live version. You deploy the new code to "Green." 
+                     Once Green is ready, you flip the Load Balancer or Route 53 settings to point to Green.
+        The Rollback: If Green starts throwing errors, you simply flip the switch back to Blue.
+        Benefit: Immediate recovery.
+        Risk: Costly, as you need double the infrastructure.
+2. Canary Deployment (The "Testing in Production" Strategy)
+    Instead of switching everyone at once, you roll out the new version to a small subset of users (e.g., 5%).
+        How it works: You monitor the 5% for "Golden Signals" (Latency, Errors, Traffic, Saturation). 
+                     If they look good, you increase to 25%, 50%, then 100%.
+        The Rollback: If the 5% experience issues, you simply kill the canary instances. 
+                    The other 95% of users were never affected.
+        Benefit: Extremely low blast radius.
+3. Rolling Updates (The "One-by-One" Strategy)
+    Common in Kubernetes, this replaces old instances with new ones gradually.
+        How it works: If you have 10 servers, the system kills 1 old server and starts 1 new one until the transition is complete.
+        The Rollback: If the new servers fail health checks,
+                     the orchestrator stops the update and begins a "Reverse Rolling Update" to bring back the old versions.
+        Risk: During the update, your users are hitting two different versions of the app simultaneously.
+4. Feature Toggles (The "Logic" Rollback)
+    Sometimes the deployment itself is fine, but a specific feature is broken.
+        How it works: You wrap new code in an if statement controlled by a remote configuration tool (like LaunchDarkly or a custom DB flag).
+        The Rollback: You don't redeploy code. You just toggle the flag to OFF in a dashboard.
+                     The code stays in production but is "hidden" from the execution path.
+        Benefit: Zero-second "rollback" without a deployment pipeline.
+
+Summary Comparison:
+Strategy        Speed of Rollback    Infrastructure Cost    Risk Level
+Blue-Green          Instant                 High                Low
+Canary              Fast                    Medium            Very Low
+Rolling Update      Moderate                Low               Medium
+Feature Toggle      Instant                 Low             Low (Logic based)
+
 1. Rate Limiting (The Hard Cap):
     Rate Limiting defines how many requests a user or client can make in a specific timeframe (e.g., "100 requests per minute").
     Primary Goal: Fairness and Security.
@@ -244,48 +317,6 @@ Which one should you use?
     For Enterprise/Spring Boot: Centralized Store (Redis) is the sweet spot. 
         It provides the best balance of speed and reliability.
     For Public APIs: Stateless (JWT) is preferred because it allows different services to verify users without sharing a database.
-
-Deployment rollback Strategy:
-    A Deployment Rollback Strategy is the plan for how you revert your production environment to a previous stable state
-    when a new release fails health checks, shows bugs, or degrades performance.
-    In modern DevOps, "rolling back" isn't just about clicking an undo button; 
-    it’s about how you manage traffic and infrastructure to minimize the "blast radius" of a failure.
-
-1. Blue-Green Deployment (The "Mirror" Strategy)
-    This is the cleanest and fastest rollback method. 
-    You maintain two identical production environments.
-        How it works: "Blue" is the current live version. You deploy the new code to "Green." 
-                     Once Green is ready, you flip the Load Balancer or Route 53 settings to point to Green.
-        The Rollback: If Green starts throwing errors, you simply flip the switch back to Blue.
-        Benefit: Immediate recovery.
-        Risk: Costly, as you need double the infrastructure.
-2. Canary Deployment (The "Testing in Production" Strategy)
-    Instead of switching everyone at once, you roll out the new version to a small subset of users (e.g., 5%).
-        How it works: You monitor the 5% for "Golden Signals" (Latency, Errors, Traffic, Saturation). 
-                     If they look good, you increase to 25%, 50%, then 100%.
-        The Rollback: If the 5% experience issues, you simply kill the canary instances. 
-                    The other 95% of users were never affected.
-        Benefit: Extremely low blast radius.
-3. Rolling Updates (The "One-by-One" Strategy)
-    Common in Kubernetes, this replaces old instances with new ones gradually.
-        How it works: If you have 10 servers, the system kills 1 old server and starts 1 new one until the transition is complete.
-        The Rollback: If the new servers fail health checks,
-                     the orchestrator stops the update and begins a "Reverse Rolling Update" to bring back the old versions.
-        Risk: During the update, your users are hitting two different versions of the app simultaneously.
-4. Feature Toggles (The "Logic" Rollback)
-    Sometimes the deployment itself is fine, but a specific feature is broken.
-        How it works: You wrap new code in an if statement controlled by a remote configuration tool (like LaunchDarkly or a custom DB flag).
-        The Rollback: You don't redeploy code. You just toggle the flag to OFF in a dashboard.
-                     The code stays in production but is "hidden" from the execution path.
-        Benefit: Zero-second "rollback" without a deployment pipeline.
-
-Summary Comparison:
-Strategy        Speed of Rollback    Infrastructure Cost    Risk Level
-Blue-Green          Instant                 High                Low
-Canary              Fast                    Medium            Very Low
-Rolling Update      Moderate                Low               Medium
-Feature Toggle      Instant                 Low             Low (Logic based)
-
 
 Different db on same application:
     Using multiple databases in a single Spring Boot application is a common requirement, 
