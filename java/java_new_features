@@ -173,6 +173,14 @@ Java 8 features:
    NO Checked Exception in Lambda? Because functional interfaces: R apply(T t);  No throws
 
 2. Functional Interfaces: Interface with only one abstract method
+      The @FunctionalInterface Annotation
+      While not strictly required, this annotation is a best practice. 
+      It tells the compiler to check that the interface truly has only one abstract method.
+      If you accidentally add a second one, the code won't compile.
+        @FunctionalInterface
+        public interface MyFormatter {
+            String format(String text); // Exactly one abstract method
+        }
     @FunctionalInterface
     interface MyFunc {
         void execute();   // only one abstract method
@@ -180,9 +188,26 @@ Java 8 features:
     ✔ Can have: multiple default methods , multiple static methods
    ❌ Cannot have: more than one abstract method
     Why: They enable: ✅ Lambda expressions ✅ Method references ✅ Clean, readable code
+        Lambda Expression Support: They are the target types for Lambda expressions. 
+                                  Instead of writing a bulky anonymous inner class, you use a lambda.
+        Method References: You can use :: syntax (like System.out::println) wherever a functional interface is expected.
+        Object Class Methods: An interface can declare methods from the Object class (like equals or toString) as abstract, 
+                              and it will still be a functional interface. 
+                              This is because any implementation will have an implementation of these methods from the Object class.
+    Why Use Them?
+        Cleaner Code: Removes boilerplate code associated with anonymous inner classes.
+        Stream API: The entire Java Stream API (e.g., .filter(), .map()) relies on these interfaces to pass logic through the pipeline.
+        Lazy Evaluation: Using a Supplier allows you to delay a calculation until it’s actually needed.
     Common Examples: Runnable, Callable and Comparator
    
 Built-in Functional Interfaces:
+  Interface         Method                Purpose                    Example
+  Predicate<T>      boolean test(T t)    Checks a condition.        s -> s.isEmpty()
+  "Function<T, R>"  R apply(T t)        Transforms input to output. s -> s.length()
+  Consumer<T>       void accept(T t)    Consumes data (no return).  s -> System.out.println(s)
+  Supplier<T>       T get()             Provides data (no input).   () -> Math.random()
+  UnaryOperator<T>  T apply(T t)        Input/Output are same type.  s -> s.toUpperCase()
+
   1. Predicate<T> :Represents a condition (boolean check)
       Method: boolean test(T t);
       Predicate<Integer> isEven = x -> x % 2 == 0;
@@ -718,6 +743,58 @@ Why Primitive Streams Exist?  To avoid boxing/unboxing overhead
 ✔ orElseGet() - opt.orElseGet(() -> "Generated"); executes only if empty ✅
 ✔ orElseThrow() - opt.orElseThrow(() -> new RuntimeException());
 ✔ map() - opt.map(String::length);
+
+1.Transformation Methods:
+  These allow you to manipulate the value inside the Optional without manually checking for null.
+  map(Function mapper):
+      Transforms the value if present. 
+      If the result of the mapping is null, it returns an empty Optional.
+      Optional<String> name = Optional.of("gemini");
+      Optional<Integer> size = name.map(String::length); // result: Optional[6]
+  flatMap(Function mapper):
+      Similar to map, but used when the mapping function itself returns an Optional. 
+      It prevents "nested" Optionals (e.g., Optional<Optional<String>>).
+2. Conditional Actions
+  These methods are used to execute logic based on whether a value exists.
+  ifPresent(Consumer action):
+      Executes the given block of code only if a value is present.
+      optionalUser.ifPresent(user -> System.out.println(user.getName()));
+  ifPresentOrElse(Consumer action, Runnable emptyAction) (Java 9+):
+      The "Complete" version. It takes two arguments: one for when the value exists and one for when it’s empty.
+      optionalUser.ifPresentOrElse(
+          user -> System.out.println("Hello " + user.getName()),
+          () -> System.out.println("User not found")
+      );
+3. Filtering and Logic
+  filter(Predicate predicate):
+      If a value is present and matches the condition (predicate), it returns the Optional.
+      If it doesn't match, it returns an empty Optional.
+      Optional<User> activeUser = optionalUser.filter(u -> u.isActive());
+  or(Supplier supplier) (Java 9+):
+      Unlike orElse, this returns another Optional rather than the raw value. 
+      This is great for "chaining" multiple data sources.
+      User user = repository.findInCache(id)
+                  .or(() -> repository.findInDb(id)) // Checks DB if cache is empty
+                  .orElseThrow();
+4. Terminal / Error Handling
+  orElseThrow():
+      Returns the value or throws a NoSuchElementException. 
+      Since Java 10, this is the preferred way over .get().
+  orElseThrow(Supplier exceptionSupplier):
+      Allows you to throw a custom exception if the value is missing.
+      User user = optionalUser.orElseThrow(() -> new UserNotFoundException("ID: 123"));
+
+  Method	        Returns	    Use Case
+  map            	Optional<U>	Changing the type or value inside.
+  filter	        Optional<T>	Discarding a value if it doesn't meet a condition.
+  ifPresent	      void	      Doing something (like logging) with the value.
+  stream()	      Stream<T>	  Converting the Optional into a Stream (Java 9+).
+  isPresent()	    boolean   	Checking if a value exists (use sparingly!).
+
+  One Final Tip: Avoid .get()
+  Using .get() without checking .isPresent() first defeats the whole purpose of Optional 
+  because it will still throw a NullPointerException (specifically a NoSuchElementException).
+  Always prefer the functional methods like map, ifPresent, or orElse.
 
   Feature      orElse                             orElseGet
   Argument     A plain object/value               A Lambda (Supplier)
