@@ -624,4 +624,13 @@ Advanced — API Versioning Strategies
     @GetMapping(params = "version=2")
     public OrderV2Dto getV2() { }
 
+Best Practices:
 
+Use @RestController for all REST APIs — it combines @Controller and @ResponseBody
+Always use constructor injection — never field @Autowired — makes testing easier and dependencies explicit
+Use ResponseEntity when you need control over status code, headers, or conditional responses
+Centralize exception handling in one @RestControllerAdvice class — never scatter try-catch in controllers
+Validate at the controller boundary with @Valid — never trust incoming data
+Use @PageableDefault to set sensible pagination limits — never return unbounded lists on GET all endpoints
+Version your API from day one — changing an unversioned API breaks all existing clients
+Add spring-boot-starter-actuator to every service — /actuator/health and /actuator/metrics are free monitoring with zero code
