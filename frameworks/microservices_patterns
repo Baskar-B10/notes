@@ -604,3 +604,59 @@ Infrastructure Level (Service Mesh)
         Failure Rate: The percentage of calls resulting in exceptions or timeouts.
         Slow Call Rate: Calls that succeed but take longer than a defined duration (e.g., > 2 seconds).
         State Transitions: How often the breaker is flipping between Open and Closed.
+
+SideCar Pattern:
+The Sidecar pattern is a design pattern that attaches a secondary component (the sidecar) to a primary application (the motorcycle) to extend or enhance its capabilities.
+In a containerized environment like Kubernetes, this means running a helper container alongside your main application container within the same Pod.
+
+Since both containers share the same network namespace and storage volumes, they can communicate seamlessly over localhost.
+
+1. Core Functions of a Sidecar
+The sidecar handles "cross-cutting concerns" so the main application can focus solely on business logic:
+    Proxy/Service Mesh: Intercepts incoming and outgoing traffic to handle retries, circuit breaking, and mutual TLS (e.g., Envoy in Istio).
+    Logging & Monitoring: Collects logs or metrics from the main app and pushes them to a central server like Prometheus or Elasticsearch (e.g., Fluentd or Logstash).
+    Configuration & Secrets: Watches for changes in configuration and updates the local files used by the main application without requiring a restart.
+    Database Proxies: Handles connection pooling or encryption for database access (e.g., Cloud SQL Proxy).
+
+2. Benefits of the Sidecar Pattern
+    Language Independence: You can write a sidecar in Go for high performance and attach it to an application written in Java, Python, or Node.js.
+    Separation of Concerns: The application team manages the code, while the platform team manages the sidecars (security, logging, etc.).
+    Simplified Scaling: Because the sidecar is in the same Pod, it scales 1:1 with the application.
+
+3. Implementation in Kubernetes
+    In a Kubernetes YAML, you simply define multiple containers under the spec.containers section.
+    YAML
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: web-app-with-sidecar
+    spec:
+      containers:
+        # Primary Application
+        - name: main-app
+          image: my-java-app:v1
+          ports:
+            - containerPort: 8080
+    
+        # Sidecar Container (Logging Agent)
+        - name: log-agent
+          image: fluentd:latest
+          volumeMounts:
+          - name: varlog
+            mountPath: /var/log
+      volumes:
+        - name: varlog
+          emptyDir: {}
+4. Sidecar vs. Other Patterns
+
+Pattern          Description
+Sidecar          Runs alongside the app for its entire lifecycle.
+Init Container  "Runs to completion before the main app starts (e.g., for setting up database schemas)."
+Ambassador      A specific sidecar that acts as a proxy for the app to connect to outside services.
+Adapter         "A specific sidecar that reformats the app’s output (e.g., converting custom logs to a standard format)."
+
+5. Modern Evolution: Sidecar Containers in K8s
+      Historically, sidecars were just regular containers.
+      However, as of Kubernetes 1.29, "Native Sidecar Containers" are a formal feature.
+      By setting restartPolicy: Always inside an initContainer, you ensure the sidecar starts before the main app and keeps running,
+                      solving old issues where the app would start before its proxy was ready.
