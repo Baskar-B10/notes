@@ -197,3 +197,14 @@ Right	Char	     Window	Action	               Max
 7	     c	     bc	     duplicate → shrink more	4
 8	     c	     c	     duplicate → shrink	     4
 
+
+public List<String> getCustomerNamesByProduct(List<Customer> customers, String targetProductName) {
+    return customers.stream()
+            // Filter customers who have at least one product matching the name
+            .filter(customer -> customer.getProducts().stream()
+                    .anyMatch(product -> product.getName().equalsIgnoreCase(targetProductName)))
+            // Map to the customer's name
+            .map(Customer::getName)
+            // Collect into a List
+            .collect(Collectors.toList());
+}
