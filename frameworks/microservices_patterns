@@ -744,3 +744,112 @@ Strangler Fig in Cloud-Native Environments
 Comparison of Migration Patterns
     Big Bang: Scrapping the old and building the new from scratch. (High risk, high failure rate).
     Strangler Fig: Incremental replacement. (Low risk, takes longer, but maintains uptime).
+
+SAGA + OUTBOX COMBINED (PRODUCTION PATTERN):
+  The combination of the Saga Pattern and the Transactional Outbox Pattern is the industry standard 
+  for maintaining data consistency in a distributed system without using slow, fragile "Two-Phase Commits" (2PC).
+  
+  In a production environment, this duo ensures that your microservices stay in sync even when the network fails or services crash.
+
+1. The Core Problem
+  In a microservices architecture, a single business transaction (e.g., "Place Order") spans multiple services (Order, Inventory, Payment).
+    Saga manages the sequence of these local transactions.
+    Outbox ensures that a service's database update and the "Next Step" message happen atomically.
+    Without the Outbox, a service might update its DB but crash before sending the message to the next Saga participant, leaving the system in an inconsistent state.
+
+2. How the Combined Pattern Works
+  Here is the step-by-step flow for a typical "Order Saga" using Choreography-based logic:
+  Step 1: The Local Transaction (The Outbox)
+        The Order Service receives a request. Instead of calling the Inventory Service directly, it opens a single database transaction to:
+        Save the Order in the orders table.
+        Insert a "OrderCreated" Event into a local outbox table.
+        Commit the transaction.
+  Step 2: The Message Relay
+        A separate process (like Debezium or a polling publisher) watches the outbox table.
+        It picks up the "OrderCreated" event and publishes it to a Message Broker (e.g., Kafka, Azure Service Bus, or IBM MQ).
+        Once the broker acknowledges receipt, the relay marks the outbox entry as "processed."
+  Step 3: Saga Progression
+        The Inventory Service consumes the "OrderCreated" event. 
+        It performs its own Local Transaction + Outbox (reserving stock and creating an "InventoryReserved" event).
+        The cycle continues until the Saga is complete.
+  Step 4: Compensating Transactions (The "Undo")
+        If the Payment Service fails, it publishes a "PaymentFailed" event. 
+        The Order and Inventory services consume this and trigger their Compensating Transactions (e.g., set order status to "Cancelled" and release stock).
+
+Production Implementation Architecture
+Component            Recommended Tooling
+Saga Orchestration   "Temporal, Camunda, or Eventuate Tram."
+Message Broker       Kafka (for high throughput) or Azure Service Bus.
+Outbox Relay         Debezium (Change Data Capture/CDC) is preferred over polling.
+Database            "Any RDBMS supporting ACID (PostgreSQL, SQL Server)."
+
+4. Key Advantages in Production
+    Guaranteed Delivery: The Outbox ensures "at-least-once" delivery. Even if the broker is down,
+            the message stays in the DB until it can be sent.
+    High Performance: Services are never blocked waiting for other services to respond.
+    Resilience: If the Order Service crashes after committing to the DB, 
+              the Outbox relay will eventually pick up the message and resume the Saga when the service restarts.
+5. Critical Considerations
+    Idempotency: Since the Outbox guarantees "at-least-once" delivery, the same message might arrive twice.
+              Every consumer must be idempotent (e.g., check if a Payment ID has already been processed before charging).
+    Message Ordering: In a Saga, order matters.
+            Using partitioned logs (like Kafka partitions) ensures that events for the same order_id are processed in the correct sequence.
+
+6. Implementation Snippet (Spring Boot + SQL)
+    In a Spring environment, you can use @Transactional to ensure the Outbox and Business Logic are atomic:
+    @Transactional
+    public void createOrder(OrderRequest request) {
+        // 1. Save Business Entity
+        Order order = orderRepository.save(new Order(request));
+    
+        // 2. Save Outbox Event
+        OutboxEvent event = new OutboxEvent(
+            "ORDER_CREATED", 
+            objectMapper.writeValueAsString(order)
+        );
+        outboxRepository.save(event);
+        
+        // The transaction commit handles both or neither.
+    }
+
+================================================================
+PATTERN SELECTION GUIDE
+================================================================
+
+  PROBLEM                          -> USE THIS PATTERN
+  -------------------------------------------------------
+  Single entry point for clients   -> API Gateway
+  Multi-service transaction         -> Saga (Choreography
+  (simple, 2-4 steps)                 or Orchestration)
+  Multi-service transaction         -> Saga Orchestration
+  (complex, 4+ steps)
+  Event must not be lost on publish -> Transactional Outbox
+  Cascading failure prevention      -> Circuit Breaker
+  Read/Write scale independently    -> CQRS
+  Infrastructure concerns           -> Sidecar
+    (TLS, metrics, logs)
+  Thread pool isolation             -> Bulkhead
+  Gradual monolith migration        -> Strangler Fig
+  Service location discovery        -> Service Discovery
+  -------------------------------------------------------
+
+================================================================
+TECHNOLOGY MAPPING
+================================================================
+
+  PATTERN             TECHNOLOGY OPTIONS
+  ---------------------------------------------------
+  API Gateway         Spring Cloud Gateway, Kong,
+                      AWS API Gateway, Nginx, Traefik
+  Saga                Axon Framework, Spring State Machine,
+                      Custom DB state machine
+  Outbox Relay        Custom @Scheduled poller,
+                      Debezium CDC, Kafka Connect
+  Circuit Breaker     Resilience4j, Hystrix (legacy)
+  Bulkhead            Resilience4j Bulkhead
+  Service Discovery   Netflix Eureka, Consul, K8s DNS
+  CQRS                Spring + Elasticsearch/Redis
+  Sidecar/Mesh        Istio + Envoy, Linkerd
+  Messaging           Apache Kafka, RabbitMQ,
+                      Azure Service Bus
+  ---------------------------------------------------
