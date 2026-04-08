@@ -47,6 +47,78 @@ B. Reading from a Topic (Consumers)
         Consumer B (Marketing Team) reads the same logs at the same time to see which pages are popular.
     Both consumers can read from the beginning of the topic or just from where they last left off.
 
+How Partition Data is Maintained:
+Kafka uses several mechanical strategies to ensure that data within a partition remains healthy and accessible:
+    Sequential Offsets: Every message is assigned a unique, incremental ID called an offset. 
+                        Once written, a message cannot be modified (immutability).
+    Segment Files: Partitions are not one giant file; they are split into segments (default 1GB).
+                  When a segment is full, a new one is created. 
+                  This allows Kafka to "expire" old data by deleting entire files rather than individual records.
+    Retention Policies: Data maintenance is automated based on:
+        Time: (e.g., log.retention.hours=168 for 7 days).
+        Size: (e.g., log.retention.bytes=1073741824 for 1GB).
+    Log Compaction: For specific topics (like "User Profile Updates"), Kafka can keep only the last known value for each key,
+                    automatically purging older versions of the same key to save space.
+
+Controlling Partitioning (Java Implementation):
+  By default, Kafka uses a sticky partitioner (batching messages to the same partition for efficiency). 
+  However, in production, you often need to control exactly which partition data goes to—usually 
+  to maintain message ordering for a specific entity (like a single User ID or Order ID).
+  A. The "Key-Based" Approach (Most Common)
+        If you provide a key, Kafka hashes that key to determine the partition. 
+        All messages with the same key will always go to the same partition.
+          import org.apache.kafka.clients.producer.KafkaProducer;
+          import org.apache.kafka.clients.producer.ProducerRecord;
+          import java.util.Properties;
+          
+          public class OrderProducer {
+              public static void main(String[] args) {
+                  Properties props = new Properties();
+                  props.put("bootstrap.servers", "localhost:9092");
+                  props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+                  props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+          
+                  KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+          
+                  // Key = "OrderID-5501". This ensures all updates for this 
+                  // specific order land in the same partition and are processed in order.
+                  String key = "OrderID-5501";
+                  String value = "{'status': 'SHIPPED', 'timestamp': '12:00PM'}";
+          
+                  ProducerRecord<String, String> record = new ProducerRecord<>("order_updates", key, value);
+          
+                  producer.send(record);
+                  producer.close();
+              }
+          }
+  B. Custom Partitioner Logic
+        Sometimes you want to route data based on business logic (e.g., "all VIP customer data goes to Partition 0"). 
+        You can implement the Partitioner interface.
+        import org.apache.kafka.clients.producer.Partitioner;
+        import org.apache.kafka.common.Cluster;
+        import java.util.Map;
+        
+        public class VIPPartitioner implements Partitioner {
+            @Override
+            public int partition(String topic, Object key, byte[] keyBytes, 
+                                 Object value, byte[] valueBytes, Cluster cluster) {
+                
+                String customerType = (String) key;
+                if ("VIP".equals(customerType)) {
+                    return 0; // Always send VIPs to partition 0
+                }
+                
+                // Others go to the remaining partitions
+                int numPartitions = cluster.partitionCountForTopic(topic);
+                return Math.abs(key.hashCode()) % (numPartitions - 1) + 1;
+            }
+        
+            @Override public void close() {}
+            @Override public void configure(Map<String, ?> configs) {}
+        }
+        To use this partitioner, add this to your producer properties:
+        props.put("partitioner.class", "com.example.VIPPartitioner");
+
 3. Replication and Fault Tolerance
   Kafka is designed to stay alive even if a server fails.
   A Topic is made "available" and "durable" through Replication.
@@ -93,10 +165,6 @@ What are "acks" in a Producer?
 How do you achieve "Exactly-Once Semantics" (EOS)?
     By enabling enable.idempotence=true on the producer 
     and using Kafka Transactions for atomic writes across multiple partitions.
-
-What is Log Compaction?
-     A mechanism where Kafka only keeps the latest value for a specific key, deleting older records.
-    Great for storing state (like a user's current address)
 
 The Producer (Sending Data):
     import org.apache.kafka.clients.producer.*;
@@ -205,3 +273,135 @@ Scenario C: Data Loss during Broker Failure
 
 When asked about troubleshooting, always Monitoring tools like Prometheus, Grafana, or Confluent Control Center
   to track "Consumer Lag" and "Under-Replicated Partitions."
+
+Issue                Symptom                                                   Diagnostic Tool
+Zookeeper Overload   "Slow leader election, ""Session Timeout"" errors."       Monitor Zookeeper Latency.
+Disk Pressure        Brokers stop accepting new writes.                        Check log.retention.hours or bytes.
+Rebalance Storms     "Consumers stop processing frequently to ""rebalance."""  Increase heartbeat.interval.ms.
+
+Production Scenarios for Partition Maintenance:
+Scenario 1: Re-balancing Data (Adding Partitions)
+    Context: You started with 3 partitions, but your traffic tripled.
+    Maintenance Task: You increase the partition count to 9.
+    The Catch: Key-to-partition mapping will change (Hash of "Key" % 3 is different from Hash of "Key" % 9).
+    Solution: If message ordering is critical, you must perform a "Data Migration" or 
+              ensure your consumers can handle temporary out-of-order processing during the transition.
+
+Scenario 2: Handling "Poison Pill" Messages
+    Context: A message in a partition is corrupted and causes your Java consumer to crash repeatedly.
+    Maintenance Task:
+    Manual Seek: In your Java code, use consumer.seek(partition, newOffset) to skip the broken message.
+    DLQ (Dead Letter Queue): Catch the exception in Java, send the "poison" message to a separate failed_messages topic,
+                            and commit the offset to move to the next record.
+
+ how Consumer Groups and Partitions work together:
+  it's best to think of them as a "Load Balancing" system. 
+  In Kafka, partitions are the way data is split up, and Consumer Groups are the way that work is shared.
+
+1. The Core Relationship
+    The rule of thumb is: One partition can only be read by one consumer within a specific Consumer Group.
+    Partitions = Parallelism: The more partitions you have, the more consumers you can have working at the same time.
+    Consumer Groups = Scalability & Fault Tolerance: If one consumer in a group fails, 
+              Kafka automatically reassigns its partitions to the remaining members of the group.
+
+2. Scenario-Based Usage
+  Scenario A: Equal Number (Balanced)
+          Setup: Topic has 4 Partitions. Consumer Group has 4 Consumers.
+          Result: Each consumer is assigned exactly 1 partition. This is the most efficient setup for high-speed processing.
+  Scenario B: More Partitions than Consumers (N:1)
+        Setup: Topic has 4 Partitions. Consumer Group has 2 Consumers.
+        Result: Each consumer is assigned 2 partitions. They will process messages from both, but might be slower because they are doing double the work.
+  Scenario C: More Consumers than Partitions (Idle)
+        Setup: Topic has 4 Partitions. Consumer Group has 5 Consumers.
+        Result: 4 consumers get 1 partition each. The 5th consumer sits idle (doing nothing). It only starts working if one of the other four crashes.
+
+3. Java Implementation: How to use them
+    In Java, you don't manually assign partitions to consumers.
+    Instead, you simply give the consumer a group.id. Kafka handles the "Assignment Logic" (called the Group Coordinator) behind the scenes.
+    
+    Example: Setting up a Group Member
+    Properties props = new Properties();
+    props.put("bootstrap.servers", "localhost:9092");
+    
+    // This ID defines which group this consumer belongs to
+    props.put("group.id", "order-processing-service"); 
+    
+    props.put("key.deserializer", "StringDeserializer.class");
+    props.put("value.deserializer", "StringDeserializer.class");
+    
+    KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+    
+    // The consumer subscribes to the topic, and the Group Coordinator
+    // automatically assigns it specific partitions.
+    consumer.subscribe(Arrays.asList("customer_orders"));
+
+4. Why use multiple Consumer Groups?
+This is one of Kafka's biggest strengths.
+You can have multiple different groups reading from the same topic at the same time for different purposes.
+  Consumer Group ID      Purpose                          Behavior
+  inventory-service      Updates stock levels.            Reads every message once.
+  email-service          Sends order confirmations.      "Reads every message once, independently."
+  big-data-archive        Saves everything to S3/Hadoop.  Reads every message at its own pace.
+
+Production Scenario: The "Rebalance Storm"
+In production, when a new consumer joins or an existing one leaves (or crashes), Kafka triggers a Rebalance.
+      All consumers in the group stop reading.
+      The "Group Coordinator" redistributes the partitions.
+      Consumers start reading again.
+Pro-Tip for Interviews: If your consumer logic takes too long to process a single message (exceeding max.poll.interval.ms), 
+      Kafka might think the consumer is dead and trigger a rebalance. 
+      This can cause a "loop" where your group is constantly rebalancing and never actually processing data.
+      To fix this, you either optimize the Java code or increase the timeout setting.
+
+Monitoring Consumer Lag is one of the most critical tasks for a Java developer working with Kafka. 
+If the lag increases, your system isn't processing data fast enough, which can lead to stale information or data loss if the retention period expires.
+In a Spring Boot environment, you can monitor this seamlessly using Micrometer and Spring Boot Actuator.
+
+1. Setting up Monitoring in Java (Spring Boot)
+If you use the spring-kafka library, monitoring is almost "automatic" once you include the Actuator dependency.
+
+Step A: Add Dependencies
+In your pom.xml, ensure you have the Actuator and Prometheus (most common monitoring tool) dependencies:
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+Step B: Enable Kafka Metrics
+In your application.properties or application.yml, expose the metrics endpoint:
+    management:
+      endpoints:
+        web:
+          exposure:
+            include: "prometheus,metrics,health"
+      metrics:
+        tags:
+          application: "order-service"
+2. Key Metrics to Watch
+    Once configured, your application will export several kafka.consumer metrics.
+    Here are the ones you should alert on in production:
+
+Metric Name                                          What it means                                                    Why it matters
+kafka_consumer_fetch_manager_records_lag            "The number of messages behind the ""head"" of the partition."     Critical. High lag means your consumers are too slow.
+kafka_consumer_fetch_manager_records_consumed_rate  Messages processed per second.                                      Helps you understand your system's throughput capacity.
+kafka_consumer_coordinator_rebalance_latency_avg    How long it takes to re-assign partitions.                         "High latency here means ""Stop-the-world"" pauses for your data flow."
+
+3. Advanced Scenario: Auto-Scaling with KEDA
+If you are running your Java microservices in Kubernetes (AKS), you don't have to manually add consumers when lag increases.
+You can use KEDA (Kubernetes Event-driven Autoscaling).
+
+How KEDA uses Consumer Groups:
+  Monitor: KEDA periodically checks the Kafka Broker for the lag of a specific group.id.
+  Scale: If totalLag > threshold, KEDA automatically triggers Kubernetes to spin up more Pods (Java instances) for that Consumer Group.
+  Limit: It will stop scaling once the number of consumers equals the number of partitions (since extra consumers would just sit idle).
+  Note: Since you work with Azure Kubernetes Service (AKS), KEDA is a native way to handle "Burst" traffic (like a sale or a high-traffic event) without manual intervention.
+
+4. Troubleshooting "Ghost" Lag
+Sometimes, metrics show lag even when your application seems fast.
+    Heavy Single Partition: If one partition has a "Hot Key" (too much data), that specific consumer instance will show high lag while others are idle.
+    Large Message Size: If a few messages are very large, the consumer spends more time de-serializing them, slowing down the poll() loop.
+    Commit Latency: If you are using ack-mode: manual and your database write is slow, the offset isn't committed,
+              and Kafka thinks you haven't processed the message yet.
