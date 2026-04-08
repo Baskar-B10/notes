@@ -139,10 +139,50 @@ How does Kafka ensure message durability?
   Through Replication. Each partition has a leader and multiple followers.
   If the leader fails, an In-Sync Replica (ISR) is elected as the new leader
 
-What are "acks" in a Producer?
-    acks=0: Fire and forget (Fastest, no guarantee).
-    acks=1: Leader receives the message (Balanced).
-    acks=all: Entire ISR must receive the message (Safest, highest latency).
+The Internal Roles: Leader, Follower, and ISR:
+    Every topic partition in Kafka is replicated multiple times (defined by the replication.factor).
+    The Leader: This is the "Primary" copy. For any given partition, one broker is elected as the leader. 
+                All producers write to the leader, and all consumers (usually) read from the leader.
+    The Followers: These are "Passive" copies. They do not handle client requests.
+                  Their only job is to pull data from the leader as fast as they can to stay updated
+    ISR (In-Sync Replicas): This is a dynamic "VIP list" maintained by the leader. 
+              It contains the leader itself and any followers that are caught up.
+              If a follower lags behind for too long (default 30 seconds), it is kicked out of the ISR.
+
+How Replication Works Internally (The Protocol):
+Kafka uses a pull-based replication model. It works like this:
+  The Write: A Producer sends a message to the Leader. The leader appends it to its local disk log.
+  The Fetch: Followers send FetchRequests (similar to what a consumer does) to the leader.
+  The Append: Once a follower gets the data, it writes it to its own local log and sends an acknowledgement back to the leader.
+  The High Watermark (Commit): The leader keeps track of the furthest offset that all members of the ISR have successfully written.
+                            This point is called the High Watermark.
+        Crucial Rule: Consumers can only see messages below the High Watermark.
+                This prevents a consumer from reading a message that hasn't been safely backed up yet.
+
+The Role of acks in Production
+The acks setting is the "Dial" you turn to balance Speed vs. Safety.
+Setting        How it Works Internally                                        Production Use Case
+acks=0        "Fire and Forget.                                               Fastest. 
+              The producer doesn't wait for any response.                     Use for non-critical data like website click-streams or background telemetry.
+              If the network drops or the broker crashes, the data is lost."
+acks=1        "Leader Only.                                                   Balanced. 
+              The leader writes to its log and immediately says ""Success.""  Use when you need good speed and can tolerate rare data loss (if the leader dies before followers sync).
+              It doesn't wait for followers.",                
+acks=all (or -1)  Full Quorum.                                               "Safest. Use for financial transactions, orders, or any ""Must-not-lose"" data."
+                The leader waits until every member of the ISR has confirmed the write.
+
+The "Hidden" Production Partner: min.insync.replicas
+    If you use acks=all, you should also set min.insync.replicas (usually to 2).
+    The Scenario: If you have a replication factor of 3, but 2 brokers crash, the ISR now only has 1 member (the leader).
+    The Risk: With acks=all, the leader would technically "succeed" because all (one) ISR members have the data. But you have no backup!
+    The Fix: With min.insync.replicas=2, Kafka will reject new writes if the ISR drops below 2, forcing you to fix the cluster before accepting more "safe" data.
+
+Production Summary Checklist:
+    Replication Factor: Set to 3 for production.
+    acks: Use all for critical paths, 1 for high-volume logs.
+    Min ISR: Set to 2 when using acks=all to ensure true durability.
+    Unclean Leader Election: Set unclean.leader.election.enable=false. 
+            This prevents an out-of-sync follower from becoming a leader (avoiding data corruption at the cost of availability).
 
 4. Consumer Groups:
     Kafka uses Consumer Groups to allow a pool of processes to divide the work of consuming and processing records.
@@ -161,10 +201,6 @@ What are "acks" in a Producer?
       Sequential I/O: It appends data to the end of a log file rather than seeking all over the disk.
       Zero Copy: It uses the OS sendfile system call to move data directly from the disk cache to the network card without copying it into the application heap.
       Batching: It groups small messages together to reduce network overhead.
-
-How do you achieve "Exactly-Once Semantics" (EOS)?
-    By enabling enable.idempotence=true on the producer 
-    and using Kafka Transactions for atomic writes across multiple partitions.
 
 The Producer (Sending Data):
     import org.apache.kafka.clients.producer.*;
@@ -405,3 +441,105 @@ Sometimes, metrics show lag even when your application seems fast.
     Large Message Size: If a few messages are very large, the consumer spends more time de-serializing them, slowing down the poll() loop.
     Commit Latency: If you are using ack-mode: manual and your database write is slow, the offset isn't committed,
               and Kafka thinks you haven't processed the message yet.
+
+Exactly-Once Semantics (EOS):
+    In traditional messaging, you usually get "At-least-once" delivery, meaning if a "Success" signal is lost in the network,
+    the producer sends the message again, creating a duplicate.
+    EOS ensures that even if a producer retries, the message is written to the broker exactly once.
+
+How it Works Internally:
+    Idempotent Producer: Every producer is assigned a unique Producer ID (PID), and every message gets a Sequence Number.
+    The Broker Check: The Kafka broker tracks the last sequence number it received for that PID. 
+                  If it receives a message with the same PID and sequence number, it discards it as a duplicate rather than writing it again.
+    Transactions: For multi-step processes (Read from Topic A $\rightarrow$ Process $\rightarrow$ Write to Topic B),
+                    Kafka uses a Transaction Coordinator to ensure that either all actions succeed or none do.
+
+Java Implementation
+Properties props = new Properties();
+props.put("bootstrap.servers", "localhost:9092");
+
+// Step 1: Enable Idempotence
+props.put("enable.idempotence", "true"); 
+
+// Step 2: Set a Transactional ID (Required for transactions)
+props.put("transactional.id", "order-processor-01");
+
+KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+
+producer.initTransactions();
+try {
+    producer.beginTransaction();
+    producer.send(new ProducerRecord<>("topic-b", "key", "value"));
+    // If anything fails here, we can abort
+    producer.commitTransaction();
+} catch (Exception e) {
+    producer.abortTransaction();
+}
+Production Use Case: Financial Transfers
+  If a service is moving money from Account A to Account B, you cannot afford "at-least-once." 
+  If the network gltiches and the retry happens, you might double-charge the user.
+  EOS is the safety net that prevents this.
+
+Log Compaction
+    Standard Kafka topics delete data based on time (e.g., 7 days). 
+    Log Compaction deletes data based on keys. 
+    It ensures that Kafka will always retain at least the last known value for a specific message key.
+
+How it Works Internally
+    Kafka's "Cleaner Thread" scans your log segments.
+    If it finds multiple messages with the same key (e.g., User_123),
+    it keeps the latest version and marks the older ones for deletion.
+
+Production Use Cases:
+    State Recovery: Imagine you have a microservice that stores "User Preferences" in memory. 
+          If the service crashes and restarts,
+            it can read a compacted topic from the beginning to rebuild its state quickly without reading millions of obsolete "old" preference changes.
+    Database Snapshots: If you are using Change Data Capture (CDC), you only care about the current state of a row in your database.
+                Log compaction keeps your Kafka topic size manageable by throwing away the history of intermediate updates.
+
+How to Enable:
+This is a Topic-level configuration, not a code change:
+  Bash
+  # Set cleanup policy to compact
+  kafka-topics.sh --bootstrap-server localhost:9092 --alter --topic user-settings --config cleanup
+
+1. Scaling Partitions: Adding Capacity
+When a Topic reaches its throughput limit, you must increase the partition count.
+Manual Scaling:
+  You can increase partitions using the Kafka CLI.  
+  # Increase partition count from 3 to 10
+  kafka-topics.sh --bootstrap-server localhost:9092 --alter --topic my-topic --partitions 10
+  The Principle: Kafka is "append-only." When you add partitions, existing data stays where it is. 
+  Only new messages will be distributed across the 10 partitions.
+  Warning: If you use "Keys" for ordering, increasing partitions will change the hash mapping (e.g., Hash(Key) % 3 vs Hash(Key) % 10). 
+    This means messages for the same Key might end up in different partitions, temporarily breaking order.
+  Automatic Scaling:
+      Kafka does not natively auto-increase partition counts because it’s a heavy operation that affects data distribution. 
+      Usually, architects "over-partition" at the start (e.g., creating 30 partitions even if you only need 3 today) to avoid this.
+
+2. Scaling Consumers: Adding Processing Power
+  This is where you handle the "Message pile-up" (Consumer Lag).
+  Manual Scaling:
+    You simply spin up more instances of your Java application using the same group.id. 
+    Kafka will trigger a Rebalance and assign the new instances to the available partitions.
+  Automatic Scaling (Production Best Practice)
+      In a cloud environment like AKS, you use KEDA (Kubernetes Event-driven Autoscaling).
+      How it works: KEDA monitors the Consumer Lag metric from the Kafka broker.
+      Action: If Lag > 1000, KEDA tells Kubernetes to "Scale Out" your pods.
+      The Principle: You can only scale consumers up to the number of partitions. If you have 10 partitions and 15 consumers, 5 consumers will sit idle.
+
+3. Managing CPU and Moving Data (The Internal Principles)
+      When a broker’s CPU spikes or its disk is full, you need to move data to another broker. 
+      Kafka does this through Partition Reassignment.
+      How Kafka Manages CPU:
+          Zero-Copy Principle: Kafka uses the OS sendfile system call to move data directly from the disk cache to the network card, bypassing the application CPU.
+                This is why Kafka can handle massive traffic with low CPU usage.
+          Batching: Producers and Consumers work in batches. 
+                  Processing 1000 messages in one request is much lighter on the CPU than 1000 individual requests.
+      Moving Messages to Other Brokers:
+          If Broker A is overloaded and Broker B is empty, you use the kafka-reassign-partitions.sh tool.
+The Principles of Data Movement:
+    Replication: Kafka starts "Followers" for the partitions on the new broker (Broker B).
+    Syncing: Broker B begins pulling data from the Leader on Broker A.
+    Promotion: Once Broker B is fully "In-Sync" (ISR), Kafka makes Broker B the Leader.
+    Deletion: The old data on Broker A is deleted.
