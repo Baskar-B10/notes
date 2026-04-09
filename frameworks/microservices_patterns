@@ -24,6 +24,13 @@ The Weaknesses:
   Data Consistency: Maintaining data integrity across different databases (Distributed Transactions) is notoriously difficult.
   Network Latency: Constant communication over the network adds overhead that doesn't exist in a monolith.
 
+Feature          Monolithic                        Microservices
+Complexity       Low (at the start)                High (from the start)
+Deployment       Single deployment                 Multiple independent deployments
+Scalability      Vertical (scale the whole app)    Horizontal (scale specific services)
+Database         Shared single database            Database-per-service
+Data Integrity   High (ACID transactions)          Eventual Consistency (Saga pattern)
+
 Exception handling in External API calls in Microservices:
     When making external calls (REST APIs, gRPC, etc.), exception handling is no longer just about try-catch. 
     You have to account for network instability, downstream service downtime, and timeouts.
