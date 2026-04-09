@@ -1,3 +1,61 @@
+1. Choose RDBMS (SQL) when...
+ RDBMS is the gold standard for data integrity and complex relationships.
+        Strict Schema: Your data structure is consistent and unlikely to change frequently.
+        Complex Relationships: You have many "many-to-many" relationships (e.g., Students enrolled in many Courses, and Courses having many Students).
+        ACID Compliance is Paramount: You are building a financial system or an ERP where every single penny must be accounted for with 100% mathematical certainty.
+        Relational Logic: You need to perform heavy "Joins" across dozens of tables to generate reports.
+
+2. Choose MongoDB (NoSQL) when...
+   MongoDB is built for speed, developer flexibility, and massive horizontal scale.
+        Flexible Schema: Your data is "polymorphic" or evolves quickly. For example, a Product catalog where a "Shirt" has a size/color, but a "Laptop" has a CPU/RAM.
+        High Write Volume: You are dealing with real-time analytics, IoT data, or logging where you need to ingest thousands of records per second.
+        Hierarchical Data: Your data naturally fits into a "Document" (JSON). Instead of joining five tables, you can store everything related to a user in one single document.
+        Horizontal Scaling: You need to distribute your data across many cheap servers (Sharding) rather than buying one massive, expensive server.
+
+Feature        RDBMS (SQL)                         MongoDB (NoSQL)
+Data Model     Tables/Rows (Fixed)                 Documents/JSON (Dynamic)
+Relationships  Joins (Primary/Foreign Keys)        Embedding or Linking
+Scaling        Vertical (Bigger Server)            Horizontal (More Servers)
+Transactions   Extremely Mature                    Supported (but with overhead)
+Best For       "Banking, Legacy Systems,           "Content Management, Real-time Apps, Big Data"
+                        Complex Reporting"
+
+If my system requires strong consistency and complex relationships, I go with RDBMS.”
+ Use Cases:
+        Banking / financial systems
+        Order management with strict integrity
+        Systems with heavy joins
+        Transactions across multiple tables
+ Example
+“In banking domain, account + transaction + audit logs require strict ACID, so I prefer RDBMS.”
+
+When I Prefer MongoDB
+“If the data is semi-structured, evolving, and read-heavy, I prefer MongoDB.”
+
+Use Cases:
+        Product catalog (dynamic fields)
+        User profiles
+        Logging / analytics
+        Content management systems
+ Example
+        “For product catalog where attributes vary (size, color, specs), MongoDB avoids schema changes and improves performance.”
+
+Key Design Decision Factors (This is what interviewer wants)
+1.  Data Nature
+        Structured → RDBMS
+        Unstructured / JSON → MongoDB
+2.  Relationships
+        Heavy joins → RDBMS
+        Embedded data → MongoDB
+3.  Performance
+        Write-heavy + flexible → MongoDB
+        Complex queries → RDBMS
+4.  Consistency vs Availability
+        Strong consistency → RDBMS
+        High availability & scalability → MongoDB
+5.  Scalability
+        Horizontal scaling needed → MongoDB
+        Moderate scale → RDBMS
 
 Why Prefer MongoDB over SQL?
 1. Flexible Schema
@@ -114,6 +172,61 @@ Use MongoDB when:                    Use SQL when:
 ✅ Rapid prototyping                 ✅ Strong ACID compliance needed
 ✅ Real-time apps, IoT, logs         ✅ Data integrity is critical
 ✅ Content management systems        ✅ Legacy enterprise systems
+
+Scaling :
+1. RDBMS Scaling
+        Vertical Scaling (Primary approach)
+                Increase CPU, RAM, storage of a single DB server
+                 Pros
+                        Simple to implement
+                        No application changes required
+                Cons
+                        Hardware limits (can’t scale infinitely)
+                        Expensive
+                        Single point of failure (if not clustered)
+         Horizontal Scaling in RDBMS (Advanced)
+        Techniques:
+                Read Replicas
+                Master → Write
+                Replicas → Read
+                Sharding (Manual)
+                Split data across multiple DBs
+         Challenges
+                Complex to manage
+                Joins across shards become difficult
+                Data consistency issues
+        Lead Insight- RDBMS supports scaling, but it requires significant design effort and operational overhead.”
+
+   2. MongoDB Scaling
+ Horizontal Scaling (Native Feature)
+        Sharding (Core concept)
+                Data is automatically distributed across nodes using a shard key.
+                A "Query Router" ensures that when you ask for data, it knows exactly which server holds it.
+         Example
+                Users split across shards:
+                Shard 1 → Users A–F
+                Shard 2 → Users G–M
+        Built-in Features
+                Auto-sharding
+                Load balancing
+                Replica sets for high availability
+         Pros
+                Easy to scale out
+                Handles large volumes of data
+                High availability built-in
+         Cons
+                Poor shard key choice → performance issues
+                Limited joins across shards
+                Transactions are not as efficient as RDBMS
+
+| Feature            | RDBMS            | MongoDB                  |
+| ------------------ | ---------------- | ------------------------ |
+| Default Scaling    | Vertical         | Horizontal               |
+| Horizontal Scaling | Complex          | Native (Sharding)        |
+| Read Scaling       | Replicas         | Replica sets             |
+| Write Scaling      | Difficult        | Distributed writes       |
+| Complexity         | High for scaling | Lower (built-in support) |
+
 
 Sharding:
 Sharding is MongoDB's way of splitting data across multiple machines (called shards) to handle datasets too large for a single server.
