@@ -623,6 +623,20 @@ API Gateway:
     In a microservices architecture, the API Gateway acts as the single entry point for all clients (web, mobile, or external partners). 
     Instead of a client calling ten different microservices to load a single page, it calls the Gateway,
     which then routes the requests to the appropriate backend services.
+    In microservices, we have multiple services:
+        Order Service
+        Payment Service
+        User Service
+        Without API Gateway:
+            Client must call each service directly
+            Client needs to know:
+            Service URLs
+            Authentication logic
+            Request aggregation
+        Problems:
+            Tight coupling between client and services
+            Security issues
+            Hard to maintain
 
 1. Core Responsibilities:
   The Gateway is more than just a proxy; it handles "cross-cutting concerns" so your individual Java microservices don't have to.
