@@ -749,7 +749,51 @@ ddl-auto=create in production — drops and recreates all tables on startup.
   ✔ Option 4: Open Session in View (OSIV) ✔ Keeps session open till view
               👉 Even without @Transactional: ✔ Spring Boot may keep session open till view layer. Controller → Service → View
               ⚠️ But: Not recommended for heavy apps Can cause performance issues
-  
+
+How it works for different repo:
+@Transactional works at the service layer, not repository level. 
+It can span multiple repositories as long as they share the same transaction manager.
+“All repositories must use the same datasource / transaction manager.”
+    @Service
+    public class AccountService {
+        @Transactional
+        public void transferMoney(Long fromId, Long toId, double amount) {
+            accountRepo.debit(fromId, amount);   // Repo 1
+            accountRepo.credit(toId, amount);    // Repo 1
+            logRepo.save(new Log("Transfer"));   // Repo 2
+        }
+    }
+ Explanation:
+    One transaction starts at service layer
+    Covers: accountRepo and logRepo
+    If any operation fails → rollback everything
+
+ Problem Case:
+  accountRepo → MySQL
+  logRepo → Different DB (or Mongo)
+ Then:
+  Transaction will NOT be atomic by default
+  Requires distributed transaction (XA / 2PC) → rarely used in microservices
+
+Using @Transactional with MongoDB:
+    YES, but with conditions. MongoDB supports transactions only in:
+        Need Replica Set/ Sharded Cluster:
+            MongoDB only supports multi-document transactions on Replica Sets (or Sharded Clusters). 
+            You cannot use transactions on a standalone, local MongoDB instance.
+            If you try, Spring will throw an error because the database lacks the "oplog" needed to manage the undo/redo process.
+      Need a MongoTransactionManager:
+        Spring doesn't enable Mongo transactions by default. You have to register a bean in your configuration
+        “Mongo transactions work only when properly configured with MongoTransactionManager.”
+ Requirements:
+  MongoDB version ≥ 4.0
+  Must be replica set
+  Spring config must include:
+        @Bean
+        MongoTransactionManager transactionManager(MongoDatabaseFactory factory) {
+            return new MongoTransactionManager(factory);
+        }
+    
+
 @transactional won’t work for private method:
   If you annotate a private method with @Transactional, Spring will simply ignore it, and no transaction will be started.  
   The reason for this lies in how Spring handles transactions under the hood using AOP (Aspect-Oriented Programming) Proxies.
