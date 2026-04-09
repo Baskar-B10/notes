@@ -238,10 +238,14 @@ Types of Stack (Conceptual)
               Recursion simulation
 
 Special List:
-CopyOnWriteArrayList:
-    A thread-safe List where:
-    Every write operation creates a new copy of the array
-    List<Integer> list = new CopyOnWriteArrayList<>();
+CopyOnWriteArrayList (Best for high reads)
+      This is the modern thread-safe alternative to a synchronized ArrayList.
+            How it works: Every time you modify the list (add/remove), it creates a fresh copy of the entire underlying array.
+            Thread Safety: Iterators use a snapshot of the array taken at the moment the iterator was created, so you won’t get a ConcurrentModificationException.
+            Use Case: Best when you have many threads reading data, but very few threads writing (e.g., a cache of configuration settings).
+      
+            List<String> threadSafeList = new CopyOnWriteArrayList<>();
+            threadSafeList.add("Data"); // Expensive operation (creates a copy)
 Why “Copy-On-Write”?
   Because on every modification: Old Array → Copy → Modify → Replace
       list.add(10);
@@ -299,27 +303,46 @@ Why “Copy-On-Write”?
             Reads → no lock
 🔹 3. Memory Tradeoff- More memory usage due to copying
 
-Synchronized List
-      List<Integer> list = Collections.synchronizedList(new ArrayList<>());
+Collections.synchronizedList (Old School)
+      This wraps a standard ArrayList and synchronizes every method.
+            How it works: It uses an internal lock. Only one thread can access any method at a time.
+            Warning: You must manually synchronize when iterating over it, or it will crash.
+            Use Case: When you have a high volume of writes and CopyOnWriteArrayList becomes too slow.
+      
+            List<String> syncList = Collections.synchronizedList(new ArrayList<>());
       🔹 Internal Working
             Uses single lock
             Every operation synchronized
       🔹 Drawback - Slow (global locking)
 
-Immutable List (Java 9+):
-      List<Integer> list = List.of(1, 2, 3);
-      🔹 Features:
-            Cannot modify ❌
-            Thread-safe ✅
-      🔹 Use Case:
-            Constants
-            Fixed data
-
-Unmodifiable List:
-      List<Integer> list = Collections.unmodifiableList(originalList);
-      🔹 Behavior:
+Immutable List:
+      Why it is thread-safe
+            Since data never changes, no synchronization is needed
+            Multiple threads can safely read the same list
+      🔸 Option 1: List.of() (Recommended)
+            List<String> list = List.of("A", "B", "C");
+            
+            // list.add("D"); → throws UnsupportedOperationException
+            ✔ Characteristics
+                  Truly immutable
+                  Thread-safe by design
+                  Best for constants / shared data
+      🔸 Option 2: List.copyOf()
+            List<String> original = new ArrayList<>();
+            original.add("A");
+            
+            List<String> immutableList = List.copyOf(original);
+             Creates a safe immutable copy
+      
+ Unmodifiable List (Not Fully Immutable)
+      List<String> list = new ArrayList<>();
+      List<String> unmodifiable = Collections.unmodifiableList(list);
+      ⚠️ Important
+            Wrapper only
             Read-only view
-            Underlying list can change
+            Underlying list can still change
+            list.add("B"); // affects unmodifiable list
+
 
 Arrays.asList():
       List<Integer> list = Arrays.asList(1, 2, 3);
