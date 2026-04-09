@@ -455,3 +455,70 @@ JSpecify Null Safety: Better integration with the JSpecify standard to reduce Nu
 HTTP Service Clients: New declarative interfaces for REST-based applications, 
             making service-to-service communication much cleaner.
 
+Spring Retry:
+Spring Retry provides a declarative way to handle this using annotations.
+1. Enabling Spring Retry
+    To use @Retryable, you must first add the spring-retry dependency to your pom.xml and enable it in your configuration.
+    @Configuration
+    @EnableRetry
+    public class RetryConfig {
+        // Configuration beans if needed
+    }
+2. Using @Retryable
+    You apply the annotation directly to the method that might fail (e.g., an external API call or a database operation).
+    @Service
+    public class ExternalApiService {
+    
+        @Retryable(
+            value = { RemoteAccessException.class, MongoTimeoutException.class }, 
+            maxAttempts = 3, 
+            backoff = @Backoff(delay = 2000, multiplier = 2)
+        )
+        public void callRemoteService() {
+            System.out.println("Attempting to call service...");
+            // Logic that might throw an exception
+        }
+    }
+Key Parameters:
+    value / include: Specifies which exceptions should trigger a retry.
+    maxAttempts: Total number of attempts (including the first one). Default is 3.
+    backoff: Controls the wait time between attempts.
+    delay: Initial wait time (e.g., 2000ms).
+    multiplier: Each subsequent wait is multiplied by this (e.g., 2s, 4s, 8s). This is known as Exponential Backoff.
+
+3. The Recovery Logic (@Recover)
+    If all retry attempts fail, you need a "Plan B." The @Recover annotation defines a fallback method that is called after the maxAttempts are exhausted.
+    Rules for @Recover:
+        The method must be in the same class as the @Retryable method.
+        The first argument must be the Exception type being caught.
+        The remaining arguments must match the arguments of the @Retryable method.
+    
+        @Recover
+        public void recover(RemoteAccessException e) {
+            System.out.println("All retries failed. Transitioning to fallback logic.");
+            // Log the error, send to a Dead Letter Queue, or return a cached value
+        }
+4. How it Works Internally
+    Spring Retry uses AOP (Aspect-Oriented Programming). 
+    When you call a @Retryable method, Spring creates a proxy that wraps your call in a while loop.
+        Proxy Intercepts: The proxy starts the call.
+        Catch Exception: If the specified exception occurs, the proxy checks if maxAttempts is reached.
+        Backoff: If attempts remain, it sleeps for the backoff duration.
+        Final Failure: If no attempts remain, it looks for a @Recover method or re-throws the exception.
+
+5. Important Constraints
+    Self-Invocation: Just like @Transactional, calling a @Retryable method from within the same class (e.g., this.myMethod()) 
+                    will not work because it bypasses the Spring Proxy.
+    Idempotency: Only retry operations that are idempotent (safe to do multiple times).
+    Safe: GET requests, checking a status, updating a record with a fixed value.
+    Risky: POSTing a payment, incrementing a counter (unless you have deduplication logic).
+
+6. Comparison: Spring Retry vs. Resilience4j
+    While @Retryable is great for simple logic, many modern microservices use Resilience4j, 
+        which offers more advanced features like Circuit Breakers.
+
+Feature            Spring Retry                    Resilience4j
+Best For           Simple method-level retries    Complex distributed systems
+Circuit Breaker    No (Limited)                   Yes (Full Support)
+External Config    Harder                         Native support via YAML/Properties
+
