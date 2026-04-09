@@ -369,6 +369,48 @@ Volatile:
     Because it is not atomic. Read, write and increement. 
     fix using synchronization or AtomicInteger.incrementAndGet()
 
+1. The Problem: CPU Caching
+  Modern processors are so fast that they don't always read from main RAM. Instead, each CPU core has its own local cache (L1/L2).
+  Thread A reads a variable and stores it in its local cache.
+  Thread A updates the variable.
+  Thread B reads the variable, but it reads the "stale" (old) value from the main RAM or its own cache because Thread A
+        hasn't flushed its update back to the main memory yet.
+  This is known as the Visibility Problem.
+
+2. The Solution: volatile
+  When you mark a variable as volatile, you are telling the JVM:
+    No Caching: Always read and write directly to the Main Memory (RAM).
+    Happens-Before Relationship: It creates a guarantee that any write to a volatile field happens before subsequent reads of that same field.
+
+    public class SharedFlag {
+        private volatile boolean active = true;
+    
+        public void stop() {
+            active = false; // Immediately visible to all threads
+        }
+    
+        public void run() {
+            while (active) {
+                // Do work
+            }
+        }
+    }
+3. What volatile is NOT (Important!)
+    A common mistake is thinking volatile replaces synchronized. It does not.
+    No Atomicity: volatile does not guarantee that compound operations are safe.
+        If you have volatile int counter = 0; and two threads call counter++, you can still lose data. 
+        This is because counter++ is actually three steps: (1) Read, (2) Increment, (3) Write. 
+        volatile only helps with the "Read/Write" part, not the logic in between.
+    
+    No Locking: It doesn't block other threads from accessing the variable.
+
+When to use it in Microservices
+  In a backend environment (like your AKS pods), you typically use volatile for:
+      Status Flags: A flag that tells a background worker thread to shut down.
+      Double-Checked Locking: Used inside a Singleton pattern to ensure the instance is correctly published across threads.
+      Lightweight Heartbeats: Checking if a service connection is still "alive" without the overhead of heavy synchronization.
+  If you need to perform math (like a counter) across threads, don't use volatile. Instead, use Atomic Classes like AtomicInteger or AtomicLong.
+
 Problem with synchronized:
     No timeout
     No try mechanism
