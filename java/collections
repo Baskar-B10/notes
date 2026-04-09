@@ -1039,6 +1039,67 @@ Core Methods:
             get()	      O(1)
             worst	      O(log n)
 
+Why Key Should Be Immutable
+      “HashMap relies on hashCode() and equals(). If key changes after insertion, retrieval fails.”
+            ❌ Problem Example
+            class User {
+                String name;
+            }
+            User user = new User("John");
+            map.put(user, "data");
+            user.name = "Mike"; // key modified
+            map.get(user); // ❌ may return null
+
+Key Rule of Thumb
+      Always use Strings, Integers, or Records as keys whenever possible. 
+      They are already immutable and highly optimized for HashMap performance.
+
+Making a Key Immutable for a HashMap
+      In a HashMap, the Key must be immutable.
+      If you use a mutable object as a key and then change its value, the hashCode() changes.
+      The HashMap will then look in the wrong bucket, and you will never find your data again—essentially creating a memory leak.
+
+A. The Modern Way: Java Records
+      Records are the easiest way to create a composite key because they are immutable by default and automatically implement equals() and hashCode().
+            // Automatically final and immutable
+            public record UserKey(String email, String department) {}
+            
+            // Usage
+            Map<UserKey, String> map = new HashMap<>();
+            UserKey key = new UserKey("madhu@example.com", "Backend");
+            map.put(key, "Authorized");
+B. The Traditional Way: Final Class
+      If you aren't using Records, you must manually ensure the class cannot be modified.
+      Make the class final so it cannot be subclassed.
+      Make all fields private and final.
+      Do not provide setters.
+      Deep Copy: If the class contains a mutable object (like a Date or List), perform a deep copy in the constructor and the getter.
+      Override hashCode() and equals() based on these final fields.
+      public final class ImmutableKey {
+          private final String id;
+          private final List<String> permissions;
+      
+          public ImmutableKey(String id, List<String> permissions) {
+              this.id = id;
+              // Defensive copy to prevent the outside list from changing this key
+              this.permissions = List.copyOf(permissions); 
+          }
+      
+          public String getId() { return id; }
+          public List<String> getPermissions() { return permissions; }
+      
+          @Override
+          public int hashCode() { return Objects.hash(id, permissions); }
+      
+          @Override
+          public boolean equals(Object obj) {
+              if (this == obj) return true;
+              if (obj == null || getClass() != obj.getClass()) return false;
+              ImmutableKey that = (ImmutableKey) obj;
+              return Objects.equals(id, that.id) && Objects.equals(permissions, that.permissions);
+          }
+      }
+
 2. LinkedHashMap:
       Maintains insertion order
       Slightly slower
