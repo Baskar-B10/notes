@@ -705,3 +705,133 @@ how to check vulnerability in jars or depenedency:
         Usage: trivy image my-spring-app:latest
         Azure Container Registry (ACR): If you push your images to ACR, you can enable Microsoft Defender for Containers,
                     which automatically scans every image for vulnerabilities.
+
+1. The Architecture Flow
+    Client: Sends an HTTP Request (JSON).
+    Controller: Intercepts the request and maps it to a method.
+    Service: Contains business logic (e.g., checking if a product name already exists).
+    Repository: Uses Spring Data JPA to talk to the database.
+    Database: Stores/retrieves the product record.
+
+2. Implementation Example
+A. The Entity (The Database Model)
+    @Entity
+    @Table(name = "products")
+    public class Product {
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        private Long id;
+        private String name;
+        private Double price;
+        private Integer stockQuantity;
+        
+        // Getters and Setters
+    }
+B. The Repository (The Data Access)
+    @Repository
+    public interface ProductRepository extends JpaRepository<Product, Long> {
+        // Basic CRUD methods like save(), findById(), deleteById() are inherited
+    }
+C. The Service (The Business Logic)
+    @Service
+    public class ProductService {
+        @Autowired
+        private ProductRepository repository;
+    
+        public Product saveProduct(Product product) { return repository.save(product); }
+        public List<Product> getAllProducts() { return repository.findAll(); }
+        public Optional<Product> getProductById(Long id) { return repository.findById(id); }
+        
+        public Product updateProduct(Long id, Product details) {
+            Product existing = repository.findById(id).orElseThrow();
+            existing.setName(details.getName());
+            existing.setPrice(details.getPrice());
+            existing.setStockQuantity(details.getStockQuantity());
+            return repository.save(existing);
+        }
+    
+        public void deleteProduct(Long id) { repository.deleteById(id); }
+    }
+
+D. The Controller (The REST Endpoints)
+    @RestController
+    @RequestMapping("/api/products")
+    public class ProductController {
+        @Autowired
+        private ProductService service;
+    
+        @PostMapping // CREATE
+        public ResponseEntity<Product> create(@RequestBody Product product) {
+            return ResponseEntity.ok(service.saveProduct(product));
+        }
+    
+        @GetMapping // READ ALL
+        public List<Product> findAll() {
+            return service.getAllProducts();
+        }
+    
+        @GetMapping("/{id}") // READ ONE
+        public ResponseEntity<Product> findOne(@PathVariable Long id) {
+            return service.getProductById(id)
+                    .map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        }
+    
+        @PutMapping("/{id}") // UPDATE
+        public ResponseEntity<Product> update(@PathVariable Long id, @RequestBody Product product) {
+            return ResponseEntity.ok(service.updateProduct(id, product));
+        }
+    
+        @DeleteMapping("/{id}") // DELETE
+        public ResponseEntity<Void> delete(@PathVariable Long id) {
+            service.deleteProduct(id);
+            return ResponseEntity.noContent().build();
+        }
+    }
+
+Pro-Tips for your Flow:
+    DTOs: In a production app, avoid returning the @Entity directly. 
+            Use a Data Transfer Object (DTO) to hide sensitive fields or internal logic.
+    Exception Handling: Use a @ControllerAdvice class to handle ResourceNotFoundException globally 
+                so your API returns a clean JSON error message instead of a messy stack trace.
+    Validation: Use @Valid and annotations like @NotNull or @Min(0) in your Entity/DTO to ensure bad data doesn't hit your database.
+
+1. Architectural Extensions
+    As the system grows, you move away from simple synchronous calls to a more resilient, distributed architecture.
+    CQRS (Command Query Responsibility Segregation): Separate the "Write" logic from the "Read" logic.
+            You could use a relational database for commands (Create/Update) and a NoSQL database like MongoDB or Elasticsearch for high-speed searches.
+    Event-Driven Integration: Instead of just saving to a database, publish a ProductCreated or ProductPriceChanged event to Apache Kafka or Azure Service Bus.
+                            This allows other services (like Inventory or Notifications) to react without direct coupling.
+    API Gateway & Security: Introduce an API Gateway (like Spring Cloud Gateway) to handle cross-cutting concerns like rate limiting, logging,
+                            and JWT authentication via OAuth2/OIDC.
+
+2. Resilience and Performance
+    Production systems must handle failures gracefully and respond quickly.
+    Caching Layer: Implement Redis to store frequently accessed product data.
+                    This reduces the load on your database for "Read" operations.
+    Observability: Integrate Micrometer and Prometheus for metrics, and Zipkin or Jaeger for distributed tracing.
+                    This is crucial when your product service starts talking to other microservices via Feign.
+    Bulkheading & Circuit Breaking: Use Resilience4j to wrap your external calls. 
+                        If a downstream service is slow, the circuit breaker prevents your Product service from hanging.
+
+3. Database Maturity
+    Simple JPA works for basics, but scaling requires more control.
+    Database Migrations: Use Flyway or Liquibase. Never let Hibernate auto-generate your production schema (ddl-auto=update is dangerous).
+                        Version-controlled scripts ensure your AKS environments stay in sync.
+    Soft Deletes: Instead of repository.delete(), add an is_deleted boolean flag. 
+                    This preserves data history and makes "undoing" an accidental deletion possible.
+    Auditing: Use Spring Data JPA's @CreatedDate and @LastModifiedBy to automatically track who changed a product and when.
+
+4. Code-Level Enhancements
+    To keep the codebase maintainable as features are added:
+    Feature            Implementation                  Benefit
+    DTO Mapping        Use MapStruct                    Decouples internal Entity logic from the external API contract.
+    Pagination         Pageable in Repository           "Prevents the API from crashing when trying to return 100,000 products."
+    Search/Filter      QueryDSL or Specifications       "Allows users to filter products by price range, category, or stock status dynamically."
+    Patch Support      JSON Patch                        Allows updating only one field (like price) instead of sending the whole object.
+
+5. Deployment & CI/CD
+    Since you are using Azure Kubernetes Service (AKS), future extensions involve:
+    Blue-Green or Canary Deployments: Use Kubernetes services to route a small percentage of traffic to a "New Product Service" to test features before a full rollout.
+    Helm Charts: Standardize your sbk8-poc deployment configurations so you can easily spin up "Dev," "QA," and "Prod" environments with different resource limits.
+    Probes: Define Liveness and Readiness probes in your YAML so Kubernetes knows if your Java app is truly ready to handle traffic or if it needs a restart.
