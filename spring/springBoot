@@ -522,3 +522,83 @@ Best For           Simple method-level retries    Complex distributed systems
 Circuit Breaker    No (Limited)                   Yes (Full Support)
 External Config    Harder                         Native support via YAML/Properties
 
+
+@FeignClient:
+    It is a declarative REST client used in Spring Boot applications to simplify communication between microservices.
+    Instead of writing boilerplate code to handle HTTP requests (like using RestTemplate or WebClient),
+        you define an interface, and Feign handles the implementation details.
+
+What is it?
+    When you annotate an interface with @FeignClient, Spring creates a proxy implementation at runtime.
+    This allows you to call methods on the interface as if they were local methods, while Feign translates them into HTTP calls under the hood.
+
+Why we prefer @FeignClient
+In a microservices environment, @FeignClient is often preferred over RestTemplate for several key reasons:
+    Declarative Syntax: It uses standard Spring MVC annotations (@GetMapping, @PostMapping).
+            This makes the code much cleaner and easier to read compared to manually constructing URLs and headers.
+    Automatic Load Balancing: It integrates natively with Spring Cloud LoadBalancer.
+            By simply using the service name (e.g., inventory-service) instead of a hardcoded URL, 
+                Feign automatically handles routing requests across multiple instances of that service.
+    Built-in Resilience: It works seamlessly with Resilience4j. 
+            You can define fallback classes or methods directly in the annotation to handle scenarios where the target service is down.
+    Seamless Integration: It automatically handles serialization and deserialization (converting JSON to Java Objects) using Jackson,
+            and it integrates easily with Micrometer for observability and tracing.
+    Reduced Boilerplate: You don't need to manage HTTP connections, catch low-level IO exceptions, or manually build request bodies for every call.
+
+1. Add Dependencies
+    First, ensure you have the Spring Cloud OpenFeign dependency in your pom.xml (for Maven):
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-openfeign</artifactId>
+    </dependency>
+2. Enable Feign Clients
+    In your main application class (the one annotated with @SpringBootApplication),
+    you must add the @EnableFeignClients annotation to trigger the scanning of Feign interfaces.
+        @SpringBootApplication
+        @EnableFeignClients
+        public class OrderServiceApplication {
+            public static void main(String[] args) {
+                SpringApplication.run(OrderServiceApplication.class, args);
+            }
+        }
+3. Define the Feign Client Interface
+This is where the magic happens. You define an interface that mirrors the API of the service you want to call.
+    @FeignClient(name = "product-service", url = "http://localhost:8082/api/products")
+    public interface ProductClient {
+    
+        @GetMapping("/{id}")
+        ProductResponse getProductById(@PathVariable("id") Long id);
+    
+        @PostMapping
+        ProductResponse createProduct(@RequestBody ProductRequest request);
+    }
+    name: A unique identifier for the client.
+    url: The base URL of the service you are calling (this can be moved to a properties file for better environment management).
+
+4. Inject and Use the Client
+    Now, you can inject this interface into your service layer just like any other Spring bean.
+        @Service
+        public class OrderService {
+        
+            private final ProductClient productClient;
+        
+            public OrderService(ProductClient productClient) {
+                this.productClient = productClient;
+            }
+        
+            public void processOrder(Long productId) {
+                // Calling the remote service as if it were a local method
+                ProductResponse product = productClient.getProductById(productId);
+                
+                System.out.println("Processing order for: " + product.getName());
+            }
+        }
+Key Configuration Tips
+    Logging: Feign has its own logging levels. To see the request/response details, you can define a Logger.
+            Level bean and set the package level to DEBUG in your application.properties.
+    Error Handling: You can implement a ErrorDecoder to customize how your application handles 4xx or 5xx errors returned by the remote service.
+    Timeouts: Configure connection and read timeouts in your properties file to prevent your application from hanging if the external service is slow:
+    
+    Properties
+    feign.client.config.product-service.connectTimeout=5000
+    feign.client.config.product-service.readTimeout=5000
