@@ -127,13 +127,53 @@ Default values trap:
     String s1 = "java";
     String s2 = "java"; -> Only one object is created in String Constant Pool
     But:  String s3 = new String("java"); -> Creates new object in heap
+
+How String is Immutable (The "A = A + 'R'" Paradox)
+  When you perform A = A + "R", you aren't actually changing the original "Baskar" object. 
+  Instead, you are creating a brand-new object in memory and moving the label "A" to point at it.
+  Here is what happens step-by-step in the String Constant Pool:
+     String A = "Baskar"; → Java creates an object "Baskar" in the pool. A points to it.
+     A + "R" → Java looks at "Baskar", sees you want to add "R", and creates a completely new string object: "BaskarR".
+     A = ... → The variable A stops pointing at "Baskar" and now points to "BaskarR".
+   The original object "Baskar" stays exactly the same in memory until it is garbage collected.
+   Immutability means the data inside the object cannot change; it doesn't mean the variable cannot point to something else.
     
   Why String is Immutable?
       Security (used in URL, DB, file paths)
       Thread-safe
       Caching (String Pool)
       Performance
-      
+
+Why we can't extend the String class
+  In Java, the String class is declared as final. This means you cannot do public class MyString extends String. 
+  There are three main reasons for this:
+  A. Security
+      Strings are used everywhere in sensitive areas: Database URLs, usernames, passwords, and file paths. 
+      If String were not final, someone could create a "MutableString" subclass.
+        The Threat: You might pass a "String" to a method that checks a file's permissions. 
+        While the method is checking, a malicious subclass could change the underlying text from /safe/directory to /etc/passwords. 
+        By making it final, Java ensures that a String's value remains constant and trustworthy.
+  
+  B. The String Constant Pool
+     As mentioned above, Java saves memory by sharing identical strings in a pool. 
+     If you could extend String and change its behavior (making it mutable), it would corrupt the pool. 
+     If two variables point to "Baskar" and one person changes it to "BaskarR", the other person's variable would unexpectedly change too.
+  
+  C. Performance (Hash-code Caching)
+      Because Strings cannot change, their hashCode() is calculated once and cached. 
+      This makes them incredibly fast when used as keys in a HashMap.
+      If you could extend and modify the string, the hash-code would have to be recalculated constantly, destroying performance.
+ 
+Feature     String                             "List (e.g., ArrayList)"
+Class Type  final (cannot extend)               Non-final (can extend)
+Data Change Creates a new object                Modifies the existing object
+Reasoning   "Security, Thread-safety, Pooling"  Flexibility and data manipulation
+
+Feature     String Class                                 Exception Class
+Purpose     To act as a data container (Value Object).   To describe a specific error state.
+Why Extend? No functional reason; we only need the text. "Necessary to categorize errors (e.g., DatabaseException vs ValidationException)."
+Design       final (Locked for safety/speed).             Non-final (Open for hierarchy).
+
    Important String Methods
         str.length();
         str.charAt(0);
