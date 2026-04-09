@@ -227,8 +227,31 @@ Scaling :
 | Write Scaling      | Difficult        | Distributed writes       |
 | Complexity         | High for scaling | Lower (built-in support) |
 
+1. Replica Set in MongoDB
+ What is Replica Set
+    “A Replica Set is a group of MongoDB instances that maintain the same data to provide high availability and fault tolerance.”
+   “In production, we used replica sets to ensure zero downtime during node failures.”
+    Structure
+          Primary Node - Handles all write operations
+          Secondary Nodes - Replicate data from primary
+          Arbiter (optional) - Participates in election (no data)
+    Diagram (Conceptual)
+           Primary  →  Secondary1
+                   →  Secondary2
+                   →  Arbiter
+    How it Works
+          Client writes → Primary
+          Primary writes to oplog
+          Secondary nodes replicate data
+    Failover Mechanism
+          If primary goes down:
+          Secondary automatically becomes primary
+          Election happens
+      
+
 
 Sharding:
+
 Sharding is MongoDB's way of splitting data across multiple machines (called shards) to handle datasets too large for a single server.
 WITHOUT Sharding                    WITH Sharding
 ┌─────────────────┐                ┌──────────┐ ┌──────────┐ ┌──────────┐
@@ -256,9 +279,9 @@ Sharding Architecture
         └──────────┘    └──────────┘      └──────────┘
 3 Core Components:
 Component        Role
-mongos           Query router — your app talks to this
-Config Server    Stores chunk-to-shard mapping
-Shards           Actual data storage (each is a replica set)
+Mongos (Router): The interface your application talks to. It routes your query to the correct shard.
+Config Servers: Store the metadata (which shard has which data)
+Shards: Individual replica sets that store a subset of the data
 
 Shard Key — The Most Important Decision
         The shard key is the field MongoDB uses to decide which shard a document goes to.
@@ -316,6 +339,17 @@ Write throughput is the bottleneck  Read-heavy workloads (use replicas)
 Need geographic data distribution   You need complex multi-shard txns
 Horizontal scale is required        App is still in early stage
 
+Elasticity:
+   Elasticity is the ability of your database to grow or shrink based on demand.
+   Horizontal Elasticity (Scaling Out):
+     In MongoDB, you achieve this by adding more shards.
+     Auto-Balancing: When you add a new shard, MongoDB's "Balancer" process automatically moves chunks of data from existing shards to the new one in the background. 
+                    This happens without downtime.
+   Vertical Elasticity (Scaling Up):
+       If you are using MongoDB Atlas (the managed service), elasticity is often "Auto-Scaling."
+       Storage Scaling: Automatically increases disk space as you approach your limit.
+       Tier Scaling: If CPU usage stays above a certain threshold (e.g., 80% for an hour), 
+              Atlas can automatically upgrade your cluster to a higher tier (e.g., from M30 to M40).
 BSON:
 BSON = Binary JSON
 it's the binary-encoded format MongoDB uses internally to store and transfer documents.
