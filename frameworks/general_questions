@@ -187,43 +187,6 @@ Resilience4j:
         Performance: It doesn't force every call into a separate thread (unlike Hystrix's default), which reduces overhead.
         Observability: Integrates natively with Micrometer and Spring Boot Actuator for real-time monitoring via Prometheus/Grafana.
 
-1. Rate Limiting (The Hard Cap):
-    Rate Limiting defines how many requests a user or client can make in a specific timeframe (e.g., "100 requests per minute").
-    Primary Goal: Fairness and Security.
-                It prevents any single user from "hogging" all the resources or launching a Brute Force/DDoS attack.
-    Behavior: Once you hit the limit, the server usually rejects the request immediately.
-    Response: Typically returns an HTTP 429 Too Many Requests status code.
-    Analogy: A nightclub with a "One In, One Out" policy. If the club is full, you are simply told "No" at the door.
-
-2. Throttling (The Slowdown)
-    Throttling is the process of intentionally slowing down the execution of a request to ensure the system stays stable under heavy load.
-    Primary Goal: System Stability. 
-            It protects the database and CPU from crashing during a sudden spike in traffic.
-    Behavior: Instead of rejecting you, the server might delay your request, put it in a queue, or reduce your bandwidth.
-    Response: The request eventually succeeds, but it feels "laggy" or takes longer to load.
-    Analogy: An internet service provider (ISP) slowing down your connection speed after you’ve used 100GB of data, rather than cutting your internet off entirely.
-
-Feature            Rate Limiting                           Throttling
-Focus              User/Client behavior                    Server/System health
-Action             Reject (HTTP 429)                       Delay/Settle/Queue
-User Experience    Error Message                           Increased Latency
-Duration           Usually based on fixed time windows    "Often based on current system ""stress"""
-Implementation    "Token Bucket, Leaky Bucket"            "Resource monitoring, Traffic shaping"
-
-How They Work Together:
-    In a professional production environment, you usually use both:
-    Rate Limiter: Sits at the API Gateway level to block abusive users immediately.
-    Throttler: Sits at the Service/Database level. 
-            If the database starts getting too hot, the throttler slows down incoming requests to give the DB time to breathe, 
-            even if the users haven't hit their individual rate limits yet.
-
-Common Algorithms:
-    Token Bucket (Rate Limiting): You have a bucket of "tokens." 
-            Each request takes one. 
-            If the bucket is empty, the request is rejected.Leaky Bucket (Throttling): 
-            Requests enter a bucket and "leak" out at a constant, steady rate. 
-    If the bucket overflows, they are rejected, but the steady leak ensures a smooth flow to the server.
-
 Web Adapter Pattern:
     In a Hexagonal Architecture (also known as Ports and Adapters), a Web Adapter is the entry point for your application. 
     It sits in the outermost layer and is responsible for translating HTTP requests into a format the core business logic (the "Inside") can understand.
