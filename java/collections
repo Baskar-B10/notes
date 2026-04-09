@@ -1047,6 +1047,50 @@ Core Methods:
 🔹 Special Feature: LRU Cache. new LinkedHashMap<>(16, 0.75f, true)
                     Access-order
 
+Internal Working of LinkedHashMap
+      A standard HashMap is just an array of buckets. When you add items, they are scattered based on their hash code, and the original order is lost.
+      LinkedHashMap solves this by wrapping every entry in a "Doubly Linked List" node. 
+Each entry contains:
+      Before/After pointers: Links to the previous and next entries in the order they were added.
+      Hash data: The standard hash, key, value, and next pointer (for handling collisions).
+How it works:
+      Put Operation: When you call put(key, value), it calculates the bucket index just like a HashMap. 
+                  However, it also attaches the new node to the tail of the internal linked list.
+      Iteration: When you iterate over a LinkedHashMap, it doesn't look at the array buckets.
+                  It simply follows the linked list from "Head" to "Tail," which is why it preserves the order.
+      Access Order: You can also configure it to move an element to the end of the list every time it is accessed (get/put).
+                  This is perfect for building LRU (Least Recently Used) Caches.
+
+LRU Cache using LinkedHashMap:
+       Least Recently Used item removed first
+🔹 Trick:
+       Use:LinkedHashMap(capacity, loadFactor, accessOrder=true)
+🔹 Implementation:
+      class LRUCache<K, V> extends LinkedHashMap<K, V> {
+          private int capacity;
+          public LRUCache(int capacity) {
+              super(capacity, 0.75f, true); // accessOrder = true
+              this.capacity = capacity;
+          }
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+              return size() > capacity;
+          }
+      }
+🔹 How It Works:
+      Insert [A] → [B] → [C]
+      Access B [A] → [C] → [B] Moves to end
+      Add D (capacity full)
+      Remove A (least used)
+      [C] → [B] → [D]
+🔹 Internal Working:
+       LinkedHashMap uses:HashMap (fast lookup) and Doubly Linked List (order)
+            [A] ⇄ [B] ⇄ [C]
+🔹 Use Cases:
+      Cache system
+      Browser history
+      Database query cache
+
 3. TreeMap:
       Sorted keys
       No null key ❌
@@ -1216,35 +1260,7 @@ Real-Life Usage:
       Auto cleanup	WeakHashMap
       Enum keys	      EnumMap
 
- LRU Cache using LinkedHashMap:
-       Least Recently Used item removed first
-🔹 Trick:
-       Use:LinkedHashMap(capacity, loadFactor, accessOrder=true)
-🔹 Implementation:
-      class LRUCache<K, V> extends LinkedHashMap<K, V> {
-          private int capacity;
-          public LRUCache(int capacity) {
-              super(capacity, 0.75f, true); // accessOrder = true
-              this.capacity = capacity;
-          }
-          @Override
-          protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
-              return size() > capacity;
-          }
-      }
-🔹 How It Works:
-      Insert [A] → [B] → [C]
-      Access B [A] → [C] → [B] Moves to end
-      Add D (capacity full)
-      Remove A (least used)
-      [C] → [B] → [D]
-🔹 Internal Working:
-       LinkedHashMap uses:HashMap (fast lookup) and Doubly Linked List (order)
-            [A] ⇄ [B] ⇄ [C]
-🔹 Use Cases:
-      Cache system
-      Browser history
-      Database query cache
+ 
 
 Red-Black Tree (Very Important):
       A self-balancing binary search tree
