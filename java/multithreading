@@ -270,6 +270,9 @@ Exception wrapped in: ExecutionException
 
 ExecutorService:
   ExecutorService is a high-level API to manage threads using a thread pool.
+  “ExecutorService is a framework in Java used to manage and control thread execution efficiently using a thread pool,
+    instead of creating threads manually.
+
   Instead of new Thread(...).start(); use ExecutorService executor = Executors.newFixedThreadPool(3);
   Manual thread creation:
           Expensive ❌
@@ -279,17 +282,122 @@ ExecutorService:
           Thread reuse
           Task scheduling
           Lifecycle management
-Most implementations use: ThreadPoolExecutor
-Components: Worker threads,Task queue and Rejection policy
+  Most implementations use: ThreadPoolExecutor
+  Components: Worker threads,Task queue and Rejection policy
 
-execute():  Takes Runnable only, Returns void, no results and throws exception directly
-executor.execute(() -> {
-    System.out.println("Task executed");
-});
-submit(): takes Callable and Runnable. Returns Future and tracks results and Exceptions wrapped in ExecutionException
-Future<Integer> future = executor.submit(() -> {
-    return 10;
-});
+Why We Use ExecutorService (Problem Statement)
+❌ Without ExecutorService
+    new Thread(() -> {
+        System.out.println("Task running");
+    }).start();
+👉 Problems:
+    Too many threads → memory issues
+    No control over lifecycle
+    Hard to manage in production
+✅ With ExecutorService
+    Reuses threads (thread pool)
+    Better performance
+    Centralized control
+
+Creating ExecutorService:
+  ✅ Fixed Thread Pool
+    ExecutorService executor = Executors.newFixedThreadPool(5);
+    👉 Use when: Fixed number of threads required
+  ✅ Cached Thread Pool
+    ExecutorService executor = Executors.newCachedThreadPool();
+    👉 Use when: Many short-lived tasks
+  ✅ Single Thread Executor
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    👉 Use when:Sequential execution needed
+  Scheduled Thread Pool: Executors.newScheduledThreadPool(n)
+    Used for tasks that need to run after a delay or periodically (similar to @Scheduled but with more manual control).
+
+Basic Usage Flow:
+  Step 1: Initialize
+      ExecutorService executor = Executors.newFixedThreadPool(5);
+  Step 2: Submit Tasks
+      execute(Runnable): For "fire and forget" tasks (returns nothing).
+      submit(Callable): Returns a Future object that will eventually hold the result.
+      Future<String> future = executor.submit(() -> {
+          Thread.sleep(2000);
+          return "Task Complete";
+      });
+  Step 3: Get the Result
+      try {
+          // This blocks the current thread until the result is ready
+          String result = future.get(); 
+          System.out.println(result);
+      } catch (InterruptedException | ExecutionException e) {
+          e.printStackTrace();
+      }
+  Step 4: Shutdown (Crucial!)
+      If you don't shut down the executor, the JVM may never exit because the worker threads are still running.
+      executor.shutdown();
+      ✅ Graceful Shutdown
+        executor.shutdown();
+      ✅ Force Shutdown
+          executor.shutdownNow();
+
+  Feature             execute()                            submit()
+  Parameter           Runnable                             Runnable or Callable
+  Return Type         void                                 Future<?>
+  Exception Handling  Uncaught exceptions go to handler    Exceptions are captured in the Future
+  Use Case            "Logging, fire-and-forget"           "Calculations, fetching data"
+
+Real Project Example:
+  Use Case: Processing Multiple Orders in Parallel
+  ExecutorService executor = Executors.newFixedThreadPool(3);
+    
+  for (Order order : orders) {
+      executor.submit(() -> {
+          processOrder(order);
+      });
+  }
+  executor.shutdown();
+
+ Benefit: Parallel processing → improved performance
+
+Using Callable (Advanced)
+      Callable returns result
+      Callable<String> task = () -> "Hello";
+      
+      Future<String> future = executor.submit(task);
+      System.out.println(future.get());
+
+Handling Multiple Tasks (invokeAll)
+    List<Callable<String>> tasks = List.of(
+        () -> "Task1",
+        () -> "Task2"
+    );
+    
+    List<Future<String>> results = executor.invokeAll(tasks);
+
+Scheduled Executor (For Delayed Tasks)
+    ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    
+    scheduler.schedule(() -> {
+        System.out.println("Delayed task");
+    }, 5, TimeUnit.SECONDS);
+
+Thread Pool Tuning (Lead-Level Insight)
+    “Choosing the right pool size is critical for performance.”
+    int cores = Runtime.getRuntime().availableProcessors();
+    ExecutorService executor = Executors.newFixedThreadPool(cores);
+
+Best Practices
+    ✅ Reuse executor (don’t create frequently)
+    ✅ Always shutdown
+    ✅ Handle exceptions inside tasks
+    ✅ Use bounded thread pools
+
+Common Mistakes
+  ❌ Creating new thread per task
+  ❌ Not shutting down executor
+  ❌ Blocking too many threads (future.get())
+
+ExecutorService vs CompletableFuture (Quick Insight):
+    ExecutorService → manual control
+    CompletableFuture → more modern async handling
 
 ForkJoinPool:
   Used for parallel tasks
