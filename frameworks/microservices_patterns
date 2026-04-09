@@ -331,6 +331,96 @@ Shared Database (Anti-Pattern / Transition Pattern):
     Physical Split: Microservices A, B, and C → Dedicated DB Instances.
 
 
+Rollback in Microservices (Project-Based Explanation)
+1. Problem Statement (How I explain in interview)
+  In microservices, each service has its own database.
+  Because of this, we cannot use a single @Transactional across services.
+  So, if one service fails, we cannot automatically rollback other services like in monolithic architecture.
+
+  “In my project, we handled this using Saga pattern instead of traditional rollback.”
+
+2. Approach Used — Saga Pattern
+  We break the business flow into multiple independent steps.
+  Each step is handled by a different microservice.
+  If any step fails, we trigger compensating transactions to undo previous steps.
+3. Real-Time Project Scenario
+   Use Case: Order Processing System
+  Order Service → Creates order
+  Payment Service → Deducts money
+  Inventory Service → Updates stock
+4. Normal Flow (Success Case)
+  Step 1: Order Created
+    Order order = orderRepository.save(new Order("CREATED"));
+    kafkaTemplate.send("order-created", order);
+  Step 2: Payment Deducted
+    @KafkaListener(topics = "order-created")
+    public void processPayment(Order order) {
+        // simulate payment success
+        kafkaTemplate.send("payment-success", order);
+    }
+  Step 3: Inventory Updated
+    @KafkaListener(topics = "payment-success")
+    public void updateInventory(Order order) {
+        kafkaTemplate.send("order-completed", order);
+    }
+ 5. Failure Scenario (Where Rollback Happens)
+    Suppose Inventory Service fails (no stock available)
+ 6. Compensation Logic (Rollback)
+  Step 1: Inventory Failure Event
+    kafkaTemplate.send("inventory-failed", order);
+  Step 2: Refund Payment
+    @KafkaListener(topics = "inventory-failed")
+    public void refundPayment(Order order) {
+        System.out.println("Refunding payment");
+        kafkaTemplate.send("payment-refunded", order);
+    }
+  Step 3: Cancel Order
+    @KafkaListener(topics = "payment-refunded")
+    public void cancelOrder(Order order) {
+        order.setStatus("CANCELLED");
+        orderRepository.save(order);
+    }
+ 7. Key Design Principles Followed
+✅ Idempotency
+  Each operation can be safely retried without duplication
+  if (!processed(order.getId())) {
+      process();
+  }
+✅ Event-Driven Communication
+  Used Kafka for async communication between services
+  Helps in loose coupling
+✅ Eventual Consistency
+  System may not be consistent immediately
+But will become consistent after all events are processed
+✅ Retry Mechanism
+  Temporary failures are retried before triggering rollback
+
+8. Alternative Approach — Orchestration
+    Instead of events, one service controls flow
+    public void processOrder() {
+        try {
+            paymentService.pay();
+            inventoryService.update();
+        } catch (Exception e) {
+            paymentService.refund();
+        }
+    }
+  “In my project, we preferred choreography (Kafka) to avoid tight coupling.”
+
+9. What We Avoided
+    ❌ Distributed Transactions (2PC)
+    Not scalable
+    Performance overhead
+    Tight coupling between services
+ 10. Challenges Faced (Very Important for Lead Role)
+    Handling duplicate events → solved using idempotency
+    Debugging distributed flow → added correlation IDs
+    Ensuring consistency → used retries + DLQ (Dead Letter Queue)
+ 11. Monitoring & Logging
+    Used centralized logging (ELK)
+    Tracked events using correlationId
+
+
 1. How to maintain data consistency in database for multiple micro services:
   1. The Saga Pattern (The Gold Standard)
   2. Two-Phase Commit (2PC)
