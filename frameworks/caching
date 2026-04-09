@@ -146,6 +146,72 @@ This follows the Cache-Aside pattern automatically: it checks the cache first an
       </cache>
     </config>
 
+1. Ehcache vs. Redis: Key Differences
+Ehcache (In-Process/Local)
+    Ehcache lives inside your JVM. 
+    It is extremely fast because data is stored in the same memory space as your application.
+        Pros: Zero network latency; very simple to set up in Spring Boot.
+        Cons: Each pod in your AKS cluster will have its own "island" of cache. If Pod A updates a value, Pod B won't know about it.
+        Best For: Static data (like country codes or configuration) that rarely changes and is the same for every instance.
+
+Redis (Out-of-Process/Distributed)
+    Redis is a separate server (or cluster) that all your microservices connect to.
+        Pros: Centralized state. If Service A caches a user profile, Service B can read it immediately. It persists data even if your pods restart.
+        Cons: Requires a network call (latency). You have to manage the Redis infrastructure (or use Azure Cache for Redis).
+        Best For: Shared session data, high-velocity data that needs consistency across the cluster, and large datasets that won't fit in a single pod's RAM.
+
+Feature        Ehcache                          Redis
+Location       Inside the JVM (Local)          External Server (Remote)
+Latency        Microseconds (RAM speed)        Milliseconds (Network speed)
+Scaling        Scales with the app             Scales independently
+Consistency    Low (Each node is different)    High (All nodes share one source)
+
+How to Achieve Data Refresh:
+"Refreshing" or "Evicting" the cache is the hardest part of caching. You want to avoid serving stale (old) data.
+A. Time-Based Expiration (TTL)
+    The simplest way. You tell the cache to automatically expire data after a certain period.
+        Ehcache: Set timeToLiveSeconds in your ehcache.xml.
+        Redis: Set a TTL when saving the key.
+        Spring Boot: Use @Cacheable with a configuration that defines the TTL for that specific cache name.
+
+B. Manual Eviction (@CacheEvict)
+    When your code updates the underlying database, you should manually "clear" the cache so the next request fetches the fresh data.
+        @Service
+        public class AccountService {
+        
+            @Cacheable(value = "accounts", key = "#id")
+            public Account getAccount(Long id) {
+                return repo.findById(id).orElse(null);
+            }
+        
+            @CacheEvict(value = "accounts", key = "#account.id")
+            @Transactional
+            public void updateAccount(Account account) {
+                repo.save(account);
+                // The cache for this ID is now cleared!
+            }
+        }
+C. The "Write-Through" Pattern
+    Instead of just deleting the cache, your code updates both the Database and the Cache at the same time.
+    In Spring, you use @CachePut.
+    
+        @CachePut(value = "accounts", key = "#account.id")
+        public Account updateAccount(Account account) {
+            return repo.save(account); // Database updated and Cache refreshed
+        }
+D. Scheduled Refresh
+    If you have data that must be refreshed every morning at 8:00 AM,
+        use the @Scheduled job we discussed earlier to clear the cache.
+    
+    @Scheduled(cron = "0 0 8 * * *")
+    @CacheEvict(value = "daily-reports", allEntries = true)
+    public void refreshDailyCache() {
+        log.info("Daily cache cleared");
+    }
+
+Use Redis for business data (Accounts, Orders, User sessions). 
+        This ensures all 5 or 10 pods of your sbk8-poc service are seeing the exact same data.
+Use Ehcache for "meta-data" or system configurations that are read-heavy but never change during the life of the pod.
 
 Loading a cache in a multi-node environment:
     In a distributed system, It  is tricky because you have to balance data consistency (making sure all nodes see the same thing)
