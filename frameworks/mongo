@@ -608,3 +608,29 @@ At Document Class level:
              @DocumentReference(lookup = "{ 'accountId' : ?#{#self._id} }")
              private List<Transaction> transactions; 
          }
+
+   Referencing with @DocumentReference:
+      Introduced in Spring Data MongoDB 3.3, this is the modern way to "join" documents. 
+       It tells Spring to store only the ID of the related document in the database, but to automatically fetch the full object when you load the parent.
+      When to use: For "1-to-Many" or "Many-to-Many" relationships where the child document is large or needs to be managed independently.
+      
+           @Document(collection = "users")
+           public class User {
+               @Id
+               private String id;
+               private String name;
+           
+               // Stores only the Product IDs in the 'users' collection
+               @DocumentReference
+               private List<Product> favoriteProducts; 
+           }
+           
+           @Document(collection = "products")
+           public class Product {
+               @Id
+               private String id;
+               private String productName;
+               private double price;
+           }
+           Database View: The users document will look like: {"favoriteProducts": ["id1", "id2"]}.
+           Java View: When you call user.getFavoriteProducts(), Spring performs the "join" for you.
