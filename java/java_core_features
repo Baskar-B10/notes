@@ -576,9 +576,19 @@ Checked vs Unchecked (Quick Table)
 throw: Used inside method	Used in method signature
 Throws: one exception	Can declare multiple
 
-Exception    	RuntimeException
-Checked	      Unchecked
-Must handle  	Optional
+Custom Checked Exception
+  A custom checked exception extends Exception (but not RuntimeException).
+Key Characteristics:
+  Checked at compile time
+  Must be handled using try-catch OR declared using throws
+  Used for recoverable conditions
+
+Custom Unchecked Exception
+  A custom unchecked exception extends RuntimeException.
+Key Characteristics:
+  Not checked at compile time
+  No mandatory handling
+  Used for programming errors / bugs
 
 Best Practices:
     ✔ Catch specific exceptions
