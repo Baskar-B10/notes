@@ -620,3 +620,32 @@ If your messaging system doesn't support native idempotence,
         Message ID / UUID       Medium            High                 "Any broker (RabbitMQ, Service Bus)"
         Transactional Outbox    High              Maximum              Critical financial/data integrity
         Deduplication Store     Medium            Medium               High-volume streams
+
+Authentication vs Authorization
+| Feature  | Authentication  | Authorization    |
+| -------- | --------------- | ---------------- |
+| Purpose  | Verify identity | Grant access     |
+| Question | Who are you?    | What can you do? |
+| Happens  | At login        | Every request    |
+| Output   | Token/session   | Access decision  |
+| Example  | Login           | Access API       |
+
+1. Authentication (AuthN)
+    This is the first step in any security flow. The system checks your credentials to confirm your identity.
+    Common Factors:
+            Something you know: Password, PIN, or security questions.
+            Something you have: Authenticator app code (OTP), hardware token, or smart card.
+            Something you are: Biometrics like fingerprints, FaceID, or retina scans.
+    In Microservices: This is usually handled by an Identity Provider (IdP) like Azure AD, Keycloak, or Auth0. 
+                     Once authenticated, the user receives a JWT (JSON Web Token).
+
+2. Authorization (AuthZ)
+    Once the system knows who you are, it checks your "permissions" or "roles."
+    This happens after successful authentication.
+    Common Strategies:
+            RBAC (Role-Based Access Control): Users are assigned roles (e.g., ADMIN, USER, MANAGER). 
+                                            Permissions are attached to these roles.
+            ABAC (Attribute-Based Access Control): Permissions are granted based on attributes 
+                            (e.g., "Allow access only if the user is in the 'Finance' department AND it is during business hours").
+    In Microservices: The API Gateway or the individual microservice inspects the "claims" inside your JWT 
+                    (e.g., roles: ["ADMIN"]) to decide if you can call a specific endpoint.
