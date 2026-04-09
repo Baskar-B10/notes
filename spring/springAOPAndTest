@@ -334,12 +334,91 @@ Simplified Internal Code:
         Load-time
         Runtime (Spring AOP)
 
+self-invocation problem:
+    The self-invocation problem is a common pitfall in Spring applications. 
+    It occurs when a method within a class calls another method in the same class that is annotated
+    with a proxy-based annotation like @Transactional, @Retryable, @Async, or @Cacheable.
+    
+    Even though the annotation is present, it will not work (the transaction won't start, or the retry logic won't trigger).
+    Why it occurs: The Proxy Pattern
+        To understand why it fails, you have to look at how Spring applies these features.
+        Spring doesn't actually modify your original code. 
+        Instead, it creates a Proxy (a "wrapper" object) around your bean.
+    Normal Call (External): When a different class (e.g., a Controller) calls your Service, it calls the Proxy.
+                            The Proxy starts the transaction or retry logic and then calls your actual method.
+    Self-Invocation (Internal): When Method A calls Method B inside the same class, it uses the this reference. 
+                                This bypasses the Proxy entirely and goes straight to the local method.
+Scenario 1: @Transactional
+    @Service
+    public class PaymentService {
+    
+        public void processOrder() {
+            // External call comes here... then:
+            savePayment(); // SELF-INVOCATION!
+        }
+    
+        @Transactional
+        public void savePayment() {
+            // This transaction will NOT start
+            // Database changes won't roll back if an error occurs
+        }
+    }
+    Result: If processOrder() is not transactional itself, calling savePayment() directly will execute the SQL without a transaction.
+            If an exception happens, no rollback occurs.
 
-Spring Testing:
-    Spring provides powerful testing support using:
-        JUnit 5
-        Mockito
-        Spring Test Context Framework
+Scenario 2: @Retryable
+      @Service
+      public class StockService {
+      
+          public void checkStock() {
+              updateInventory(); // SELF-INVOCATION!
+          }
+      
+          @Retryable(retryFor = RuntimeException.class)
+          public void updateInventory() {
+              // This will NOT retry on failure
+              throw new RuntimeException("Network fail");
+          }
+      }
+      Result: The updateInventory() method will throw the exception once and stop. 
+              The Spring Retry logic is never triggered because the Proxy interceptor was skipped.
+
+How to Fix It
+1. Move the Method (Best Practice)
+    The cleanest way to fix this is to move the annotated method to a separate service. 
+    This ensures that every call goes through the Spring Proxy.
+      Instead of: ServiceA.methodA -> ServiceA.methodB
+      Do: ServiceA.methodA -> ServiceB.methodB
+
+2. Self-Injection (The "Workaround")
+    You can inject a bean of the same class into itself.
+    This forces the call to go through the proxy.
+
+    @Service
+    public class MyService {
+        @Autowired
+        private MyService self; // Injecting the proxy version of itself
+    
+        public void outerMethod() {
+            self.annotatedMethod(); // Now it goes through the proxy!
+        }
+    
+        @Transactional
+        public void annotatedMethod() { ... }
+    }
+3. Use AspectJ (Advanced)
+      If you switch from Spring AOP (proxy-based) to AspectJ, the logic is woven directly into the bytecode.
+      This solves self-invocation because the "intercept" happens inside the method itself, but it requires more complex build-time configuration.
+
+4. Programmatic Approach
+      Instead of using annotations, you can use TransactionTemplate or RetryTemplate inside your code.
+      This doesn't rely on proxies and works perfectly with internal calls.
+      
+      Spring Testing:
+          Spring provides powerful testing support using:
+              JUnit 5
+              Mockito
+              Spring Test Context Framework
 
 Types of Testing in Spring:
   1. Unit Testing:
