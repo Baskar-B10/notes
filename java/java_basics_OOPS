@@ -689,6 +689,14 @@ Thread-Safe Singleton (Important)
     }
 }
 used in Database connection, Logger and Configuration
+Where we use it:
+    Resource Management: Managing a heavy resource like a Database Connection Pool or a Log Manager. 
+                    You don't want 100 different objects trying to open 100 different log files.
+    Global Configurations: Storing application-wide settings that should be consistent everywhere.
+    Spring Beans: By default, every @Service or @Component you create in Spring Boot is a Singleton.
+                Spring manages the lifecycle so only one instance is shared across your app.
+    Hardware Access: If your code interacts with a specific piece of hardware (like a printer or a sensor), 
+            a Singleton prevents multiple parts of the app from sending conflicting commands at the same time.
 
 Immutable class:
   Object whose state cannot be changed after creation
@@ -725,6 +733,13 @@ final class Test {
         return new ArrayList<>(list); // return copy
     }
 }
+
+Where we use it:
+    Data Transfer Objects (DTOs): In microservices, when passing data between the Controller and Service layers, 
+            immutability ensures the data isn't accidentally changed mid-stream.
+    Thread-Safe Constants: Since the data can't change, multiple threads can access the object simultaneously without needing locks.
+    Keys in Maps: Objects used as keys in a HashMap must be immutable (like String or Integer) so their hashCode remains constant.
+    Caching: You can safely cache immutable objects because you know they will never become "stale" or corrupted.
 
 Command Line Arguments in Java:
 arguments passed to main method via terminal
