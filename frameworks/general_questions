@@ -649,3 +649,96 @@ Authentication vs Authorization
                             (e.g., "Allow access only if the user is in the 'Finance' department AND it is during business hours").
     In Microservices: The API Gateway or the individual microservice inspects the "claims" inside your JWT 
                     (e.g., roles: ["ADMIN"]) to decide if you can call a specific endpoint.
+
+How to Monitor Method Performance:
+    Monitoring focuses on latency (how long it takes), throughput (how many calls), and errors.
+    A. The "Spring Way": Micrometer & Actuator
+        Spring Boot uses Micrometer (the "SLF4J for metrics") to collect data. 
+        You can use the @Timed annotation to monitor specific methods.
+        Add Dependencies: Include spring-boot-starter-actuator and a registry like micrometer-registry-prometheus.
+        Annotate the Method:
+                @Service
+                public class AccountService {
+                    
+                    @Timed(value = "account.fetch.time", description = "Time taken to fetch account")
+                    public Account getAccount(Long id) {
+                        return repo.findById(id).orElse(null);
+                    }
+                }
+        Visualize: Use Prometheus to scrape these metrics and Grafana to build dashboards showing the average and p99 response times.
+    B. The "Aspect" Way (Custom Logging)
+        If you want to log the execution time of many methods without cluttering code, use Aspect-Oriented Programming (AOP).
+            @Aspect
+            @Component
+            public class PerformanceAspect {
+                @Around("execution(* com.myapp.service.*.*(..))")
+                public Object profile(ProceedingJoinPoint pjp) throws Throwable {
+                    long start = System.currentTimeMillis();
+                    Object output = pjp.proceed();
+                    long elapsedTime = System.currentTimeMillis() - start;
+                    System.out.println("Method " + pjp.getSignature().getName() + " took " + elapsedTime + " ms");
+                    return output;
+                }
+            }
+    C. Distributed Tracing
+        In microservices, a slow method in Service A might be caused by Service B.
+        Use Spring Cloud Sleuth (Micrometer Tracing) and Zipkin/Jaeger to see the full trace of a request across your AKS cluster.
+
+How to Achieve Code Quality:
+    Code quality is achieved through a combination of automated tools and strict development processes.
+A. Static Code Analysis
+    Tools that scan your code without running it to find bugs, security vulnerabilities, and "code smells."
+        SonarQube: The industry standard. It checks for cognitive complexity, duplicated code, and potential leaks.
+        Checkstyle / PMD: Ensures all team members follow the same naming conventions and formatting rules.
+
+B. Testing Pyramid
+    Quality is built on layers of testing:
+        Unit Tests (JUnit 5 / Mockito): Test individual methods in isolation. Aim for 80% coverage.
+        Integration Tests: Test how your code interacts with the database (MongoDB/RDBMS) using Testcontainers.
+        Contract Tests: Use Spring Cloud Contract to ensure your microservices can still "talk" to each other after an update.
+
+C. Modern Java Standards
+    Immutability: Use Records for DTOs to prevent accidental state changes.
+    Effective Java Practices: Use the Optional type to avoid NullPointerException, and prefer Streams for readable data processing.
+    SOLID Principles: Ensure classes have a single responsibility and are open for extension but closed for modification.
+
+D. Automated CI/CD Pipelines
+    In your AKS environment, quality should be enforced at the "Gate":
+    Pull Request: Trigger a build that runs all Unit Tests.
+    Analysis: Run a SonarQube scan. If the "Quality Gate" fails (e.g., coverage drops below 80%), the PR cannot be merged.
+
+how to check vulnerability in jars or depenedency:
+
+1. Development Level (Maven/Gradle Plugins)
+    These tools allow you to check for vulnerabilities directly from your terminal or during the build process.
+    A. OWASP Dependency-Check
+        This is the industry-standard open-source tool. 
+        it identifies project dependencies and checks if there are any known, published vulnerabilities.
+            How to use (Maven): Add the plugin to your pom.xml.
+            Command: mvn org.owasp:dependency-check-maven:check
+            Result: It generates an HTML report showing the "Dependency Hierarchy" and a "Vulnerability Score" (CVSS) for each JAR.
+
+    B. Snyk (CLI & Plugin)
+        Snyk is very popular for its "remediation" advice—it doesn't just tell you a JAR is broken; 
+        it tells you which version to upgrade to.
+            Command: snyk test
+
+2. Integrated Development Environment (IDE)
+    You can catch vulnerabilities while you are writing code.
+        IntelliJ IDEA: The "Package Search" and "Dependency Analyzer" features automatically flag vulnerable versions in your pom.xml or build.gradle with a red underline.
+        VS Code: Extensions like "Snyk Security" or "Dependency Analytics" provide similar real-time feedback.
+
+3. Pipeline Level (CI/CD)
+    Security should be a "Quality Gate" in your deployment pipeline.
+            If a high-severity vulnerability is found, the build should fail.
+    GitHub/GitLab: Both have built-in scanners (Dependabot for GitHub and Dependency Scanning for GitLab). 
+            They will automatically open Pull Requests to update your JARs.
+    SonarQube: While primarily for code quality, the "Developer Edition" also scans for security hotspots and vulnerable libraries.
+
+4. Container Level (AKS/Docker)
+    Since your JARs are likely packaged inside a Docker image, you must scan the image itself.
+    The vulnerability might not be in your Java code, but in the base OS image (e.g., an old version of Alpine or Debian).
+        Trivy: A fast and simple scanner for container images.
+        Usage: trivy image my-spring-app:latest
+        Azure Container Registry (ACR): If you push your images to ACR, you can enable Microsoft Defender for Containers,
+                    which automatically scans every image for vulnerabilities.
