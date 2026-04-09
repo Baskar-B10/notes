@@ -208,3 +208,82 @@ public List<String> getCustomerNamesByProduct(List<Customer> customers, String t
             // Collect into a List
             .collect(Collectors.toList());
 }
+
+Array: [1, 2, 3, -2, 5]
+Target: 5
+Output : [[2,3], [5]]
+Find continuous subarrays whose sum = 5
+
+Core Formula (Very Important)
+    Instead of checking all subarrays, we use: subarray sum = currentSum - previousSum
+    We want: currentSum - previousSum = target
+    So: previousSum = currentSum - target
+
+What we store in map?  
+   Map<prefixSum, list of indices>
+   Why list?  Same sum can appear multiple times
+
+ Step-by-step Execution
+    Initial State
+    currentSum = 0
+    map = {0: [-1]}   // very important
+    result = []
+ Why -1? -> To handle subarray starting from index 0
+
+| Index | Value | currentSum | Need (currentSum - target) | Map before check                            | Found? | Subarray Added | Map after update                                    |
+| ----- | ----- | ---------- | -------------------------- | ------------------------------------------- | ------ | -------------- | --------------------------------------------------- |
+| -1    | —     | 0          | —                          | `{0: [-1]}`                                 | —      | —              | `{0: [-1]}`                                         |
+| 0     | 1     | 1          | -4                         | `{0: [-1]}`                                 | ❌      | —              | `{0: [-1], 1: [0]}`                                 |
+| 1     | 2     | 3          | -2                         | `{0: [-1], 1: [0]}`                         | ❌      | —              | `{0: [-1], 1: [0], 3: [1]}`                         |
+| 2     | 3     | 6          | 1                          | `{0: [-1], 1: [0], 3: [1]}`                 | ✅      | `[2, 3]`       | `{0: [-1], 1: [0], 3: [1], 6: [2]}`                 |
+| 3     | -2    | 4          | -1                         | `{0: [-1], 1: [0], 3: [1], 6: [2]}`         | ❌      | —              | `{0: [-1], 1: [0], 3: [1], 6: [2], 4: [3]}`         |
+| 4     | 5     | 9          | 4                          | `{0: [-1], 1: [0], 3: [1], 6: [2], 4: [3]}` | ✅      | `[5]`          | `{0: [-1], 1: [0], 3: [1], 6: [2], 4: [3], 9: [4]}` |
+
+
+import java.util.*;
+
+public class SubarraySum {
+
+    public static List<List<Integer>> findSubarrays(int[] arr, int target) {
+        Map<Integer, List<Integer>> map = new HashMap<>();
+        List<List<Integer>> result = new ArrayList<>();
+
+        int currentSum = 0;
+
+        // Important: handles subarray starting from index 0
+        map.put(0, new ArrayList<>(Arrays.asList(-1)));
+
+        for (int i = 0; i < arr.length; i++) {
+            currentSum += arr[i];
+
+            // Check if (currentSum - target) exists
+            if (map.containsKey(currentSum - target)) {
+                for (int startIndex : map.get(currentSum - target)) {
+                    result.add(getSubarray(arr, startIndex + 1, i));
+                }
+            }
+
+            // Store currentSum index
+            map.putIfAbsent(currentSum, new ArrayList<>());
+            map.get(currentSum).add(i);
+        }
+
+        return result;
+    }
+
+    private static List<Integer> getSubarray(int[] arr, int start, int end) {
+        List<Integer> sub = new ArrayList<>();
+        for (int i = start; i <= end; i++) {
+            sub.add(arr[i]);
+        }
+        return sub;
+    }
+
+    public static void main(String[] args) {
+        int[] arr = {1, 2, 3, -2, 5};
+        int target = 5;
+
+        List<List<Integer>> result = findSubarrays(arr, target);
+        System.out.println(result);
+    }
+}
