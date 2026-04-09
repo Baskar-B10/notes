@@ -343,6 +343,10 @@ Immutable List:
             Underlying list can still change
             list.add("B"); // affects unmodifiable list
 
+Type                        How to Create                     Null Allowed?
+Java 9+ List.of            "List.of(""A"", ""B"")"               No (Throws Exception)
+Guava ImmutableList        "ImmutableList.of(""A"", ""B"")"      No
+Java 10+ List.copyOf       List.copyOf(existingList)             No
 
 Arrays.asList():
       List<Integer> list = Arrays.asList(1, 2, 3);
