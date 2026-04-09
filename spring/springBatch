@@ -15,6 +15,146 @@ No monitoring                 → Full JobExecution / StepExecution metadata
 Thread-safety DIY             → Partitioning, parallel steps, TaskExecutor
 Reinvented every project      → Pre-built readers/writers for JDBC, JPA, CSV, XML
 
+Scheduling a Job in Spring Boot (With Examples)
+1. Enable Scheduling
+  We enable scheduling using @EnableScheduling in the main class.
+  This allows Spring to scan and execute scheduled methods automatically.
+    @EnableScheduling
+    @SpringBootApplication
+    public class Application {
+    }
+2. Basic @Scheduled Job
+  We use @Scheduled on a method to make it run automatically.
+  Method should be void and typically contains background logic.
+    @Component
+    public class MyJob {
+        @Scheduled(fixedRate = 5000)
+        public void execute() {
+            System.out.println("Job executed");
+        }
+    }
+3. Fixed Rate Scheduling
+  Executes at a fixed interval based on start time, even if previous execution is still running.
+  Useful for polling or monitoring systems.
+    @Scheduled(fixedRate = 5000)
+    public void pollService() {
+        System.out.println("Polling external service every 5 seconds");
+    }
+4. Fixed Delay Scheduling
+  Executes after the previous execution is completed + delay time.
+  Prevents overlapping execution.
+    @Scheduled(fixedDelay = 5000)
+    public void processData() throws InterruptedException {
+        Thread.sleep(3000); // simulate long task
+        System.out.println("Processed after delay");
+    }
+5. Cron-Based Scheduling
+  Used for time-based jobs like daily or weekly tasks.
+  Most common in production systems.
+    @Scheduled(cron = "0 0 2 * * ?")
+    public void dailyJob() {
+        System.out.println("Runs every day at 2 AM");
+    }
+6. Default Single Thread Behavior
+  By default, Spring runs all scheduled jobs in a single thread.
+  If one job is slow, others will be delayed.
+    @Scheduled(fixedRate = 5000)
+    public void slowJob() throws InterruptedException {
+        Thread.sleep(10000); // blocks scheduler
+        System.out.println("Slow job finished");
+    }
+7. Configure Thread Pool (Parallel Execution)
+  To avoid blocking, we configure a thread pool scheduler.
+  Allows multiple jobs to run concurrently.
+    @Configuration
+    @EnableScheduling
+    public class SchedulerConfig {
+    
+        @Bean
+        public TaskScheduler taskScheduler() {
+            ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+            scheduler.setPoolSize(5);
+            scheduler.setThreadNamePrefix("Scheduler-");
+            return scheduler;
+        }
+    }
+8. Handling Multiple Instances (Distributed Systems)
+  In microservices, all instances will run the same job → duplicate execution issue.
+  We use locking to ensure only one instance executes.
+  To handle this, we implement mechanisms like:
+        Database locking (ensuring only one instance runs the job)
+        Distributed locks (Redis/Zookeeper)
+        Using Quartz in cluster mode
+
+    Example (DB Lock Concept)
+    @Scheduled(fixedRate = 10000)
+    public void job() {
+        if (lockService.acquireLock("JOB_LOCK")) {
+            try {
+                System.out.println("Executing job safely");
+            } finally {
+                lockService.releaseLock("JOB_LOCK");
+            }
+        }
+    }
+9. Error Handling
+  Always wrap logic in try-catch to handle failures gracefully.
+  Helps in logging and monitoring.
+    @Scheduled(fixedRate = 5000)
+    public void safeJob() {
+        try {
+            int result = 10 / 0; // error
+        } catch (Exception e) {
+            System.out.println("Error occurred: " + e.getMessage());
+        }
+    }
+10. Long-Running Jobs (Async Handling)
+  Long-running tasks should not block scheduler threads.
+  We can offload heavy processing using:
+      @Async for parallel execution
+      Messaging systems like Kafka or RabbitMQ
+  This ensures scheduler remains responsive.
+
+      Use @Async for parallel execution.
+          @Async
+          @Scheduled(fixedRate = 5000)
+          public void asyncJob() throws InterruptedException {
+              Thread.sleep(8000);
+              System.out.println("Async job running");
+          }
+
+   Also enable async:@EnableAsync
+11. Dynamic Scheduling (Config-Based)
+    Cron expression can be externalized to config.
+    Allows runtime changes without redeployment.
+        @Scheduled(cron = "${job.cron}")
+        public void dynamicJob() {
+            System.out.println("Dynamic schedule job");
+        }
+        job.cron=0 0/1 * * * ?
+12. Quartz Scheduler (Advanced)
+  Used for enterprise-grade scheduling with persistence and clustering.
+  For enterprise use cases, @Scheduled is sometimes not enough.
+  Quartz is preferred when we need:
+        Job persistence (store job state in DB)
+        Retry and failure handling
+        Clustering (only one instance executes job)
+        Complex workflows and dependencies
+  Example Job
+      public class QuartzJob implements Job {
+          public void execute(JobExecutionContext context) {
+              System.out.println("Quartz job executed");
+          }
+      }
+  Trigger Configuration
+        @Bean
+        public JobDetail jobDetail() {
+            return JobBuilder.newJob(QuartzJob.class)
+                    .withIdentity("job1")
+                    .storeDurably()
+                    .build();
+        }
+
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        SPRING BATCH ARCHITECTURE                    │
 └─────────────────────────────────────────────────────────────────────┘
