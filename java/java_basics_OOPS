@@ -306,15 +306,38 @@ Interface -
     default and static methods (java 8)
     example: used in Mapper and DAO class.
                               
-  
-✅ Use Abstract Class when:
-You need common code (methods with body)
-Classes are closely related
-Need constructors or state (variables)
-✅ Use Interface when:
-You need multiple inheritance
-You want to define contract
-No shared state needed  
+The choice depends on whether I’m modeling ‘what something is’ vs ‘what something can do’, and also on flexibility vs control in design
+
+Abstract Class — “IS-A relationship with shared behavior”
+ Why we use it
+        When multiple classes share common state + behavior
+        When I want to provide base implementation
+        When I need controlled inheritance
+ Key Points (talk like this)
+        Can have instance variables (state)
+        Can have constructor
+        Can have both abstract + concrete methods
+        Supports code reuse
+
+Single inheritance → more controlled hierarchy
+
+ Real-time Example:
+    “In banking domain, I would use an abstract class like Account 
+        where all accounts share fields like balance, accountNumber, and common logic like deposit().”
+
+Interface — “CAN-DO capability / contract”
+Why we use it
+    To define capabilities (behavior contract)
+    To achieve loose coupling
+    To support multiple inheritance
+Key Points
+    No instance state (only constants)
+    Methods are abstract by default (plus default/static allowed in Java 8+)
+    Supports multiple inheritance
+    Used heavily in Spring / microservices / APIs
+ Real-time Example
+    “In microservices, I use interfaces for defining contracts like PaymentService,
+        so different implementations (UPI, Card, NetBanking) can plug in easily.”
 
 Multiple Inheritance:  class inherits more than one parent class
 Why Multiple Inheritance is NOT Supported in Classes? -   diamond problem 
