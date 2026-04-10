@@ -1,7 +1,7 @@
 1. Creational Patterns (The Mechanics of Object Creation)
 These patterns provide solutions to instantiate classes in a way that decouples your code from the concrete implementation.
 
-Singleton:
+Singleton: One instance globally
   Description: It restricts a class to a single instance and provides a global access point to that instance.
   Why we prefer it: Some objects should only ever have one instance—like a Configuration Manager or a Database Connection Pool.
                     Creating multiple instances would waste memory and cause synchronization issues.
@@ -18,7 +18,7 @@ Singleton:
                 return instance;
             }
         }
-Factory Method:
+Factory Method:  Subclass decides object
     Description: It defines an interface for creating an object but lets subclasses decide which class to instantiate.
     Why we prefer it: It promotes Loose Coupling. 
                     The client code doesn't need to know the name of the specific class it is creating; it only knows the interface.
@@ -37,7 +37,7 @@ Factory Method:
               }
           }
 
-Abstract Factory:
+Abstract Factory: Creates related objects
     Description: A "Factory of Factories." It groups related objects together without specifying their concrete classes.
     Why we prefer it: When you have a "family" of products (e.g., Mac Buttons and Mac Checkboxes) that must be used together to maintain a consistent look.
     Pros: Ensures products from the same factory are compatible.
@@ -50,7 +50,7 @@ Abstract Factory:
         interface FurnitureFactory { Chair createChair(); Table createTable(); }
         // Implementations for VictorianFactory, ModernFactory, etc.
 
-Builder:
+Builder: Step-by-step object creation
     Description: Separates the construction of a complex object from its representation.
     Why we prefer it: To avoid "Telescoping Constructors" (having a constructor with 15 parameters). 
                     It makes the code readable and allows for immutable objects.
@@ -66,7 +66,7 @@ Builder:
                     public Pizza build() { return p; }
                 }
             }
-Prototype
+Prototype: Clone existing object
       Description: Creates new objects by cloning an existing "prototype" instance.
       Why we prefer it: Sometimes creating an object from scratch is expensive (e.g., it involves a heavy DB query). 
                         Cloning an existing object is much faster.
@@ -81,7 +81,7 @@ Prototype
 2. Structural Patterns (The Composition of Classes):
   These patterns explain how to assemble objects and classes into larger structures.
 
-Adapter
+Adapter: Converts interface
     Description: Allows incompatible interfaces to work together.
     Why we prefer it: To make legacy code work with a modern system without rewriting the legacy logic.
     Pros: Reusability of existing code.
@@ -96,7 +96,7 @@ Adapter
             public String getXML() { return convert(legacy.getJSON()); }
         }
 
-Decorator
+Decorator : Adds behavior dynamically
     Description: Dynamically adds new functionality to an object without changing its structure.
     Why we prefer it: It's more flexible than inheritance. You can "stack" behaviors at runtime.
     Pros: Can add/remove responsibilities at runtime.
@@ -110,7 +110,7 @@ Decorator
               public double cost() { return c.cost() + 0.5; }
           }
 
-Facade
+Facade : Simplifies subsystem
       Description: Provides a simplified interface to a complex set of classes (a library or subsystem).
       Why we prefer it: To reduce dependencies. The client only needs to know one simple method instead of 20 complex ones.
       Pros: Makes a library easy to use.
@@ -120,7 +120,7 @@ Facade
           class HomeTheaterFacade {
               public void watchMovie() { amp.on(); tv.on(); lights.dim(); }
           }
-Proxy
+Proxy :Controls access 
     Description: A placeholder for another object to control access to it.
     Why we prefer it: For Lazy Loading (loading a 100MB image only when viewed) or Security (checking permissions).
     Pros: Controls access; improves performance through caching.
@@ -132,7 +132,7 @@ Proxy
               public void display() { if(real == null) real = new RealImage(); real.display(); }
           }
 
-Composite
+Composite : Tree structure
     Description: Treats individual objects and compositions (groups) of objects the same way.
     Why we prefer it: It allows you to build tree-like structures (folders/files).
     Pros: Simplifies the client code—it doesn't care if it's talking to one item or a thousand.
@@ -145,7 +145,7 @@ Composite
             public void showDetails() { for(Employee e : subordinates) e.showDetails(); }
         }
 
-Flyweight
+Flyweight: Share objects
     Description: Shares objects to support large numbers of small objects efficiently.
     Why we prefer it: To save Memory. Instead of creating 1,000 "Tree" objects, you share the "TreeType" data and only store unique positions.
     Pros: Massive memory savings.
@@ -156,7 +156,8 @@ Flyweight
             private Map<Character, CharObj> cache = new HashMap<>();
             public CharObj getChar(char c) { return cache.computeIfAbsent(c, CharObj::new); }
         }
-Bridge
+
+Bridge :Separate abstraction
     Description: Decouples an abstraction from its implementation so the two can vary independently.
     Why we prefer it: If you have 2 types of remotes and 2 types of TVs, Bridge stops you from needing 4 separate classes (Remote1TV1, Remote1TV2, etc.).
     Pros: Avoids "class explosion."
@@ -170,7 +171,7 @@ Bridge
 3. Behavioral Patterns (Object Communication)
     These patterns handle how objects talk to each other and how they delegate tasks.
 
-Observer
+Observer :Pub-sub model
     Description: A "Subscriber" model where objects are notified of any state changes in another object.
     Why we prefer it: To create real-time systems where objects stay in sync without being tightly coupled.
     Pros: Cleanly separates the subject from its observers.
@@ -182,7 +183,7 @@ Observer
               public void notify(String news) { for(Observer o : observers) o.update(news); }
           }
 
-Strategy
+Strategy: Swap algorithms
     Description: Defines a family of algorithms and makes them interchangeable at runtime.
     Why we prefer it: To get rid of giant if-else or switch blocks.
     Pros: Switch logic at runtime.
@@ -192,7 +193,7 @@ Strategy
         interface RouteStrategy { void buildRoute(); }
         class DriveStrategy implements RouteStrategy { public void buildRoute() { ... } }
 
-Command
+Command : Encapsulate request
     Description: Turns a request into a stand-alone object.
     Why we prefer it: This allows you to queue requests, log them, or Undo them.
     Pros: Decouples the object that invokes the command from the one that performs it.
@@ -202,7 +203,7 @@ Command
           interface Command { void execute(); }
           class LightOnCommand implements Command { public void execute() { light.on(); } }
 
-State
+State : Behavior by state
     Description: Allows an object to change its behavior when its internal state changes.
     Why we prefer it: To manage state-heavy logic without 100 nested if statements.
     Pros: Makes state transitions explicit and clean.
@@ -214,7 +215,7 @@ State
               public void setStatus(State s) { this.currentState = s; }
           }
 
-Chain of Responsibility
+Chain of Responsibility: Pass along chain
     Description: Passes a request along a chain of handlers. Each handler decides to either process it or pass it to the next.
     Why we prefer it: To avoid coupling the sender to a specific receiver.
     Pros: You can add/remove handlers easily.
@@ -226,7 +227,7 @@ Chain of Responsibility
             public void log(String msg) { if(next != null) next.log(msg); }
         }
 
-Iterator
+Iterator: Traverse collection
     Description: Provides a way to access elements of a collection sequentially without exposing the underlying structure.
     Why we prefer it: It allows you to traverse a List, a Set, or a Tree using the same next() syntax.
     Pros: Clean code; supports multiple simultaneous traversals.
@@ -236,7 +237,7 @@ Iterator
         Iterator<String> it = list.iterator();
         while(it.hasNext()) { String s = it.next(); }
 
-Mediator
+Mediator: Central communication
     Description: Restricts direct communication between objects and forces them to collaborate only via a mediator object.
     Why we prefer it: It stops the "M:N" dependency problem where every class depends on every other class.
     Pros: Reduces chaotic dependencies.
@@ -247,7 +248,7 @@ Mediator
             public void notify(Plane p, String msg) { ... }
         }
 
-Memento
+Memento: Save/restore state
     Description: Captures and restores an object's internal state without violating encapsulation.
     Why we prefer it: For implementing Checkpoints or "Undo" functionality.
     Pros: You can restore an object to a previous state easily.
@@ -257,7 +258,7 @@ Memento
         class EditorMemento { private final String content; ... }
 
 
-Visitor
+Visitor: Add operations
     Description: Adds new operations to existing object structures without modifying them.
     Why we prefer it: When you want to perform operations across a whole group of different objects (e.g., Export to JSON, Calculate Taxes).
     Pros: Keeps unrelated logic out of the data classes.
@@ -266,7 +267,7 @@ Visitor
     Java Implementation:
         interface Visitor { void visit(Book b); void visit(Fruit f); }
 
-Template Method
+Template Method: Algorithm skeleton
     Description: Defines the skeleton of an algorithm in a method, deferring some steps to subclasses.
     Why we prefer it: To prevent code duplication. The "Process" is fixed, but the "Steps" can vary.
     Pros: Excellent for code reuse in frameworks.
