@@ -2,7 +2,7 @@
 These patterns provide solutions to instantiate classes in a way that decouples your code from the concrete implementation.
 
 Singleton: One instance globally
-  Description: It restricts a class to a single instance and provides a global access point to that instance.
+  Description: This pattern ensures that a class has only one instance and provides a global point of access to it
   Why we prefer it: Some objects should only ever have one instance—like a Configuration Manager or a Database Connection Pool.
                     Creating multiple instances would waste memory and cause synchronization issues.
   Pros: Guaranteed single instance; lazy initialization (created only when needed).
@@ -19,7 +19,7 @@ Singleton: One instance globally
             }
         }
 Factory Method:  Subclass decides object
-    Description: It defines an interface for creating an object but lets subclasses decide which class to instantiate.
+    Description: This pattern defines an interface for creating an object but lets subclasses decide which class to instantiate.
     Why we prefer it: It promotes Loose Coupling. 
                     The client code doesn't need to know the name of the specific class it is creating; it only knows the interface.
     Pros: Follows the Open/Closed Principle (you can add new types without breaking old code).
@@ -38,7 +38,8 @@ Factory Method:  Subclass decides object
           }
 
 Abstract Factory: Creates related objects
-    Description: A "Factory of Factories." It groups related objects together without specifying their concrete classes.
+    Description:Often called a "factory of factories," 
+              this pattern provides an interface for creating families of related or dependent objects without specifying their concrete classes
     Why we prefer it: When you have a "family" of products (e.g., Mac Buttons and Mac Checkboxes) that must be used together to maintain a consistent look.
     Pros: Ensures products from the same factory are compatible.
     Cons: Very difficult to add new product types because you have to change the interface and all factories.
@@ -51,7 +52,8 @@ Abstract Factory: Creates related objects
         // Implementations for VictorianFactory, ModernFactory, etc.
 
 Builder: Step-by-step object creation
-    Description: Separates the construction of a complex object from its representation.
+    Description: This pattern separates the construction of a complex object from its representation,
+                  allowing the same construction process to create different representations.
     Why we prefer it: To avoid "Telescoping Constructors" (having a constructor with 15 parameters). 
                     It makes the code readable and allows for immutable objects.
     Pros: Gives fine control over the construction process.
@@ -66,8 +68,9 @@ Builder: Step-by-step object creation
                     public Pizza build() { return p; }
                 }
             }
+          new PizzaBuilder().addCheese().addTomato().build()
 Prototype: Clone existing object
-      Description: Creates new objects by cloning an existing "prototype" instance.
+      Description: This pattern involves creating new objects by copying an existing object (cloning). 
       Why we prefer it: Sometimes creating an object from scratch is expensive (e.g., it involves a heavy DB query). 
                         Cloning an existing object is much faster.
       Pros: Reduces initialization overhead.
@@ -82,7 +85,7 @@ Prototype: Clone existing object
   These patterns explain how to assemble objects and classes into larger structures.
 
 Adapter: Converts interface
-    Description: Allows incompatible interfaces to work together.
+    Description:  allows incompatible interfaces to work together by acting as a bridge.
     Why we prefer it: To make legacy code work with a modern system without rewriting the legacy logic.
     Pros: Reusability of existing code.
     Cons: Increases complexity by adding extra "wrapper" classes.
@@ -173,6 +176,7 @@ Bridge :Separate abstraction
 
 Observer :Pub-sub model
     Description: A "Subscriber" model where objects are notified of any state changes in another object.
+                defines a one-to-many dependency so that when one object changes state, all its dependents are notified
     Why we prefer it: To create real-time systems where objects stay in sync without being tightly coupled.
     Pros: Cleanly separates the subject from its observers.
     Cons: If you forget to "unsubscribe," it causes memory leaks.
@@ -195,6 +199,7 @@ Strategy: Swap algorithms
 
 Command : Encapsulate request
     Description: Turns a request into a stand-alone object.
+                  encapsulates a request as an object, thereby letting you parameterize clients with different requests.
     Why we prefer it: This allows you to queue requests, log them, or Undo them.
     Pros: Decouples the object that invokes the command from the one that performs it.
     Cons: You end up with a huge number of small classes.
