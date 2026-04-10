@@ -1,0 +1,294 @@
+1. Creational Patterns (The Mechanics of Object Creation)
+These patterns provide solutions to instantiate classes in a way that decouples your code from the concrete implementation.
+
+Singleton:
+  Description: It restricts a class to a single instance and provides a global access point to that instance.
+  Why we prefer it: Some objects should only ever have one instance—like a Configuration Manager or a Database Connection Pool.
+                    Creating multiple instances would waste memory and cause synchronization issues.
+  Pros: Guaranteed single instance; lazy initialization (created only when needed).
+  Cons: Hard to unit test because it introduces global state; can hide dependencies.
+  Real Life Usage: The Clipboard on your computer. 
+                    No matter how many apps you use, there is only one shared clipboard.
+  Java Implementation:
+        public class Database {
+            private static Database instance;
+            private Database() {} // Private to prevent "new"
+            public static synchronized Database getInstance() {
+                if (instance == null) instance = new Database();
+                return instance;
+            }
+        }
+Factory Method:
+    Description: It defines an interface for creating an object but lets subclasses decide which class to instantiate.
+    Why we prefer it: It promotes Loose Coupling. 
+                    The client code doesn't need to know the name of the specific class it is creating; it only knows the interface.
+    Pros: Follows the Open/Closed Principle (you can add new types without breaking old code).
+    Cons: The code becomes more complex because you need to create many subclasses.
+    Real Life Usage: A Logistics Company. 
+                    The "App" asks for a "Transport." 
+                    If it's a sea route, the factory returns a "Ship"; if it's land, it returns a "Truck."
+    Java Implementation:
+          interface Animal { void speak(); }
+          class Dog implements Animal { public void speak() { System.out.println("Woof"); } }
+          class AnimalFactory {
+              public Animal createAnimal(String type) {
+                  if(type.equals("DOG")) return new Dog();
+                  return null;
+              }
+          }
+
+Abstract Factory:
+    Description: A "Factory of Factories." It groups related objects together without specifying their concrete classes.
+    Why we prefer it: When you have a "family" of products (e.g., Mac Buttons and Mac Checkboxes) that must be used together to maintain a consistent look.
+    Pros: Ensures products from the same factory are compatible.
+    Cons: Very difficult to add new product types because you have to change the interface and all factories.
+    Real Life Usage: Furniture Styles. A "Modern" factory creates modern chairs and modern sofas. 
+                    You wouldn't want a Victorian chair mixed with a Modern sofa.
+    Java Implementation:
+        interface Chair {}
+        interface Table {}
+        interface FurnitureFactory { Chair createChair(); Table createTable(); }
+        // Implementations for VictorianFactory, ModernFactory, etc.
+
+Builder:
+    Description: Separates the construction of a complex object from its representation.
+    Why we prefer it: To avoid "Telescoping Constructors" (having a constructor with 15 parameters). 
+                    It makes the code readable and allows for immutable objects.
+    Pros: Gives fine control over the construction process.
+    Cons: Requires creating a separate Builder class for each product.
+    Real Life Usage: Ordering a Subway Sandwich. You specify the bread, then the meat, then the sauce. Only at the end is the sandwich "built."
+    Java Implementation:
+            public class Pizza {
+                private String toppings;
+                public static class Builder {
+                    private Pizza p = new Pizza();
+                    public Builder addToppings(String t) { p.toppings = t; return this; }
+                    public Pizza build() { return p; }
+                }
+            }
+Prototype
+      Description: Creates new objects by cloning an existing "prototype" instance.
+      Why we prefer it: Sometimes creating an object from scratch is expensive (e.g., it involves a heavy DB query). 
+                        Cloning an existing object is much faster.
+      Pros: Reduces initialization overhead.
+      Cons: Cloning objects with complex circular references is a nightmare.
+      Real Life Usage: Cell Mitosis. A cell doesn't get "constructed" from parts; it clones its existing structure.
+      Java Implementation:
+            abstract class Shape implements Cloneable {
+                public Object clone() { return super.clone(); }
+            }
+
+2. Structural Patterns (The Composition of Classes):
+  These patterns explain how to assemble objects and classes into larger structures.
+
+Adapter
+    Description: Allows incompatible interfaces to work together.
+    Why we prefer it: To make legacy code work with a modern system without rewriting the legacy logic.
+    Pros: Reusability of existing code.
+    Cons: Increases complexity by adding extra "wrapper" classes.
+    Real Life Usage: A Travel Power Adapter. It bridges the gap between your American plug and a European socket.
+    
+    Java Implementation:
+        class LegacyJSON { String getJSON() { return "{}"; } }
+        interface ModernXML { String getXML(); }
+        class JsonToXmlAdapter implements ModernXML {
+            private LegacyJSON legacy;
+            public String getXML() { return convert(legacy.getJSON()); }
+        }
+
+Decorator
+    Description: Dynamically adds new functionality to an object without changing its structure.
+    Why we prefer it: It's more flexible than inheritance. You can "stack" behaviors at runtime.
+    Pros: Can add/remove responsibilities at runtime.
+    Cons: It's hard to remove a specific "layer" from the middle of the stack.
+    Real Life Usage: Coffee. You have a base coffee, then you "decorate" it with Milk, then with Sugar, then with Caramel.
+    Java Implementation:
+          interface Coffee { double cost(); }
+          class MilkDecorator implements Coffee {
+              private Coffee c;
+              public MilkDecorator(Coffee c) { this.c = c; }
+              public double cost() { return c.cost() + 0.5; }
+          }
+
+Facade
+      Description: Provides a simplified interface to a complex set of classes (a library or subsystem).
+      Why we prefer it: To reduce dependencies. The client only needs to know one simple method instead of 20 complex ones.
+      Pros: Makes a library easy to use.
+      Cons: The Facade can become a "God Object" tied to everything.
+      Real Life Usage: Home Theater. One "Watch Movie" button that turns on the TV, dims the lights, and starts the DVD player.
+      Java Implementation:
+          class HomeTheaterFacade {
+              public void watchMovie() { amp.on(); tv.on(); lights.dim(); }
+          }
+Proxy
+    Description: A placeholder for another object to control access to it.
+    Why we prefer it: For Lazy Loading (loading a 100MB image only when viewed) or Security (checking permissions).
+    Pros: Controls access; improves performance through caching.
+    Cons: Can delay the response if the proxy logic is heavy.
+    Real Life Usage: A Credit Card. It is a proxy for your bank account; it controls access to your actual cash.
+    Java Implementation:
+          class ImageProxy implements Image {
+              private RealImage real;
+              public void display() { if(real == null) real = new RealImage(); real.display(); }
+          }
+
+Composite
+    Description: Treats individual objects and compositions (groups) of objects the same way.
+    Why we prefer it: It allows you to build tree-like structures (folders/files).
+    Pros: Simplifies the client code—it doesn't care if it's talking to one item or a thousand.
+    Cons: Hard to restrict what goes into the composite.
+    Real Life Usage: Organization Hierarchy. A CEO, a Manager, and a Junior Developer are all "Employees," but a Manager is a composite of other employees.
+    Java Implementation:
+        interface Employee { void showDetails(); }
+        class Manager implements Employee {
+            List<Employee> subordinates = new ArrayList<>();
+            public void showDetails() { for(Employee e : subordinates) e.showDetails(); }
+        }
+
+Flyweight
+    Description: Shares objects to support large numbers of small objects efficiently.
+    Why we prefer it: To save Memory. Instead of creating 1,000 "Tree" objects, you share the "TreeType" data and only store unique positions.
+    Pros: Massive memory savings.
+    Cons: Higher CPU usage due to lookup logic.
+    Real Life Usage: Word Processors. Instead of every 'A' having its own font data, the letter 'A' is shared, and only its position on the page changes.
+    Java Implementation:
+        class CharacterFactory {
+            private Map<Character, CharObj> cache = new HashMap<>();
+            public CharObj getChar(char c) { return cache.computeIfAbsent(c, CharObj::new); }
+        }
+Bridge
+    Description: Decouples an abstraction from its implementation so the two can vary independently.
+    Why we prefer it: If you have 2 types of remotes and 2 types of TVs, Bridge stops you from needing 4 separate classes (Remote1TV1, Remote1TV2, etc.).
+    Pros: Avoids "class explosion."
+    Cons: Increases complexity significantly.
+    Real Life Usage: Switch and Light. The switch (abstraction) can work with a bulb, a fan, or a motor (implementations).
+    Java Implementation:
+          abstract class Remote { protected Device device; }
+          class TV implements Device { public void on() { ... } }
+
+
+3. Behavioral Patterns (Object Communication)
+    These patterns handle how objects talk to each other and how they delegate tasks.
+
+Observer
+    Description: A "Subscriber" model where objects are notified of any state changes in another object.
+    Why we prefer it: To create real-time systems where objects stay in sync without being tightly coupled.
+    Pros: Cleanly separates the subject from its observers.
+    Cons: If you forget to "unsubscribe," it causes memory leaks.
+    Real Life Usage: YouTube. When a creator uploads, all "Subscribers" get a notification.
+    Java Implementation:
+          class NewsChannel {
+              private List<Observer> observers = new ArrayList<>();
+              public void notify(String news) { for(Observer o : observers) o.update(news); }
+          }
+
+Strategy
+    Description: Defines a family of algorithms and makes them interchangeable at runtime.
+    Why we prefer it: To get rid of giant if-else or switch blocks.
+    Pros: Switch logic at runtime.
+    Cons: The client must know which strategy to choose.
+    Real Life Usage: Google Maps. You choose a "Strategy" for your route: Walk, Drive, or Bike.
+    Java Implementation:
+        interface RouteStrategy { void buildRoute(); }
+        class DriveStrategy implements RouteStrategy { public void buildRoute() { ... } }
+
+Command
+    Description: Turns a request into a stand-alone object.
+    Why we prefer it: This allows you to queue requests, log them, or Undo them.
+    Pros: Decouples the object that invokes the command from the one that performs it.
+    Cons: You end up with a huge number of small classes.
+    Real Life Usage: Restaurant Orders. The waiter writes your order on a slip. That slip is the "Command" that can be moved, queued, or cancelled.
+    Java Implementation:
+          interface Command { void execute(); }
+          class LightOnCommand implements Command { public void execute() { light.on(); } }
+
+State
+    Description: Allows an object to change its behavior when its internal state changes.
+    Why we prefer it: To manage state-heavy logic without 100 nested if statements.
+    Pros: Makes state transitions explicit and clean.
+    Cons: Overkill if the machine only has 2 states.
+    Real Life Usage: Vending Machine. If state is "No Money," the button does nothing. If state is "Has Money," the button gives a soda.
+    Java Implementation:
+          class Machine {
+              private State currentState;
+              public void setStatus(State s) { this.currentState = s; }
+          }
+
+Chain of Responsibility
+    Description: Passes a request along a chain of handlers. Each handler decides to either process it or pass it to the next.
+    Why we prefer it: To avoid coupling the sender to a specific receiver.
+    Pros: You can add/remove handlers easily.
+    Cons: The request might reach the end of the chain without being handled.
+    Real Life Usage: Customer Support. L1 support tries to fix it; if they can't, they pass it to L2; then to L3.
+    Java Implementation:
+        abstract class Logger {
+            protected Logger next;
+            public void log(String msg) { if(next != null) next.log(msg); }
+        }
+
+Iterator
+    Description: Provides a way to access elements of a collection sequentially without exposing the underlying structure.
+    Why we prefer it: It allows you to traverse a List, a Set, or a Tree using the same next() syntax.
+    Pros: Clean code; supports multiple simultaneous traversals.
+    Cons: Sometimes slower than a direct for loop.
+    Real Life Usage: TV Channels. You don't care if the channels are via Satellite or Cable; you just press "Next" to see the next one.
+    Java Implementation:
+        Iterator<String> it = list.iterator();
+        while(it.hasNext()) { String s = it.next(); }
+
+Mediator
+    Description: Restricts direct communication between objects and forces them to collaborate only via a mediator object.
+    Why we prefer it: It stops the "M:N" dependency problem where every class depends on every other class.
+    Pros: Reduces chaotic dependencies.
+    Cons: The Mediator itself can become a "Big Ball of Mud."
+    Real Life Usage: Air Traffic Control. Pilots don't talk to each other; they only talk to the Tower (The Mediator).
+    Java Implementation:
+        class Tower {
+            public void notify(Plane p, String msg) { ... }
+        }
+
+Memento
+    Description: Captures and restores an object's internal state without violating encapsulation.
+    Why we prefer it: For implementing Checkpoints or "Undo" functionality.
+    Pros: You can restore an object to a previous state easily.
+    Cons: Storing many "Mementos" consumes a lot of RAM.
+    Real Life Usage: Video Game Save Points. You save your state (Memento) and can return to it if you die.
+    Java Implementation:
+        class EditorMemento { private final String content; ... }
+
+
+Visitor
+    Description: Adds new operations to existing object structures without modifying them.
+    Why we prefer it: When you want to perform operations across a whole group of different objects (e.g., Export to JSON, Calculate Taxes).
+    Pros: Keeps unrelated logic out of the data classes.
+    Cons: If the object structure changes, you have to update every Visitor.
+    Real Life Usage: Tax Inspector. They visit your house, your office, and your shop to calculate your tax. They aren't "part" of those buildings.
+    Java Implementation:
+        interface Visitor { void visit(Book b); void visit(Fruit f); }
+
+Template Method
+    Description: Defines the skeleton of an algorithm in a method, deferring some steps to subclasses.
+    Why we prefer it: To prevent code duplication. The "Process" is fixed, but the "Steps" can vary.
+    Pros: Excellent for code reuse in frameworks.
+    Cons: You are limited by the skeleton provided by the parent class.
+    Real Life Usage: Building a House. The foundation, walls, and roof are always done in order, but the materials (subclass) can change.
+    Java Implementation:
+        abstract class Game {
+            final void play() { init(); start(); end(); } // Template
+            abstract void init();
+        }
+
+Interpreter
+    Description: Used to define a grammatical representation for a language and an interpreter to deal with this grammar.
+    Why we prefer it: For building simple scripting engines or math equation solvers.
+    Pros: Easy to change the grammar.
+    Cons: Very complex to maintain as the "language" grows.
+    Real Life Usage: Roman Numeral Converters. The system interprets 'X', 'V', 'I' into numbers.
+    Java Implementation:
+        interface Expression { boolean interpret(String context); }
+
+Category      Pattern Type      Key Takeaway
+Creational    Creation          Stop using new everywhere; use factories/builders.
+Structural    Assembly          Use wrappers (Adapter/Decorator) to connect or expand classes.
+Behavioral    Interaction        Use Observers/Strategies to handle complex logic and talk.
+  
