@@ -1,0 +1,124 @@
+The digits are stored in reverse order, and each of their nodes contains a single digit. Add the two numbers and return the sum as a linked list.
+Input: l1 = [9,9,9,9,9,9,9], l2 = [9,9,9,9]
+Output: [8,9,9,9,0,0,0,1]
+
+Logic idea => 
+    9999999 +
+    9999
+  = 89990001
+  9+9 = 18 , keep 8 and put 1 on next element and keep going , here its reverse order already 
+
+
+Steps:
+  1. iterate using while loop till each list have null and extra quotient is 0 (for last element here its 1)
+  2. add the  element from list 1 and 2 to sum.
+  3. summ will have value then get split the 2 digit
+      18%10 -> 8 -> keep it in current 
+      18/10 -> 1 (qutioent) go for next so eep as "q"
+  4.here first set the remainder value in current.next 
+  5. for next iteration node , make the current.next as current example if iteration of abc , once a done need to go for c 
+
+  
+  👉 dummy node keeps the head safe
+👉 current node builds the list (as pointer)
+👉 current.next adds new nodes
+👉 dummy.next returns actual result
+
+
+Core Rule (VERY IMPORTANT)
+👉 In linked list:
+Node connection happens ONLY via → next
+So:
+current = newNode → ❌ just moves pointer
+current.next = newNode → ✅ links nodes
+
+  Its a Linked List
+/**
+ * Definition for singly-linked list.
+ * public class ListNode {
+ *     int val;
+ *     ListNode next;
+ *     ListNode() {}
+ *     ListNode(int val) { this.val = val; }
+ *     ListNode(int val, ListNode next) { this.val = val; this.next = next; }
+ * }
+ */
+
+ class Solution {
+    public ListNode addTwoNumbers(ListNode l1, ListNode l2) {
+       
+        
+          ListNode dummy = new ListNode(0);
+        ListNode current = dummy;
+        int q=0;
+        while (null!=l1|| null!=l2 || q!=0){
+            int sum = q;
+             if (null!=l1) {
+                      sum += l1.val;
+                      l1=l1.next;
+                }
+
+            if (null!=l2) {
+                 sum += l2.val;
+                  l2=l2.next;
+                }
+            q=sum/10;
+            current.next = new ListNode(sum % 10);
+            current = current.next;
+        }
+        return dummy.next;
+    }
+}
+
+usgae :             current.next = new ListNode(sum % 10); current = current.next;
+
+Step-by-step:
+Attach new node to the list
+    current → last node
+    current.next → new node
+Move pointer forward
+    current → new node
+So the list keeps growing:
+    dummy → 7 → 0 → 8
+
+    alterative:
+
+    class Solution {
+    public ListNode addTwoNumbers(ListNode l1, ListNode l2) {
+        ListNode head = null;     // will store result start
+        ListNode current = null;  // moving pointer
+        int carry = 0;
+
+        while (l1 != null || l2 != null || carry != 0) {
+            int sum = carry;
+
+            if (l1 != null) {
+                sum += l1.val;
+                l1 = l1.next;
+            }
+
+            if (l2 != null) {
+                sum += l2.val;
+                l2 = l2.next;
+            }
+
+            ListNode newNode = new ListNode(sum % 10);
+            carry = sum / 10;
+
+            // 🔴 MAIN DIFFERENCE
+            if (head == null) {
+                head = newNode;      // first node
+                current = newNode;
+            } else {
+                current.next = newNode;
+                current = current.next;
+            }
+        }
+
+        return head;
+    }
+}
+
+
+
+ 
