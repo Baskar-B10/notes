@@ -1,0 +1,36 @@
+1. Two sum:
+Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.
+Input: nums = [2,7,11,15], target = 9
+Output: [0,1]
+Explanation: Because nums[0] + nums[1] == 9, we return [0, 1].
+
+      
+Idea behind: add 2 numbers will give a sum so iterate each element and subtract with sum.
+      to get the value use map since in next iteration it will be avaiable 
+
+    sum of two numbers a+b = c
+        here c known , need to find a+b 
+          b = c-a or a = c-b 
+
+  Logic:
+  1. iterate each element 0 to arr.length
+  2. subtract element from target and  check in map 
+  3. put the result in map with key as cuurent num  and value as index
+  4. map is for finding the another element and its index if its exist then return both elements index (a, b).
+          
+Solution :
+  class Solution {
+    public int[] twoSum(int[] nums, int target) {
+
+       Map<Integer,Integer> mapKey= new HashMap<Integer,Integer>();
+        for(int i=0; i<nums.length ; i++){
+            int val= target-nums[i];
+            if(mapKey.containsKey(val)){
+               return new int [] { mapKey.get(val), i};
+            }
+            mapKey.put(nums[i],i);
+           
+        }
+        return new int[] {};
+    }
+}
