@@ -1,0 +1,52 @@
+Given a string s, find the length of the longest substring without duplicate characters.
+
+Input: s = "abcabcbb"
+Output: 3
+Explanation: The answer is "abc", with the length of 3. Note that "bca" and "cab" are also correct answers.
+
+Logic behind:
+    character should not repeat , so keep the chracter in map, if exist then check the length of current substing 
+
+    abc after that again a so substring abc have 3 length 
+    use 2 pointers left and right for capturing the substring start and end
+
+steps:
+1. initilize left (start) , start and maxlength 
+2. iterate string from 0 index to length as right (end )
+3. check the character if it exist in map then update the value of left (starting) 
+4. put the character in map with current index
+5. start (right )- end  (left) = current length 
+6. if max length less then update the maxlength and change the start to left in case if its udpated 
+7. start , start+maxlength gives the index of subting start and end 
+
+    
+
+Solution:
+class Solution {
+    public int lengthOfLongestSubstring(String s) {
+        AtomicInteger left = new AtomicInteger(0);
+        AtomicInteger start = new AtomicInteger(0);
+        AtomicInteger maxLength = new AtomicInteger(0);
+        Map<Character,Integer> map= new HashMap <> ();
+        IntStream.range(0, s.length()).forEach(
+            right -> {
+            char ch = s.charAt(right);
+
+            if(map.containsKey(ch)){
+              left.set(Math.max(left.get(), map.get(ch)+1)); 
+            }
+            map.put(ch,right);
+            int currentLen = right - left.get() +1;
+
+            if(currentLen > maxLength.get()){
+                maxLength.set(currentLen);
+                start.set(left.get());
+            }
+            }
+            
+        );
+
+        return maxLength.get();
+        
+    }
+}
