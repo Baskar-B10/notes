@@ -815,6 +815,8 @@ Why Primitive Streams Exist?  To avoid boxing/unboxing overhead
 ✔ isPresent() -opt.isPresent();
 ✔ ifPresent() - opt.ifPresent(x -> System.out.println(x));
 ✔ get() ⚠️ risky - opt.get(); Optional.get() without check ❌ Throws: NoSuchElementException
+          Optional<String> name = Optional.empty();
+          String result = name.get(); // ❌ Throws java.util.NoSuchElementException: No value present
 ✔ orElse() -opt.orElse("Default");  → ALWAYS executes method ❌
 ✔ orElseGet() - opt.orElseGet(() -> "Generated"); executes only if empty ✅
 ✔ orElseThrow() - opt.orElseThrow(() -> new RuntimeException());
