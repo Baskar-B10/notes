@@ -266,6 +266,58 @@ list.stream()
     .map(x -> x * 2)                // Function
     .forEach(System.out::println);  // Consumer
 
+Functional interface can extend another interface, including another functional interface?
+However, there is a catch: to remain a functional interface, the resulting child interface must still have exactly one abstract method.
+
+1. Extending Without Adding Methods
+    If a child interface extends a functional interface and adds no new abstract methods, it remains a functional interface. 
+    This is often used to provide a more specific name to a generic interface.
+        @FunctionalInterface
+        interface Validator extends Predicate<String> {
+            // Inherits test(String t)
+            // Still a functional interface
+        }
+2. Overriding the Parent Method
+    A child can override the parent's abstract method (usually to refine the return type or add documentation).
+    As long as there is only one "unique" abstract method signature, it works.
+          @FunctionalInterface
+          interface StringSupplier extends Supplier<Object> {
+              @Override
+              String get(); // Refines the return type; still only one abstract method
+          }
+3. Adding Default or Static Methods
+    You can add as many default or static methods as you like. 
+    Since these have implementations, they do not count against the "one abstract method" rule.
+          @FunctionalInterface
+          interface Transformer extends Function<String, String> {
+              default void printInfo() {
+                  System.out.println("Transforming logic...");
+              }
+          }
+
+When it Fails (The "Two-Method" Rule)
+    If the child interface defines a new abstract method while inheriting one from the parent, it is no longer a functional interface.
+    If you try to use the @FunctionalInterface annotation, the compiler will throw an error.
+      interface Parent {
+          void firstAction();
+      }
+      
+      // This will FAIL if annotated as @FunctionalInterface
+      interface Child extends Parent {
+          void secondAction(); 
+          // Now there are TWO abstract methods: firstAction and secondAction
+      }
+Important Exception: Object Class Methods
+      If an interface declares an abstract method that overrides one of the public methods from java.lang.Object (like equals(Object) or toString()), 
+      that does not count toward the one-abstract-method limit.
+            @FunctionalInterface
+            interface MyInterface {
+                void execute(); // The one functional method
+                
+                @Override
+                boolean equals(Object obj); // Does NOT count toward the limit
+            }
+
 3. Stream API : A Stream is a sequence of data used to perform operations (like filter, map, sort) in a functional style.
                 It does NOT store data
                 It works on collections (List, Set, etc.)
@@ -368,6 +420,30 @@ Lazy Evaluation:
           4 → filter → map → print    
 
 Collectors Methods - stream.collect(...)
+
+The Three-Parameter collect:
+    This is the low-level version of the method. 
+    It uses three specific functional interfaces to define how the container is created, populated, and merged.
+        <R> R collect(Supplier<R> supplier,
+                      BiConsumer<R, ? super T> accumulator,
+                      BiConsumer<R, R> combiner);
+
+      List<String> list = stream.collect(
+        ArrayList::new,     // Supplier
+        ArrayList::add,     // Accumulator
+        ArrayList::addAll   // Combiner
+    );
+
+The Collector Interface:
+    Most developers use the single-parameter version: collect(Collector<? super T, A, R> collector).
+    The Collector is essentially a wrapper or a "recipe" that encapsulates the three interfaces mentioned above, plus two more. 
+    A class implementing Collector defines:
+        supplier(): Returns the Supplier.
+        accumulator(): Returns the BiConsumer for adding elements.
+        combiner(): Returns the BiConsumer for merging results.
+        finisher(): A Function<A, R> that performs a final transformation (e.g., converting a mutable list to an immutable one).
+        characteristics(): A Set of metadata (like CONCURRENT or IDENTITY_FINISH) that helps the stream optimize the operation.
+
 ✔ toList() - stream.collect(Collectors.toList()); 
              Signature:  public static <T> Collector<T, ?, List<T>> toList()
 ✔ toSet() - stream.collect(Collectors.toSet()); 
@@ -743,6 +819,22 @@ Why Primitive Streams Exist?  To avoid boxing/unboxing overhead
 ✔ orElseGet() - opt.orElseGet(() -> "Generated"); executes only if empty ✅
 ✔ orElseThrow() - opt.orElseThrow(() -> new RuntimeException());
 ✔ map() - opt.map(String::length);
+
+Method                      Behavior if Null                Best Use Case
+Optional.of(value)          Throws NullPointerException      Use when a null value indicates a genuine bug in your logic.
+Optional.ofNullable(value)  Returns Optional.empty()         "Use when null is a valid/expected possibility (e.g., API responses, Map lookups)."\
+
+Best Practices & Patterns:
+    Avoid over-wrapping: Don't use ofNullable just to wrap a value and immediately call .get(). 
+                        This defeats the purpose and can still cause an exception.
+    The Chain Pattern: It is most powerful when combined with functional methods like map(), filter(), and ifPresent().
+              // A clean, null-safe way to process a value
+              Optional.ofNullable(externalService.getData())
+                  .filter(data -> data.isActive())
+                  .map(data -> data.getPayload())
+                  .ifPresent(payload -> System.out.println("Processing: " + payload));
+    Return Types: Use Optional (and thus ofNullable) primarily as a return type for methods that might not have a value to return. 
+                  Avoid using it for class fields or constructor parameters, as it adds unnecessary memory overhead.
 
 1.Transformation Methods:
   These allow you to manipulate the value inside the Optional without manually checking for null.
