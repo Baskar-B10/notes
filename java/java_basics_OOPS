@@ -305,6 +305,29 @@ class C implements B {} -> B is more specific → used
 3. Must override if conflict
 
 
+public methods in interfaces, but protected methods are strictly forbidden?
+    The rules for access modifiers in Java interfaces have evolved significantly between Java 8 and Java 21, 
+    but the restriction on protected remains a fundamental language rule.
+
+1. Public Methods (The Standard)
+    By default, all abstract methods in an interface are implicitly public.
+    Even if you don't type the keyword, the compiler adds it for you.
+    Abstract Methods: void doWork(); is treated as public abstract void doWork();.
+    Default/Static Methods: These are also public by default, allowing them to be accessed by any class that implements the interface.
+
+2. The "No Protected" Rule
+    Interfaces are meant to define a public API—a contract between the service and the outside world.
+    Why? protected is designed to allow access to subclasses or classes in the same package. 
+          Since interfaces are meant to be implemented (often by classes in entirely different packages),
+              protected contradicts the "public contract" philosophy of an interface.
+    Result: Attempting to use protected will result in a compilation error: "Modifier 'protected' not allowed here."
+
+3. Private Methods (Java 9+)
+    While you can't use protected, Java 9 introduced private methods. 
+    These are used for "helper" logic that you don't want to expose to the implementing classes.
+      Private Instance Methods: Used to share code between multiple default methods.
+      Private Static Methods: Used to share code between multiple static methods.
+
 IS-A (Inheritance) - Represents inheritance
         class Animal {}
         class Dog extends Animal {}
