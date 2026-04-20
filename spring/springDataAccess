@@ -578,12 +578,20 @@ StatelessSession — Session Without the Magic
               orphanRemoval = true is separate — 
               it deletes a child when it's removed from the parent's collection (not just when the parent is deleted).
 
-Feature              get()                              load()
-Persistence Context "Checks the cache; if not found,    Returns a Proxy (a hollow object) without hitting the DB.
-                      hits the Database immediately."
-Database Hit          Eager. Returns actual data.       "Lazy. Hits the DB only when you access a property (e.g., user.getName())."
-If ID Not Found       Returns null.                      Throws ObjectNotFoundException when accessed.
-Performance           Slower (requires immediate I/O).   Faster (postpones I/O).
+        Feature              get()                              load()
+        Persistence Context "Checks the cache; if not found,    Returns a Proxy (a hollow object) without hitting the DB.
+                              hits the Database immediately."
+        Database Hit          Eager. Returns actual data.       "Lazy. Hits the DB only when you access a property (e.g., user.getName())."
+        If ID Not Found       Returns null.                      Throws ObjectNotFoundException when accessed.
+        Performance           Slower (requires immediate I/O).   Faster (postpones I/O).
+        
+        | Feature      | `save()`                   | `saveAndFlush()`       |
+        | ------------ | -------------------------- | ---------------------- |
+        | DB execution | Delayed                    | Immediate              |
+        | Flush called | ❌ No                       | ✅ Yes                  |
+        | Performance  | Better (batching possible) | Slightly slower        |
+        | Use case     | Normal operations          | Need immediate DB sync |
+
 
 JPA Equivalents
   If you are using EntityManager (standard in Spring Data JPA), the methods have different names but the same logic:
