@@ -77,9 +77,7 @@ Checkmarx       Jenkinsfile + Server   Jenkins sends the code; the Server perfor
 IT Cases        In Code                "Integration tests live in src/test/java (using @Tag(""IT""))."
 Deployment      Jenkinsfile + YAML    Jenkins runs the command; K8s YAMLs define the environment.
 
-Gemini said
 Integration happens in two main places: the Jenkinsfile (which acts as the orchestrator) and the Project Files (which define the "how-to" for each tool).
-
 Think of the Jenkinsfile as the Project Manager who says when to do things, while the pom.xml or properties files are the Specialists who know how to do them.
 
 1. Where each tool lives
@@ -166,6 +164,82 @@ Summary:
     The Build Tool (pom.xml) contains the execution instructions.
     The Jenkinsfile contains the sequence and security credentials.
     The Jenkins UI is where you configure the Plugin connection (URLs/IPs of the servers).
+
+1. Declarative Jenkinsfile (Standard Docker CLI)
+        This approach is the most portable and assumes your Jenkins agent has the Docker CLI installed and a credential defined in Jenkins 
+        (as usernameVariable and passwordVariable).
+        pipeline {
+            agent any
+            
+            environment {
+                // Change these to your actual registry and image name
+                REGISTRY = "myregistry.azurecr.io"
+                IMAGE_NAME = "sbk8-poc-service"
+                IMAGE_TAG = "${env.BUILD_NUMBER}"
+                // Credential ID defined in Jenkins Credentials Provider
+                REGISTRY_CREDS = credentials('acr-credentials-id')
+            }
+            
+            stages {
+                stage('Build Image') {
+                    steps {
+                        script {
+                            // Build the image using the Dockerfile in the root
+                            sh "docker build -t ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ."
+                        }
+                    }
+                }
+                
+                stage('Push to Registry') {
+                    steps {
+                        script {
+                            // Log in using the injected credentials
+                            sh "echo ${REGISTRY_CREDS_PSW} | docker login ${REGISTRY} -u ${REGISTRY_CREDS_USR} --password-stdin"
+                            
+                            // Push the image
+                            sh "docker push ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                            
+                            // Optional: Push 'latest' tag as well
+                            sh "docker tag ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${REGISTRY}/${IMAGE_NAME}:latest"
+                            sh "docker push ${REGISTRY}/${IMAGE_NAME}:latest"
+                        }
+                    }
+                }
+            }
+            
+            post {
+                always {
+                    // Clean up local images to save disk space on Jenkins agent
+                    sh "docker rmi ${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} || true"
+                    sh "docker logout ${REGISTRY}"
+                }
+            }
+        }
+2. Using the Docker Pipeline Plugin
+        If your Jenkins has the "Docker Pipeline" plugin installed, the syntax is much cleaner as it handles the login and cleanup automatically.
+        pipeline {
+            agent any
+            stages {
+                stage('Build and Push') {
+                    steps {
+                        script {
+                            docker.withRegistry('https://myregistry.azurecr.io', 'acr-credentials-id') {
+                                def appImage = docker.build("sbk8-poc-service:${env.BUILD_NUMBER}")
+                                appImage.push()
+                                appImage.push("latest")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+3. Key Integration Points for your Stack
+        Security Scanning: Before the Push stage, you can integrate the security tools you've been exploring. 
+                        For example, running a SonarQube analysis on the code or a Trivy scan on the built image.
+        Azure Credentials: For your AKS environment, if you are using Azure Container Registry (ACR),
+                        ensure the acr-credentials-id in Jenkins is a "Username with password" type (using the ACR Service Principal or Admin Account).
+        Tagging Strategy: For your sbk8-poc project, it is best practice to tag with the Git Commit Hash (${env.GIT_COMMIT})
+                        or the Build Number to ensure traceability in your K8s manifests.
 
 How to incorporate code vulnerability checks in pipeline:
     To incorporate code vulnerability checks into your pipeline, you should follow a "Shift Left" strategy. 
@@ -269,3 +343,114 @@ Ease of Setup        High (Helm)                 Moderate (HEC setup)    Very Hi
 Data Enrichment      Excellent (Auto-tagging)    Good (Manual/OTel)      Moderate (KQL-based)
 Cost Control         Tiered (per GB/indexed)     Volume-based            Ingestion + Retention
 Complexity            Low                        Moderate                  Low
+
+
+Cucumber- Automation Testing
+        Cucumber is a popular open-source tool used for Behavior-Driven Development (BDD). 
+        It allows you to write test cases in plain, human-readable English, 
+        which helps bridge the communication gap between technical developers and non-technical stakeholders (like Product Owners or Business Analysts).
+
+In your Java 21 / Spring Boot stack, Cucumber acts as a wrapper around your JUnit or TestNG tests.
+1. How it Works: The Gherkin Language
+        Cucumber uses a language called Gherkin, which follows a specific Given-When-Then structure. These are saved in .feature files.
+        Given: The initial context or state (e.g., "User is logged in").
+        When: The action the user performs (e.g., "User clicks the submit button").
+        Then: The expected outcome (e.g., "User sees a success message").
+
+2. The 3-Layer Architecture
+To implement Cucumber in your microservices, you typically have three parts:
+A. Feature File (.feature)
+        Written in plain English.
+        Feature: User Login
+          Scenario: Successful login with valid credentials
+            Given the user is on the login page
+            When the user enters "admin" and "password123"
+            Then the user is redirected to the dashboard
+ B. Step Definitions (.java)
+        This is the glue code where you map the English sentences to actual Java code using annotations.
+        
+        @Given("the user is on the login page")
+        public void navigateToLogin() {
+            driver.get("https://myapp.com/login");
+        }
+        
+        @When("the user enters {string} and {string}")
+        public void enterCredentials(String user, String pass) {
+            loginPage.login(user, pass);
+        }
+C. Runner Class
+A simple JUnit class that tells Cucumber where to find the feature files and step definitions.
+
+3. Cucumber in the "Latest" Automation Context
+        While Cucumber was the industry standard for a long time, its usage in 2026 has shifted:
+        Pro: Excellent for complex business logic where the "rules" need to be verified by non-coders.
+        Con: It adds a layer of maintenance. If you change a sentence in the feature file, the test breaks until you update the Java code.
+        Modern Alternative: Many teams now prefer "Screenplay Pattern" or simply writing clean,
+                fluent JUnit 5 tests with descriptive method names, as it's faster to maintain for high-speed microservice development.
+
+4. Integration with your Stack
+        For your AKS and Jenkins setup, you can integrate Cucumber easily:
+        Reporting: Cucumber generates beautiful HTML reports that you can host on Jenkins to show stakeholders which business requirements are passing.
+        Spring Support: Use cucumber-spring to allow your Step Definitions to @Autowire your Spring beans (like Repositories or Services) directly.
+
+Feature                Benefit
+Living Documentation   The tests are the documentation.
+Collaboration          "Developers and BA's agree on the ""Given-When-Then"" before coding starts."
+Reusability            "You can reuse ""Steps"" across multiple scenarios."
+
+GraphQL is a modern query language for APIs and a runtime for fulfilling those queries with your existing data.
+Developed by Facebook, it provides a more efficient and flexible alternative to REST.
+
+Instead of having multiple endpoints for different data (e.g., /users, /posts, /comments), 
+GraphQL typically uses a single endpoint (usually /graphql) where the client specifies exactly what data it needs.
+
+1. Core Concepts
+Schema: The "contract" that defines the data types, relationships, and operations available.
+It’s written in Schema Definition Language (SDL).
+        Query: What the client sends to read data (equivalent to a GET).
+        Mutation: What the client sends to write or update data (equivalent to POST/PUT/DELETE).
+        Subscription: A way to maintain a real-time connection (WebSockets) to receive data updates.
+        Resolver: The function on the server side that actually fetches the data for a specific field (from a DB, a Microservice, or an API).
+
+2. GraphQL vs. REST
+The biggest advantage of GraphQL is solving the problems of Under-fetching and Over-fetching.
+Feature                  REST                                        GraphQL
+Data Fetching            Multiple endpoints;                        Single endpoint; client requests exactly what it needs.
+                        often returns too much or too little data.
+Versioning              "Requires new versions (e.g., /v1/, /v2/)." Versionless; just add new fields to the schema.
+Response Structure        Defined by the Server.                    Defined by the Client.
+Typing                   Weakly typed (usually JSON).                Strongly typed via the Schema.
+
+3. How a Request LooksImagine you want a user's name and the titles of their posts.
+        The Query (Client sends this):GraphQLquery {
+          user(id: "123") {
+            name
+            posts {
+              title
+            }
+          }
+        }
+The Response (Server returns this):JSON{
+          "data": {
+            "user": {
+              "name": "Jane Doe",
+              "posts": [
+                { "title": "Intro to Java 21" },
+                { "title": "AKS Best Practices" }
+              ]
+            }
+          }
+        }
+4. Integration with your Stack (Spring Boot & K8s)For a Java software engineer, implementing GraphQL usually involves Spring for GraphQL.
+        Efficiency in Microservices: GraphQL acts as an excellent API Gateway or "Backend for Frontend" (BFF).
+        It can aggregate data from your various microservices in a single call.
+        Performance: In your AKS environment, GraphQL can reduce the number of network round-trips between the mobile/web app and the cluster,
+                which is great for high-concurrency systems.
+        Observability: Since all requests go to one endpoint, 
+                you need to use tools like Apollo Studio or OpenTelemetry to trace which resolvers are slow.
+5. Challenges to ConsiderCaching: Standard HTTP caching doesn't work well because all requests are POSTs to the same URL.
+        You often need to implement caching at the application or gateway level.
+                Complexity: Resolvers can lead to the "N+1 problem" (where 1 query triggers 100 database calls). 
+                        You solve this using the DataLoader pattern to batch requests.
+                Security: Clients can write deeply nested queries that crash your server (e.g., user { friends { friends { friends... } } }). 
+                        You must implement "Query Depth Limiting."
