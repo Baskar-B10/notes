@@ -221,6 +221,42 @@ Eager vs Lazy Initialization:
   ✔ Advantages: Faster startup and Saves memory
  ❌ Disadvantages: Errors occur at runtime and First call is slower
 
+Circular Dependency:
+  a Circular Dependency occurs when Bean A depends on Bean B, and Bean B depends on Bean B (either directly or through a long chain). 
+  Spring becomes "stuck" because it doesn't know which bean to create first.
+
+Common Causes in Java Microservices
+Since you work with Spring Boot and Java microservices, you likely encounter this in these scenarios:
+Constructor Injection: The most common cause. 
+                      Spring cannot instantiate either class because both require the other to be fully constructed first.
+Cross-Service Logic: OrderService needs PaymentService to validate a status, but PaymentService needs OrderService to update a record.
+Security & Configuration: A SecurityConfig that depends on a UserService, which in turn depends on a password encoder defined inside SecurityConfig.
+
+How to Fix It
+1. The "Cleanest" Fix: Refactor
+    The presence of a circular dependency usually suggests that your classes are too tightly coupled.
+    Extract a Third Class: Move the shared logic into a new Bean C that both A and B can depend on.
+    Interface Segregation: Use interfaces to decouple the implementations.
+2. The @Lazy Annotation
+    If refactoring is too complex, you can use @Lazy. 
+    This tells Spring to create a proxy for one of the beans instead of the actual instance. 
+    The real bean is only created the first moment it is actually used.
+    @Service
+    public class OrderService {
+        private final PaymentService paymentService;
+    
+        public OrderService(@Lazy PaymentService paymentService) {
+            this.paymentService = paymentService;
+        }
+    }
+3. Field or Setter Injection
+    Spring can handle circular dependencies more easily with Setter Injection than with Constructor Injection. 
+    In setter injection, Spring creates the "hollow" objects first and then populates them.
+    Note: This is generally discouraged in modern Java (Java 17/21) because it makes objects mutable and harder to test.
+4. PostConstruct
+  Move the logic that requires the dependency out of the constructor and into a method annotated with @PostConstruct.
+  This ensures the dependency is fully "wired" before the logic runs.
+
 Spring Bean Lifecycle:
   A bean lifecycle is the complete internal process by which the Spring Framework: Creates → Configures → Initializes → Uses → Destroys a bean
   Big Picture (Internal Flow):
@@ -289,6 +325,40 @@ Complete Internal Lifecycle Chain
         BeanPostProcessor (after) →
         READY →
         destroyBean()
+
+High-Level Phases
+  Instantiation: Spring creates the bean instance (constructor execution).
+  Populate Properties: Dependency Injection occurs (wiring of @Autowired fields).
+  Initialization: Custom logic to "prep" the bean for work.
+  In Use: The bean is ready and resides in the context.
+  Destruction: Cleaning up resources before the application shuts down.
+
+Detailed Step-by-Step Breakdown
+1. Loading & Instantiation
+    Spring reads your @Service, @Component, or @Bean configurations and creates the object instance using the constructor.
+2. Dependency Injection
+    Spring injects all required dependencies. If you use Constructor Injection (highly recommended for Java 21), this happens during Step 1.
+    If you use Field or Setter Injection, it happens here.
+3. Aware Interfaces
+    If your bean implements any "Aware" interfaces, Spring "gives" it information about the environment:
+      BeanNameAware: Sets the name of the bean in the container.
+      BeanFactoryAware: Gives the bean access to the factory that created it.
+      ApplicationContextAware: Gives access to the entire Spring Context.
+4. BeanPostProcessor (Pre-Initialization)
+    The postProcessBeforeInitialization method is called. 
+    This is where Spring handles annotations like @PostConstruct.
+5. Initialization
+    This is where you put logic that must run after dependencies are injected but before the bean starts working:
+    InitializingBean interface: Overriding afterPropertiesSet().
+    Custom init-method: Defined in @Bean(initMethod = "...").
+6. BeanPostProcessor (Post-Initialization)
+    The postProcessAfterInitialization method runs.
+    This is the stage where AOP Proxies are created (e.g., handling @Transactional or @Async).
+7. Destruction
+    When the context closes (e.g., your pod in AKS is shutting down), Spring cleans up:
+    @PreDestroy: Methods annotated here run first.
+    DisposableBean interface: The destroy() method is called.
+    Custom destroy-method: Defined in the bean configuration.
 
 Important Internal Classes:
  1. DefaultListableBeanFactory-  Core container implementation
@@ -421,6 +491,16 @@ Types:
   Spring singleton: One per container
   singleton pattern - one  per JVM
 4. No scope is thread safe by default. need to design it 
+
+Setup                    New Prototypes Created?      New Singletons Created?        Resulting Behavior
+Singleton has Prototype  No (only 1)                  No (only 1)                    Prototype behaves like a Singleton (Stuck).
+Prototype has Singleton  Yes (10)                     No (only 1)                    Expected Behavior. Works naturally without extra config.
+
+This "Prototype having a Singleton" setup is actually the standard way Spring is designed to work.
+For example:
+  Your Prototype might be a TaskProcessor or ReportGenerator that needs to be fresh for every use.
+  The Singleton it holds might be a DatabaseRepository or EmailService.
+  Since the DatabaseRepository is stateless and heavy to create, sharing it across 10 fresh TaskProcessors is efficient and exactly what you want.
 
 SpEL:
   dynamically evaluate expressions at runtime. Part of: Core Container
