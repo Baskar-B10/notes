@@ -717,6 +717,12 @@ Spring Annotations:
                 class CardPayment implements PaymentService {}
   @Value - Inject values from property and environment
 
+Feature      @Primary                                  @Qualifier
+Control      Set by the Provider (the bean creator).  Set by the Consumer (the bean user).
+Granularity  Broad (global default).                  Precise (per injection point).
+Precedence    Lower. @Qualifier always wins.          Higher. Overrides @Primary.
+Readability  Cleaner code at injection points.        Very explicit; you always know what's being injected.
+
 3. Configuration Annotations
   @Configuration - marks config class , replace XML. @Configuration class is CGLIB proxied. Ensures singleton behavior
   @Bean - manually defines the bean
