@@ -509,3 +509,90 @@ Performance Tips:
 26. Can multiple filters/interceptors exist?  ✅ Yes — executed in chain/order
 27. Which is faster? Filter slightly faster (lower level)
 28. Can Interceptor replace Filter? -> ❌ No — different layers
+
+Servlet:
+  A Servlet is a Java class used to extend the capabilities of a server. 
+  Although they can respond to any type of request, they are most commonly used to extend applications hosted by web servers to create dynamic web content.
+  Think of a Servlet as the "middleman" between the browser (client) and the database/application logic on the server.
+
+1. How a Servlet Works
+  When a user clicks a button or enters a URL, the following happens:
+    The Browser sends an HTTP request (e.g., GET or POST).
+    The Web Container (like Apache Tomcat) receives the request and directs it to the correct Servlet.
+    The Servlet processes the request (reads data, talks to a database).
+    The Servlet sends an HTTP response back to the browser (usually HTML or JSON).
+
+2. The Servlet Life Cycle
+  The "Servlet Container" (Tomcat) manages the life of a servlet through three main methods. 
+  You don't call these; the server does.
+  Stage            Method      Description
+Initialization      init()      Called once when the servlet is first created. Used for setup (like opening a DB connection).
+Handling Requests  service()    "Called for every request. It dispatches the work to doGet(), doPost(), etc."
+Destruction        destroy()    Called once before the servlet is removed from memory. Used for cleanup.
+
+3.Basic Code Example
+  To create a servlet, you typically extend the HttpServlet class and use the @WebServlet annotation to define the URL path.
+    import java.io.*;
+    import javax.servlet.*;
+    import javax.servlet.http.*;
+    import javax.servlet.annotation.WebServlet;
+    
+    @WebServlet("/hello") // This maps the servlet to http://localhost:8080/hello
+    public class MyServlet extends HttpServlet {
+        
+        protected void doGet(HttpServletRequest request, HttpServletResponse response) 
+                throws ServletException, IOException {
+            
+            response.setContentType("text/html");
+            PrintWriter out = response.getWriter();
+            out.println("<h1>Hello from the Java Servlet!</h1>");
+        }
+    }
+4. Key Concepts to Know
+  Request & Response Objects: HttpServletRequest holds user data (form inputs, cookies), and HttpServletResponse is used to send data back.
+    Web Container: Servlets don't have a main() method. They need a container like Apache Tomcat or Jetty to run.
+    State Management: Since HTTP is stateless, servlets use HttpSession or Cookies to "remember" users (like keeping items in a shopping cart).
+
+Why use Servlets today?
+While modern frameworks like Spring Boot have largely automated the manual writing of servlets, those frameworks are actually built on top of the Servlet API.
+Understanding servlets is the key to understanding how Java web applications function under the hood.
+
+How 2 request will work when we hit the controller?
+When you hit a controller (whether in a standard Servlet environment or a framework like Spring MVC),
+the system handles multiple requests simultaneously using a Thread Pool.
+
+Here is the step-by-step breakdown of how two simultaneous requests are processed:
+1. The Thread Pool Assignment
+  The Web Server (like Tomcat) maintains a pool of worker threads. When Request A and Request B arrive at the same time:
+  The Connector: The server's connector accepts the two socket connections.
+  Thread Allocation: The Thread Pool assigns Thread-1 to Request A and Thread-2 to Request B.
+  Concurrent Execution: Both threads enter the same Controller object at the same time.
+
+2. The Controller Behavior (Singletons)
+  In Java web applications, Controllers are usually Singletons. This means there is only one instance of the Controller class shared by every user.
+  Thread-1 is executing the handleRequest() method logic for User A.
+  Thread-2 is executing the same handleRequest() method logic for User B.
+  Because the code is just a set of instructions, 
+  multiple threads can "read" and execute those instructions at once without interfering with each other—as long as you don't use instance variables.
+
+3. Shared vs. Local Memory
+  This is where things get technical. How the two requests interact depends on where the data is stored:
+Location            Storage Type      Safety
+Method Variables    Stack Memory    Safe. Each thread has its own stack. 
+                                    Variables defined inside the method are private to that specific request.
+Instance Variables  Heap Memory    "Dangerous. If you have a variable defined at the class level (outside methods),
+                                            Request A could overwrite data that Request B is currently using."
+
+4. The Step-by-Step Flow
+  Request A hits the server $\rightarrow$ Thread 1 is picked $\rightarrow$ Thread 1 executes Controller code with User A's data.
+  Request B hits the server $\rightarrow$ Thread 2 is picked $\rightarrow$ Thread 2 executes Controller code with User B's data.
+  Processing: Both threads might hit the Database or a Service layer independently.
+  Response: Thread 1 finishes, sends a response to User A, and returns to the Thread Pool. Thread 2 does the same for User B.
+
+5. What if the Thread Pool is full?
+    If your pool has 10 threads and 12 requests hit the controller:
+    10 requests will start processing immediately.
+    2 requests will sit in the Queue (the waiting line).
+    As soon as one thread finishes a request, it immediately grabs the next one from the queue.
+    Key Rule: Always keep your Controllers stateless. Never store user-specific data in a class-level variable,
+    or Request A's data will "leak" into Request B's response!
