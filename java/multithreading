@@ -870,3 +870,89 @@ When to Avoid It:
 
   Don't Overuse the Common Pool: Since ParallelStreams and CompletableFuture share the same global pool, a single heavy task can slow down every other part of your application. 
                                 In high-load microservices, it's often better to create your own dedicated ForkJoinPool for specific heavy computations.
+
+
+Virtual Thread:
+  A Virtual Thread is a lightweight implementation of a thread provided by the Java runtime (introduced as a stable feature in Java 21).
+  Unlike traditional Platform Threads, which are wrappers around Operating System (OS) threads, virtual threads are managed entirely by the JVM.
+  This allows you to run millions of threads simultaneously on a single machine without the massive memory overhead typical of OS threads.
+
+The "Why": Solving the Throughput Problem
+    In traditional Java microservices, we use a "Thread-per-Request" model.
+    If your server has 200 platform threads, it can handle exactly 200 concurrent requests.
+    If those requests are waiting for a database or a Kafka message, those 200 threads sit idle but still consume memory (about 1MB each).
+
+Virtual Threads solve this by being "unmounted." 
+    When a virtual thread starts a blocking I/O operation (like a SQL query), the JVM moves it off the physical thread,
+    allowing that physical thread to handle a different request in the meantime.
+
+Key Technical Concepts
+1. Carrier Threads
+    Virtual threads do not run on their own. 
+    The JVM maintains a small pool of platform threads called Carrier Threads.
+    The JVM mounts a virtual thread onto a carrier thread to execute code.
+    If the code hits a blocking call, the virtual thread is unmounted.
+    When the I/O finishes, the JVM remounts it (potentially on a different carrier thread) to finish the task.
+
+2. Cheap and Lightweight
+    Memory: A platform thread takes ~1MB. A virtual thread takes only a few kilobytes.
+    Startup Time: Creating a virtual thread is nearly instantaneous, whereas OS threads require a syscall and memory allocation.
+
+Feature        Platform Threads (Traditional)    Virtual Threads (Java 21)
+Managed By     Operating System (OS)             Java Virtual Machine (JVM)
+Creation Cost  Expensive (High CPU/RAM)          Very Cheap
+Memory          ~1 MB per thread                  A few Kilobytes
+Limit          Thousands (OS dependent)          Millions
+Best For      CPU-intensive tasks                "I/O-bound tasks (APIs, DBs)"
+
+In Java 21, creating a Virtual Thread is straightforward. Unlike platform threads (traditional threads), which are mapped 1:1 to OS threads, 
+          virtual threads are lightweight and managed by the JVM.
+You can create them using several different methods depending on your needs.
+
+1. Using Thread.ofVirtual()
+      This is the most common and readable way to start a single virtual thread. 
+      You can choose to start it immediately or just create the task to be started later.
+      Start immediately:
+          Thread.startVirtualThread(() -> {
+              System.out.println("Running in a virtual thread!");
+          });
+      Using the Builder (for more control):
+            Thread vThread = Thread.ofVirtual()
+                    .name("my-virtual-thread")
+                    .unstarted(() -> {
+                        System.out.println("Task logic here");
+                    });
+            vThread.start();
+2. Using an ExecutorService
+    In a microservices environment (like your Spring Boot apps), you rarely manage individual threads.
+    Instead, you use an ExecutorService. Java 21 introduced a dedicated factory method for this.
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        executor.submit(() -> {
+            // This task runs in a new virtual thread
+            System.out.println("Processing microservice request...");
+        });
+    } // The try-with-resources ensures the executor waits for tasks to finish
+    Note: Because virtual threads are cheap, you should not pool them.
+    Unlike FixedThreadPool, the newVirtualThreadPerTaskExecutor creates a brand new thread for every single task and destroys it afterward.
+
+3. How it Works (The Concept)
+    Virtual threads run on top of a pool of "Carrier Threads" (which are actual platform threads).
+    When a virtual thread hits a blocking operation (like a database call or a Thread.sleep()),
+    the JVM unmounts the virtual thread from the carrier thread and uses that carrier thread to run something else. Once the blocking call finishes, 
+    the virtual thread is remounted and continues execution.
+
+4. Enabling Virtual Threads in Spring Boot 3.2+
+    Since you are a software engineer working with Java microservices, you likely want the framework to handle this for you.
+    You can enable virtual threads globally with a single property in your application.properties:
+    Properties
+    spring.threads.virtual.enabled=true
+    When this is set to true, Spring Boot will:
+      Use virtual threads for Tomcat/Undertow web requests.
+      Use virtual threads for @Async methods.
+      Use virtual threads for Scheduled tasks and Message listeners (like Kafka).
+
+Important "Dos and Don'ts":
+    DO use them for I/O bound tasks (API calls, DB queries).
+    DON'T pool them. Just create a new one whenever you need it.
+    AVOID synchronized blocks for long-running tasks. If a virtual thread hits a synchronized block, it "pins" the carrier thread,
+    preventing other virtual threads from using it. Use ReentrantLock instead.
