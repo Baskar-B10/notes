@@ -672,6 +672,44 @@ Spring Annotations:
   @Valid - triggers validation public void save(@Valid @RequestBody User user)
   @ModelAttribute - used in Form binding
 
+  
+Feature          POST                                              PUT
+Primary Intent  Create a new subordinate resource.                 Update an existing resource or Create at a specific URI.
+Idempotency     No. Calling it N times creates N resources.        Yes. Calling it N times has the same effect as calling it once.
+URI Creation    "Server decides the URI (e.g., /users/123)."       "Client decides the URI (e.g., /users/my-new-id)."
+Payload         Usually contains partial data to create an object.  Usually contains the full representation of the resource.
+
+Idempotent:
+In simple terms, idempotency is a property of an operation where performing it multiple times has the same effect as performing it once.
+If an operation is idempotent, the system's state remains unchanged after the first successful execution, no matter how many times you repeat the call.
+
+A Real-World Analogy
+Idempotent: An Elevator Button. If you press the button for the 5th floor once, the elevator goes to the 5th floor. 
+            If you press it twenty times, the result is the same: you still end up on the 5th floor.
+Non-Idempotent: A "Submit Order" button on a website that isn't coded correctly. If you click it once, you buy one item.
+                If you click it five times, you accidentally buy five items and get charged five times.
+
+Idempotency in HTTP Methods
+Since you've been looking into PUT vs POST, this is where the concept is most vital for API design:
+Method  Idempotent?    Why?
+GET     Yes            Reading data doesn't change anything. Reading it 10 times is safe.
+PUT     Yes            Replacing a resource with a specific version results in the same state every time.
+DELETE  Yes            "Once a resource is gone, it's gone. Deleting it again doesn't ""re-delete"" it."
+POST    No             Usually creates a new resource. Each call creates another entry.
+
+
+Why "Logic" isn't the only factor
+Even if your logic for POST and PUT is identical (e.g., calling repository.save(entity)),
+using the wrong annotation causes issues outside of your Java code:
+  A. Idempotency & Retries (The Resilience4j Factor)
+  If you use Resilience4j or a Service Mesh (like Istio in your AKS cluster):
+  On PUT failure: If a network timeout occurs, these tools know PUT is safe to retry automatically because it's idempotent.
+  On POST failure: These tools will not retry automatically because they assume POST creates a new resource. If your update logic was hidden in a POST, you lose this automatic reliability.
+  
+  B. Browser and Proxy Behavior
+  Caching: Proxies (like Nginx or Azure App Gateway) will never cache a POST response, but they might handle PUT headers differently.
+  Refresh Warnings: If a user submits a POST form and hits refresh, the browser shows a "Confirm Form Resubmission" warning to prevent duplicate actions. 
+              This doesn't happen the same way with PUT.
 
 @Controller vs @RestController
 Feature	              @Controller	        @RestController
