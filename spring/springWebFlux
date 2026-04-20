@@ -434,3 +434,47 @@ Never block in WebFlux — no Thread.sleep(), no .block(), no JDBC calls — use
 Use WebFlux functional style for complex routing logic — annotated style for simple CRUD
 Choose MVC if you use JPA/JDBC — WebFlux + blocking drivers defeats the purpose entirely
 
+
+Handling multiple consumers in a reactive stream (Project Reactor)?    
+    requires choosing the right strategy based on whether you want to broadcast the same data to everyone or distribute the work among them.
+    In your Spring Boot microservices, this usually comes down to three main patterns:
+
+1. Broadcasting (One-to-All)
+    If you want every consumer to receive a copy of every message (e.g., updating multiple caches or sending a message to multiple logging sinks), 
+    you need to turn a "Cold" Flux into a "Hot" one.
+        .share(): This is the simplest way. It turns a cold Flux into a hot one that multiple subscribers can listen to. 
+                If a new subscriber joins, they only see the data emitted after they joined.
+        .publish().autoConnect(): Similar to share, but gives you more control over when the source actually starts producing data.
+        // Logic: One source, multiple listeners receiving the same data
+        Flux<String> source = getEventStream().share();
+        
+        source.subscribe(data -> log.info("Consumer A: {}", data));
+        source.subscribe(data -> log.info("Consumer B: {}", data));
+
+2. Load Balancing (Work Distribution)
+    If you have a high volume of messages (like from your Azure Service Bus) and you want to spread the load across multiple threads/consumers 
+    so each message is processed exactly once, use a ParallelFlux.
+        .parallel(): Splits the stream into "rails."
+        .runOn(Schedulers.parallel()): Assigns those rails to a thread pool.
+        flux.parallel(4) // Split into 4 consumers
+            .runOn(Schedulers.boundedElastic()) // Use a thread pool for I/O
+            .subscribe(data -> processOrder(data));
+3. Grouping (Topic-based Routing)
+    If you want to route messages to different consumers based on a specific attribute
+    (like routing "Java" logs to one consumer and "Python" logs to another), use .groupBy().
+        flux.groupBy(LogEntry::getLanguage)
+            .subscribe(groupedFlux -> {
+                String lang = groupedFlux.key();
+                groupedFlux.subscribe(data -> sendToSpecificService(lang, data));
+            });
+4. Backpressure Handling
+    When you have multiple consumers, one might be slower than the others. 
+    In a shared/hot Flux, a slow consumer can "drag down" the whole stream. You must define a strategy for the slow consumer:
+        .onBackpressureBuffer(100): Keeps up to 100 items in a "waiting room" for the slow consumer.
+        .onBackpressureDrop(): If the consumer can't keep up, just throw away the extra data (good for real-time monitoring).
+
+Use Case                        Recommended Strategy
+Audit Logging + Processing    Use .share() (Broadcast)
+High Volume Data Processing   Use .parallel() (Distribute)
+Routing by Message Type       Use .groupBy() (Route)
+
