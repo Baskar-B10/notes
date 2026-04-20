@@ -166,6 +166,83 @@ Latency        Microseconds (RAM speed)        Milliseconds (Network speed)
 Scaling        Scales with the app             Scales independently
 Consistency    Low (Each node is different)    High (All nodes share one source)
 
+CacheEvict:
+    In Spring Boot, the @CacheEvict annotation is the "delete" switch for your cache. 
+    It is used to remove stale, outdated, or unnecessary data from your cache provider (like Redis, Caffeine, or Hazelcast).
+    
+    Think of it as Cache Invalidation.
+    If you update or delete a record in your database, the cached version of that record is now "wrong."
+    @CacheEvict ensures that the next time you ask for that data, Spring fetches the fresh version from the database.
+
+Attribute            Description
+value / cacheNames    (Mandatory) The name of the cache(s) to clear.
+key                    "Specifies exactly which entry to remove using SpEL (e.g., #id)."
+allEntries            "If true, it flushes the entire cache instead of a single entry."
+beforeInvocation       "If true, the cache is cleared before the method executes. Default is false."
+condition            "Only evict if a specific condition is met (e.g., #id > 100)."
+
+Where and How to Use It
+    Scenario A: Deleting a Single Entry
+    Use this when you delete a specific record from your database. You want the cache to remove only that specific item.
+        @CacheEvict(value = "products", key = "#id")
+        public void deleteProduct(Long id) {
+            productRepository.deleteById(id);
+        }
+    Scenario B: Updating Data (Invalidate to Refresh)
+    Sometimes, instead of using @CachePut (which updates the cache),
+    you might prefer to simply evict the old data so that the next GET request triggers a fresh load.
+        @CacheEvict(value = "users", key = "#user.id")
+        public User updateProfile(User user) {
+            return userRepository.save(user);
+        }
+    Scenario C: Clearing Everything
+    Use allEntries = true for "bulk" operations,
+    like importing a CSV or performing a system-wide configuration update that makes all previous cache entries invalid.
+        @CacheEvict(value = "reports", allEntries = true)
+        public void refreshAllReports() {
+            // Logic to update underlying data sources
+        }
+3. @CacheEvict vs. @CachePut
+    These two are often confused when updating data:
+    @CachePut: Runs the method and updates the cache with the result. Use this when you want to keep the cache "warm."
+    @CacheEvict: Simply removes the entry. Use this when the update logic is complex or you want to save memory by only caching on the next actual request.
+
+How to load back data if it’s updated only on db:
+    Loading data back into your cache after a database-only update 
+    (where the change happened outside your application's logic, like via a manual SQL query or another service) is a classic Cache Consistency challenge.
+    Since Spring doesn't "listen" to the database, you have to manually trigger a refresh using one of the following strategies.
+
+1. The "Delete and Lazy Load" Strategy (Recommended)
+    This is the most reliable way. Instead of trying to "push" the new data into the cache, you simply evict the old entry. 
+    The next time a user requests that data, your application will see a "Cache Miss" and fetch the fresh data from the DB.
+    Manual Eviction via CacheManager:
+    If the update was manual, you can create a small "admin" endpoint in your service to clear that specific key.
+        @Autowired
+        private CacheManager cacheManager;
+        public void refreshCacheManually(String id) {
+            // This looks up the cache and removes the stale entry
+            cacheManager.getCache("products").evict(id);
+        }
+2. The "Forced Update" Strategy (@CachePut)
+    If you want to keep the cache "warm" (meaning you don't want the next user to wait for a database hit),
+    you can create a method specifically to fetch the data and update the cache in one go.   
+    @CachePut(value = "products", key = "#id")
+    public Product refreshAndGetProduct(String id) {
+        // This method ALWAYS executes its body and updates the cache with the return value
+        return productRepository.findById(id).orElse(null);
+    }
+3. Automated Approaches (2026 Standards)
+    If the data is updated frequently outside of your app, you shouldn't rely on manual triggers.
+    A. TTL (Time To Live)
+        The simplest "latest" approach is to set a short TTL in your cache configuration (e.g., Redis or Caffeine). 
+        If your data can tolerate being "wrong" for 5 minutes, set the TTL to 5 minutes. The cache will expire itself and reload automatically.
+
+    B. CDC (Change Data Capture)
+        For mission-critical consistency in AKS environments, we use Debezium.
+        Debezium monitors your Database transaction logs.
+        It detects the update and sends a message to Kafka or Azure Service Bus.
+        Your microservice listens to that message and calls cache.evict(id) or cache.put(id, newValue).
+
 How to Achieve Data Refresh:
 "Refreshing" or "Evicting" the cache is the hardest part of caching. You want to avoid serving stale (old) data.
 A. Time-Based Expiration (TTL)
