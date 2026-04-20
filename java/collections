@@ -1172,6 +1172,30 @@ LRU Cache using LinkedHashMap:
       High performance
       No null key/value
       Map<Integer, String> map = new ConcurrentHashMap<>();
+
+Why use ConcurrentHashMap?
+      Thread Safety without Bottlenecks: It allows multiple threads to read and write simultaneously without locking the whole structure.
+      No ConcurrentModificationException: You can iterate over the map while other threads are modifying it.
+      Performance: In Java 8 and beyond (including Java 21), it is optimized for high-contention scenarios by using fine-grained locking.
+
+2. Internal Working (Java 8+)
+      The internal implementation shifted from "Segment Locking" (Java 7) to a much more advanced Node-level Locking strategy.
+      A. The Array of Nodes
+            Just like a HashMap, it uses an array of buckets.
+            Each bucket contains a Node (for a Linked List) or a TreeNode (for a Red-Black Tree).
+      B. Optimistic Locking (CAS) for Empty Buckets
+            When you try to put a value into an empty bucket, ConcurrentHashMap doesn't use a lock at all.
+            Instead, it uses CAS (Compare-And-Swap).
+            It checks if the bucket is null.
+            If yes, it tries to set the value.
+            If another thread beat it to it, it retries. This is extremely fast because it avoids the overhead of a heavy "monitor" lock.
+      C. Synchronized Buckets (Fine-Grained Locking)
+      If a collision occurs and the bucket is not empty, the thread locks only the first node (the head) of that specific bucket using the synchronized keyword.
+      Impact: If Thread A is writing to Bucket 1 and Thread B is writing to Bucket 2, they do not block each other. They run in parallel.
+      D. Volatile Variables
+      The values within the nodes are marked as volatile. This ensures that as soon as one thread updates a value, 
+      the change is immediately visible to all other threads (guaranteeing "happens-before" consistency).
+
 🔹 Internal Working -Java 8:
       Bucket-level locking
       CAS (Compare-And-Swap)
@@ -1277,6 +1301,12 @@ No Magic: Unlike @Cacheable, there are no hidden proxies. If you call get(), it 
       Null allowed	✅	      ❌
       Performance	      High	      High (concurrent)
 
+Feature            HashMap                    Collections.synchronizedMap      ConcurrentHashMap
+Thread Safety      No                          Yes (via global lock)            Yes (via bucket lock)
+Locking Mechanism  None                        Entire Map is locked.            Only the specific bucket is locked.
+Read Operations    Fast (non-thread-safe)      Slow (blocked by writes)         Non-blocking (lock-free reads).
+Null Keys/Values   Allowed                     Not Allowed                      Not Allowed
+
 Special Map Types:
 1. WeakHashMap:
       Map<Object, String> map = new WeakHashMap<>();
@@ -1294,6 +1324,7 @@ Special Map Types:
 4. ConcurrentSkipListMap:
       Map<Integer, String> map = new ConcurrentSkipListMap<>();
       Internal: Skip list (sorted + concurrent)
+
 
 Internal Comparison:
       Map	                  Internal DS
@@ -1321,7 +1352,6 @@ Real-Life Usage:
       Auto cleanup	WeakHashMap
       Enum keys	      EnumMap
 
- 
 
 Red-Black Tree (Very Important):
       A self-balancing binary search tree
