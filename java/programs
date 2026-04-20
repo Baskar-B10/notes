@@ -287,3 +287,18 @@ public class SubarraySum {
         System.out.println(result);
     }
 }
+
+Input = AABBCCABDDDF output ABCABDF remove only adjust cent duplicate
+
+public class DuplicateRemover {
+    public static void main(String[] args) {
+        String input = "AABBCCABDDDF";
+
+        String output = java.util.stream.IntStream.range(0, input.length())
+                .filter(i -> i == 0 || input.charAt(i) != input.charAt(i - 1))
+                .mapToObj(i -> String.valueOf(input.charAt(i)))
+                .collect(java.util.stream.Collectors.joining());
+
+        System.out.println("Output: " + output); // Result: ABCABDF
+    }
+}
