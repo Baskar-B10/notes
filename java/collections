@@ -108,6 +108,57 @@ List Interface:
   
   LinkedList can act as:Stack, Queue and Deque
 
+🔹 Why insertion is easy in a Linked List
+      A linked list is made of nodes, where each node has:
+      data
+      a reference (next) to the next node
+      👉 Unlike arrays, elements are not stored in contiguous memory.
+🔹 Key Idea
+      To insert a node in the middle, you don’t shift elements (like in arrays).
+      You just change pointers.
+
+🔹 Example
+      Suppose we have:
+      10 → 20 → 30 → 40
+      You want to insert 25 after 20.
+
+🔹 Steps
+      Traverse to the node after which you want to insert (20)
+      Create new node (25)
+      Update pointers:
+      newNode.next = current.next
+      current.next = newNode
+🔹 Visualization
+      Before:
+      20 → 30
+      After inserting 25:
+      20 → 25 → 30 👉 Only 2 pointer changes. No shifting!
+
+🔹 Code (Java)
+      class Node {
+          int data;
+          Node next;
+      
+          Node(int data) {
+              this.data = data;
+              this.next = null;
+          }
+      }
+      
+      public void insertAfter(Node current, int value) {
+          if (current == null) return;
+      
+          Node newNode = new Node(value);
+      
+          newNode.next = current.next; // step 1
+          current.next = newNode;      // step 2
+      }
+| Operation        | Array ❌               | Linked List ✅                  |
+| ---------------- | --------------------- | ------------------------------ |
+| Insert in middle | Shift elements (O(n)) | Just pointer change            |
+| Memory movement  | Required              | Not required                   |
+| Time complexity  | O(n)                  | O(1) (after reaching position) |
+
 3.Vector
 🔹 Definition:
       Legacy class
@@ -333,7 +384,37 @@ Immutable List:
             
             List<String> immutableList = List.copyOf(original);
              Creates a safe immutable copy
+🔹 How Java makes it immutable internally
+      List.of() and List.copyOf() do NOT return a normal ArrayList.
+      👉 Instead, they return special internal classes from:
+      java.util.ImmutableCollections
+      🔹 1. No modification methods allowed
+            Internally, methods like:     
+            add()
+            remove()
+            set()
+            are overridden like this:
+            public void add(E e) {
+                throw new UnsupportedOperationException();
+            }
+            👉 So any modification attempt = 💥 runtime error
       
+      🔹 2. Final internal storage
+            Inside immutable list:     
+            private final Object[] elements;
+            👉 Key points:
+            final → reference cannot change
+            No method exposes this array for modification
+      🔹 3. No setters / no exposure
+            No method gives direct access to internal array
+            No way to change elements via API
+      🔹 4. Created once, never changed
+            When you do:
+            List<Integer> list = List.of(1, 2, 3);
+            👉 Internally:
+            Elements copied into fixed structure
+            After that → no resizing, no shifting, no update
+            
  Unmodifiable List (Not Fully Immutable)
       List<String> list = new ArrayList<>();
       List<String> unmodifiable = Collections.unmodifiableList(list);
@@ -1008,6 +1089,16 @@ Core Methods:
       entrySet()
       getOrDefault()
       putIfAbsent()
+
+🔹 Why use getOrDefault()?
+      ❌ Without it:
+      if (map.containsKey(key)) {
+          return map.get(key);
+      } else {
+          return 0;
+      }
+      ✅ With it:
+      return map.getOrDefault(key, 0);
 
 1.HashMap:
       No order
