@@ -1442,3 +1442,63 @@ it usually means your Partitioning Key isn't diverse enough (e.g., partitioning 
   Config style     XML heavy          application.yml  application.yml
   Protocol         JMS/OpenWire       Kafka protocol   AMQP
 
+
+AMQP:
+AMQP plays a key role when working with cloud messaging systems like Azure Service Bus. Let’s break it down simply and practically 👇
+
+🔹 What is AMQP?
+   Advanced Message Queuing Protocol (AMQP) is an open standard protocol used for message-oriented middleware.
+👉 In simple terms:
+   It defines how messages are sent, received, and acknowledged
+   Works over TCP (usually port 5672 / 5671 for TLS)
+   Ensures reliable, secure, and asynchronous communication
+🔸 AMQP in Azure Service Bus
+   **Azure Service Bus uses AMQP as its primary protocol for communication between clients and the broker.
+✅ Why AMQP is used
+   Reliable delivery (no message loss)
+   Supports queue + topic (pub/sub)
+   Efficient for high-throughput systems
+   Supports transactions and batching
+🔧 How it works (Flow)
+      Producer sends message using AMQP
+      Service Bus receives and stores it
+      Consumer receives message via AMQP
+      Consumer acknowledges (complete) or abandons/retries
+📦 Key AMQP Concepts in Service Bus
+   1. Connections & Sessions
+      A TCP connection is established
+      Multiple sessions (channels) can run inside one connection
+   2. Links
+      Logical communication paths
+      Sender link → send messages
+      Receiver link → receive messages
+   3. Settlement (Very Important)
+      Defines what happens after receiving a message:
+      Complete → message removed
+      Abandon → message available again
+      Dead-letter → moved to DLQ
+      Defer → postpone processing
+
+| Feature     | AMQP                | HTTP             |
+| ----------- | ------------------- | ---------------- |
+| Performance | High                | Lower            |
+| Connection  | Persistent          | Request/Response |
+| Latency     | Low                 | Higher           |
+| Use case    | Real-time messaging | Simple APIs      |
+
+🚀 Real-World Usage
+   Microservices communication
+   Event-driven architecture
+   Order processing systems
+   Banking / financial messaging
+
+🔥 Example (Java - Service Bus using AMQP)
+   Using Azure SDK (internally uses AMQP):
+   ServiceBusSenderClient sender = new ServiceBusClientBuilder()
+       .connectionString("<connection-string>")
+       .sender()
+       .queueName("orders")
+       .buildClient();
+   sender.sendMessage(new ServiceBusMessage("Order created"));
+   
+   👉 Even though you don’t see AMQP explicitly, the SDK uses it under the hood.
