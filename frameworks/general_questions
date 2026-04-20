@@ -65,6 +65,62 @@ GitOps Strategy (Flux or ArgoCD): You install an agent inside AKS.
     Why: This is the "self-healing" method. 
         If someone manually deletes a Pod, the GitOps agent will recreate it to match Git.
 
+Data Validation:
+    In a Java microservices environment, data validation should happen as early as possible—typically at the Controller level—to
+    prevent invalid data from propagating through your service layer or into your database.
+
+The standard way to handle this in Spring Boot is using the Jakarta Bean Validation (JSR 380) API.
+1. Add the Dependency
+    Ensure you have the validation starter in your pom.xml.
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+2. Annotate your DTO (Data Transfer Object)
+    Instead of manual if checks, you use annotations on your request body class.
+    public class UserRequest {
+        @NotNull(message = "Username cannot be null")
+        @Size(min = 3, max = 20, message = "Username must be between 3-20 characters")
+        private String username;
+        @Email(message = "Invalid email format")
+        @NotBlank(message = "Email is mandatory")
+        private String email;
+        @Min(value = 18, message = "Must be at least 18 years old")
+        private int age;
+        // Getters and Setters
+    }
+
+3. Trigger Validation in the Controller
+    To tell Spring to actually check those annotations,
+        you must use the @Valid (standard Jakarta) or @Validated (Spring-specific) annotation in your controller method.
+    @PostMapping("/users")
+    public ResponseEntity<String> createUser(@Valid @RequestBody UserRequest request) {
+        // If validation fails, Spring throws MethodArgumentNotValidException 
+        // and this logic never runs.
+        userService.save(request);
+        return ResponseEntity.ok("User created successfully");
+    }
+4. Handling Validation Errors (GlobalExceptionHandler)
+    When validation fails, Spring throws a MethodArgumentNotValidException. 
+    By default, this returns a messy 500 or generic 400 error. You should catch it globally to return a clean, user-friendly JSON response.
+    @RestControllerAdvice
+    public class GlobalExceptionHandler {
+        @ExceptionHandler(MethodArgumentNotValidException.class)
+        public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+            Map<String, String> errors = new HashMap<>();
+            ex.getBindingResult().getFieldErrors().forEach(error -> 
+                errors.put(error.getField(), error.getDefaultMessage())
+            );
+            return ResponseEntity.badRequest().body(errors);
+        }
+    }
+
+Feature                    Annotation/Tool            Use Case
+Conditional Validation    @Validated (Groups)        Different rules for POST (create) vs PUT (update).
+Custom Logic              @Constraint                "Validating something complex, like a ""Phone Number"" format or ""Username Availability."""
+Cross-field Validation    Class-level annotation      "Ensuring ""Password"" and ""ConfirmPassword"" fields match."
+Path/Query Params         @Validated on Class         Validating @PathVariable or @RequestParam directly.
+
 Scaling Strategy:
    AKS offers three layers of scaling that must work together:
         HPA (Horizontal Pod Autoscaler): Adds more Pods if CPU/RAM is high.
@@ -835,3 +891,6 @@ Pro-Tips for your Flow:
     Blue-Green or Canary Deployments: Use Kubernetes services to route a small percentage of traffic to a "New Product Service" to test features before a full rollout.
     Helm Charts: Standardize your sbk8-poc deployment configurations so you can easily spin up "Dev," "QA," and "Prod" environments with different resource limits.
     Probes: Define Liveness and Readiness probes in your YAML so Kubernetes knows if your Java app is truly ready to handle traffic or if it needs a restart.
+
+
+
