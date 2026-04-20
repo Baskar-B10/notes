@@ -302,3 +302,142 @@ public class DuplicateRemover {
         System.out.println("Output: " + output); // Result: ABCABDF
     }
 }
+
+Input = array of 4,5,10,2,8 
+need output as next highest element in right side
+
+Input Element Elements to the Right Next Highest (Greater)
+4     "5, 10, 2, 8"       5
+5     "10, 2, 8"         10
+10   "2, 8"             -1 (None are > 10)
+2     8                   8
+8    (None)              -1
+
+import java.util.*;
+
+public class NextGreaterElement {
+    public static void findNextGreater(int[] arr) {
+        int n = arr.length;
+        int[] result = new int[n];
+        Stack<Integer> stack = new Stack<>();
+
+        // Iterate from right to left
+        for (int i = n - 1; i >= 0; i--) {
+            // Remove elements smaller than current from the stack
+            while (!stack.isEmpty() && stack.peek() <= arr[i]) {
+                stack.pop();
+            }
+
+            // If stack is empty, no greater element exists
+            result[i] = stack.isEmpty() ? -1 : stack.peek();
+
+            // Push current element for the next iteration
+            stack.push(arr[i]);
+        }
+
+        System.out.println(Arrays.toString(result));
+    }
+
+    public static void main(String[] args) {
+        int[] input = {4, 5, 10, 2, 8};
+        findNextGreater(input); // Output: [5, 10, -1, 8, -1]
+    }
+}
+
+Index  Element   Stack before check  Logic                     Result   Stack after push
+4      8           []                 Empty? Yes → -1            -1       [8]
+3      2           [8]                8 > 2? Yes → 8              8      "[8, 2]"
+2     10          "[8, 2]"           "2 < 10, 8 < 10 → pop all"  -1       [10]
+1     5            [10]              10 > 5? Yes → 10            10      "[10, 5]"
+0     4          "[10, 5]"           5 > 4? Yes → 5               5      "[10, 5, 4]"
+
+List of trades each trade have cilent I’d , trade I’d , quantity and buy or sell varaibles . Aggregates the trade details for each Clint
+class Trade {
+    String clientId;
+    String tradeId;
+    int quantity;
+    String action; // "BUY" or "SELL"
+
+    public Trade(String clientId, String tradeId, int quantity, String action) {
+        this.clientId = clientId;
+        this.tradeId = tradeId;
+        this.quantity = quantity;
+        this.action = action;
+    }
+
+    public String getClientId() { return clientId; }
+    public int getQuantity() { return quantity; }
+    public String getAction() { return action; }
+}
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class TradeAggregator {
+    public static void main(String[] args) {
+        List<Trade> trades = Arrays.asList(
+            new Trade("Client_A", "Apple", 100, "BUY"),
+            new Trade("Client_A", "Apple", 50, "SELL"),
+            new Trade("Client_A", "IBM", 200, "BUY"),
+            new Trade("Client_B", "Apple", 300, "BUY"),
+            new Trade("Client_B", "Apple", 100, "SELL")
+        );
+
+        // Nested Grouping: Client -> TradeID -> Total Quantity
+        Map<String, Map<String, Integer>> aggregatedReport = trades.stream()
+            .collect(Collectors.groupingBy(
+                Trade::getClientId, // Group by Client first
+                Collectors.groupingBy(
+                    Trade::getTradeId, // Then group by Product/TradeID
+                    Collectors.summingInt(t -> 
+                        "BUY".equalsIgnoreCase(t.getAction()) ? t.getQuantity() : -t.getQuantity()
+                    )
+                )
+            ));
+
+        // Printing the result in a readable format
+        aggregatedReport.forEach((client, productMap) -> {
+            System.out.println("Client: " + client);
+            productMap.forEach((product, netQty) -> {
+                System.out.println("  - " + product + ": " + netQty);
+            });
+        });
+    }
+}
+
+[L,L,R,R,T,D] to check if the cursor is at centre or -1
+public class CursorPath {
+    /**
+     * Checks if the moves return the cursor to (0,0)
+     * @param moves Array of characters [L, R, T, D]
+     * @return 0 if at centre, -1 otherwise
+     */
+    public static int isAtCentre(char[] moves) {
+        // Edge case: if no moves are made, it's at the centre
+        if (moves == null || moves.length == 0) return 0;
+
+        int x = 0;
+        int y = 0;
+
+        for (char move : moves) {
+            if (move == 'L') {
+                x--;
+            } else if (move == 'R') {
+                x++;
+            } else if (move == 'T') {
+                y++;
+            } else if (move == 'D') {
+                y--;
+            }
+        }
+
+        // Logical Check: If net displacement is zero, it's the centre
+        return (x == 0 && y == 0) ? 0 : -1;
+    }
+
+    public static void main(String[] args) {
+        char[] path = {'L', 'L', 'R', 'R', 'T', 'D'};
+        System.out.println("Result: " + isAtCentre(path)); 
+        // Logic: L(-2) + R(+2) = 0, T(+1) + D(-1) = 0. Output: 0
+    }
+}
