@@ -304,7 +304,6 @@ interface B extends A {
 class C implements B {} -> B is more specific → used
 3. Must override if conflict
 
-
 public methods in interfaces, but protected methods are strictly forbidden?
     The rules for access modifiers in Java interfaces have evolved significantly between Java 8 and Java 21, 
     but the restriction on protected remains a fundamental language rule.
@@ -328,6 +327,40 @@ public methods in interfaces, but protected methods are strictly forbidden?
       Private Instance Methods: Used to share code between multiple default methods.
       Private Static Methods: Used to share code between multiple static methods.
 
+On abstract method can we use static keyword ?
+  The short answer is no; you cannot combine the static and abstract modifiers on a method in a Java interface.
+  In Java, these two keywords represent fundamentally opposing concepts, making them logically incompatible.
+
+Why they cannot coexist
+  To understand why static abstract is not allowed, we have to look at what each modifier actually does:
+  abstract: This is a placeholder. It says, "This method exists, but it has no implementation here. 
+    An implementing class must provide the body." It relies on dynamic dispatch (polymorphism) at runtime.
+  static: This belongs to the interface/class itself, not to an instance.
+      A static method must have a body (implementation) because it is called directly via the interface name (e.g., MyInterface.myMethod()).
+  
+    If a method were both, you would have a method that must be called without an instance (static) but has no code to execute (abstract),
+      which would result in a crash or undefined behavior.
+
+The Modern Way: Static Methods in Interfaces
+  Since Java 8, you can have static methods in interfaces, but they must be concrete (they must have a body).
+  Usage & Benefits:
+      Static methods in interfaces are used for utility or helper methods that are relevant to the interface's domain
+      but don't need to be overridden by implementing classes.
+      Encapsulation of Logic: It keeps helper methods tied to the interface they belong to rather than creating a separate InterfaceUtils class.
+      Security: Since they are static, they cannot be overridden by an implementing class. This ensures the logic remains exactly as defined.
+      Namespace Organization: It provides a clear way to call methods related to the interface.
+      public interface Vehicle {
+          // Standard abstract method
+          void startEngine();
+      
+          // Static utility method
+          static boolean isElectric(String fuelType) {
+              return "Electric".equalsIgnoreCase(fuelType);
+            }
+      }
+
+// Calling the static method
+boolean check = Vehicle.isElectric("Petrol");
 IS-A (Inheritance) - Represents inheritance
         class Animal {}
         class Dog extends Animal {}
