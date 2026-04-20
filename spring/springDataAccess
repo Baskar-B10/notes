@@ -578,6 +578,18 @@ StatelessSession — Session Without the Magic
               orphanRemoval = true is separate — 
               it deletes a child when it's removed from the parent's collection (not just when the parent is deleted).
 
+Feature              get()                              load()
+Persistence Context "Checks the cache; if not found,    Returns a Proxy (a hollow object) without hitting the DB.
+                      hits the Database immediately."
+Database Hit          Eager. Returns actual data.       "Lazy. Hits the DB only when you access a property (e.g., user.getName())."
+If ID Not Found       Returns null.                      Throws ObjectNotFoundException when accessed.
+Performance           Slower (requires immediate I/O).   Faster (postpones I/O).
+
+JPA Equivalents
+  If you are using EntityManager (standard in Spring Data JPA), the methods have different names but the same logic:
+  find() is the equivalent of get().
+  getReference() is the equivalent of load().
+
 7 core in Hibernate
 1. ORM (Object-Relational Mapping)
     This is the fundamental job. Hibernate maps your Java POJOs (Plain Old Java Objects) to Database Tables.
