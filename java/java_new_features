@@ -697,6 +697,55 @@ Parallel Stream Exception Behavior 👉 If exception occurs: Stream terminates a
               if (x == 5) throw new RuntimeException("Error");
           });
 
+Achieve Multi threading suing collection utiles lamda streams in parallel processing :
+The Architecture of Parallel Streams
+    Split: The Spliterator of the collection partitions the data.
+    Execute: Threads from the ForkJoinPool.commonPool() execute your Lambdas or Method References.
+    Combine: The Collection Utility (Collectors) merges the partial results back into a single result.
+        import java.util.List;
+        import java.util.Arrays;
+        import java.util.stream.Collectors;
+        
+        public class ParallelProcessor {
+            public static void main(String[] args) {
+                List<Integer> numbers = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        
+                // 1. .parallelStream() triggers multithreading
+                List<String> results = numbers.parallelStream()
+                    
+                    // 2. Lambda expression for logic
+                    .filter(n -> n % 2 == 0)
+                    
+                    // 3. Method reference (cleaner alternative to lambda)
+                    .map(Object::toString)
+                    
+                    // 4. Collection utility to gather results safely
+                    .collect(Collectors.toList());
+        
+                System.out.println("Processed Results: " + results);
+            }
+        }
+
+Component                Role in Multithreading
+.parallelStream()        The entry point. It tells the JVM to use multiple threads instead of one.
+Lambda/Method Ref        "These must be stateless. If your lambda modifies a variable outside the stream, you will hit ""race conditions"" (data corruption)."
+Collectors                The utility handles the complexity of merging results from different threads so you don't have to manually synchronize the list.
+
+3. Safe Multithreading (VERY IMPORTANT ⚠️)
+      ❌ Wrong (shared mutable state)
+      List<Integer> result = new ArrayList<>();
+      list.parallelStream().forEach(n -> result.add(n)); // NOT thread-safe
+      ✅ Correct (use collector)
+      List<Integer> result = list.parallelStream()
+                                 .map(n -> n * 2)
+                                 .collect(Collectors.toList());👉 Always prefer immutable / collector-based approach
+4.Using Collections.synchronizedList
+    List<Integer> syncList = Collections.synchronizedList(new ArrayList<>());
+    list.parallelStream().forEach(syncList::add);
+    👉 Thread-safe but:Slower (locking) and Not recommended vs collect()
+
+Collection → Stream → Parallel → Lambda → Collect
+
 Primitive Streams:
         Feature	      Stream<T>	                  IntStream / LongStream / DoubleStream
         Data Type	    Objects (Integer, Long)    	primitives (int, long, double)
