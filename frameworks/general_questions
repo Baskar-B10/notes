@@ -970,3 +970,59 @@ How?
     If you're building:
         🔹 Startup / simple app → AKS Secrets OK
         🔹 Enterprise / banking / sensitive → Vault (or Azure Key Vault)
+
+On-prem vs open source:
+So the real comparison is:
+
+👉 On-Premise (deployment model) vs
+👉 Open Source (licensing / software model)
+
+Let’s clarify properly 👇
+
+🔹 1. What is On-Premise?
+    Software is installed and runs in your own data center / servers
+    🔹 Examples:
+        Oracle Database installed in company servers
+        SAP ERP on internal infrastructure
+    ✅ Pros:
+        Full control 🔒
+        High security (good for banks)
+        Customization flexibility
+    ❌ Cons:
+        High cost (hardware + maintenance)
+        Needs infra + ops team
+        Scaling is slow
+🔹 2. What is Open Source?
+    Software with source code publicly available
+    🔹 Examples:
+        Linux
+        Kubernetes
+        Apache Kafka
+    ✅ Pros:
+        Free (mostly) 💰
+        No vendor lock-in
+        Highly customizable
+    ❌ Cons:
+        Requires expertise
+        Support may be limited
+        Maintenance responsibility on you
+
+| Factor      | On-Premise       | Open Source              |
+| ----------- | ---------------- | ------------------------ |
+| Type        | Deployment model | Licensing model          |
+| Control     | High             | High                     |
+| Cost        | High infra cost  | Low license cost         |
+| Support     | Vendor support   | Community / paid support |
+| Flexibility | Medium           | Very high                |
+
+🔹 4. Real-World Scenarios 🔥
+    🏦 Banking / Finance👉 Prefer:On-Prem + sometimes Open Source. Reason:Security, compliance
+    🚀 Startups👉 Prefer:Open Source + Cloud.Reason:Cost saving + fast scaling
+    🏢 Enterprises👉 Mix: On-Prem (critical systems) and  Open Source (microservices, infra tools)
+🔹 5. Best Practice (Modern Architecture)
+        👉 Most companies use Hybrid Approach:
+        Open source tools:
+                Docker
+                Kubernetes
+                Deployment:
+                Cloud OR On-Prem depending on need
