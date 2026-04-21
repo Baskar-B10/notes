@@ -1026,3 +1026,51 @@ Let’s clarify properly 👇
                 Kubernetes
                 Deployment:
                 Cloud OR On-Prem depending on need
+
+Optimistic vs persimitic lock:
+
+1. Pessimistic Locking
+    Pessimistic locking assumes the "worst-case scenario"—that a collision will happen.
+    It prevents conflicts by locking the record the moment it is read, ensuring no one else can touch it until the transaction is finished.
+    How it works: When a thread reads data, it places an exclusive lock on the row (e.g., SELECT ... FOR UPDATE in SQL).
+    Behavior: Other threads attempting to read or write that same row must wait (block) until the first thread commits or rolls back.
+    Best for:
+        High-contention environments (many updates on the same row).
+        Operations where the cost of a collision is extremely high (e.g., banking transactions, inventory stock reduction).
+
+    public interface ProductRepository extends JpaRepository<Product, Long> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    Optional<Product> findById(Long id);
+    }
+
+2. Optimistic Locking
+    Optimistic locking assumes the "best-case scenario"—that collisions are rare. It does not lock the row during the read. 
+    Instead, it checks for changes only at the moment of the update.
+    How it works: It typically uses a Version Column or a Timestamp.
+        Thread A reads the record (Version 1).
+        Thread B reads the record (Version 1).
+        Thread A updates the record and increments it to Version 2.
+        Thread B tries to update, but the database sees the current version is 2 while Thread B still thinks it's 1. 
+        The update fails, throwing an OptimisticLockException.
+    Behavior: No blocking occurs. Threads work in parallel, but one might fail and need to retry.
+    Best for:
+        Low-contention environments.
+        Distributed systems/Microservices (where holding a database connection open for a long time is expensive).
+        Applications with high "Read-to-Write" ratios.
+
+        @Entity
+        public class Product {
+            @Id
+            private Long id;
+            
+            @Version
+            private Integer version; // Incrementing counter
+        }
+
+| **Feature**      | **Pessimistic Locking**           | **Optimistic Locking**                                    |
+| ---------------- | --------------------------------- | --------------------------------------------------------- |
+| **Approach**     | Block upfront                     | Validate at the end                                       |
+| **Concurrency**  | Low (threads wait in line)        | High (threads run freely)                                 |
+| **Performance**  | Slower due to locking overhead    | Faster (unless many retries occur)                        |
+| **Deadlocks**    | Possible if not handled carefully | Not possible                                              |
+| **Typical Tool** | `SELECT ... FOR UPDATE`           | `@Version` annotation in Hibernate / Java Persistence API |
