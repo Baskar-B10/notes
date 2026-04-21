@@ -87,6 +87,42 @@ Exception handling in External API calls in Microservices:
                           .build();
               }
 
+Steps needed to convert monolith to microservice:
+Step 1: Define Your Bounded Contexts (DDD)
+    Before touching code, use Domain-Driven Design (DDD) to map out your business.
+    Identify logical boundaries like Orders, Payments, or Inventory.
+    The Goal: Ensure that a change in the Payment logic doesn't require a redeploy of the Inventory logic.
+
+Step 2: Implement the "Strangler Fig" Pattern
+    The most successful migrations grow around the monolith until it is eventually "strangled" and decommissioned.
+    Place a Proxy/API Gateway: Sit an API Gateway (like Kong or Zuul) in front of your monolith.
+    Intercept Requests: Initially, 100% of traffic goes to the monolith.
+    The Pivot: When your first microservice is ready, update the gateway to route specific paths (e.g., /api/payments) to the new service
+          while everything else stays on the monolith.
+
+Step 3: Decouple the Database (The Hardest Part)
+    A "distributed monolith" occurs when services share a single database. You must strive for Database-per-Service.
+    Phase A (Shared DB, Separate Schemas): Move tables into separate logical schemas within the same DB.
+    Phase B (API-Only Access): Stop Service A from querying Service B’s tables directly. Force Service A to call Service B's API.
+    Phase C (Physical Separation): Once the logic is decoupled, move the schema to its own database instance.
+
+Step 4: Manage Consistency with Sagas
+    Since you no longer have ACID transactions across a single database, you must handle distributed consistency.
+    Use the Saga Pattern (which we discussed earlier) to handle "undo" logic if a multi-step process (like booking a flight + hotel) fails halfway through.
+
+Step 5: Establish the "Chassis" (Infrastructure Prerequisites)
+    Don't move to microservices until your "Service Chassis" is ready. You need:
+    Observability: Centralized logging (ELK) and Distributed Tracing (Jaeger/Zipkin) to follow a request across services.
+    Resilience: Circuit Breakers (Resilience4j) to prevent one slow service from crashing the entire system.
+    CI/CD: Automated pipelines are no longer optional; you can't manually deploy 10+ services.
+
+
+Phase      Key Action              Why?
+Analysis   Event Storming / DDD    To find where to cut.
+Migration  Strangler Fig           To keep the system alive during the move.
+Data       Database Decomposition  To prevent tight coupling.
+Stability  Circuit Breakers        To handle partial failures.
+
 In a microservice architecture, an application is built as a suite of small, independent services, 
 each running in its own process and communicating with lightweight mechanisms—often an HTTP resource API or message-driven patterns.
 
@@ -140,11 +176,25 @@ Inter-Service Communication in detail:
     This is easy to reason about but can lead to "cascading failures" if one service in a chain is slow.
     REST (HTTP/JSON): The most common approach. 
                       It's language-agnostic and uses standard HTTP methods (GET, POST, etc.).
+          Tools:
+            Spring Boot (RestTemplate / WebClient)
+            OpenFeign
+                  // Feign Client example
+                    @FeignClient(name = "inventory-service")
+                    public interface InventoryClient {
+                        @GetMapping("/check/{id}")
+                        boolean checkStock(@PathVariable String id);
+                    }
     gRPC: Built by Google, it uses Protocol Buffers and HTTP/2.
           It is significantly faster than REST because it is binary and supports streaming.
            Best for: Internal service-to-service communication where performance is critical.  
+                  service PaymentService {
+              rpc processPayment (PaymentRequest) returns (PaymentResponse);
+            }
     GraphQL: Allows the caller to request exactly the data they need.
            Best for: Frontend-to-Backend communication to reduce payload size.
+
+
 
 2. Asynchronous Communication (Event-Driven)
     The caller sends a message to a broker (like Kafka) and immediately moves on. 
@@ -152,6 +202,43 @@ Inter-Service Communication in detail:
         Message Queues (Point-to-Point): One message is consumed by exactly one receiver (e.g., RabbitMQ, Amazon SQS).
         Pub/Sub (Publish/Subscribe): One message can be consumed by multiple services (e.g., Kafka, Google Pub/Sub).
             Example: When an Order is created, the Shipping, Email, and Inventory services all react to that one event.
+        1. Message Queues
+          Point-to-point communication   
+          Tools
+              RabbitMQ
+              ActiveMQ
+              // Producer
+              rabbitTemplate.convertAndSend("orderQueue", order);
+              // Consumer
+              @RabbitListener(queues = "orderQueue")
+              public void consume(Order order) {
+                  System.out.println("Processing order");
+              }
+        2.Event Streaming
+            Publish–subscribe model
+            Tool: Apache Kafka
+                // Producer
+                kafkaTemplate.send("order-topic", order);
+                // Consumer
+                @KafkaListener(topics = "order-topic")
+                public void consume(Order order) {
+                    System.out.println("Order received");
+                }
+        3. Event Bus / Pub-Sub
+              Services react to events
+              Example:OrderCreated → Inventory → Payment
+        4. Webhooks (Callback-based)
+              One service calls another when event happens
+        5. Async REST (Callback / Polling)
+            Request accepted → process later → notify
+
+      | Feature        | Synchronous | Asynchronous    |
+      | -------------- | ----------- | --------------- |
+      | Response       | Immediate   | Delayed         |
+      | Coupling       | Tight       | Loose           |
+      | Failure Impact | High        | Low             |
+      | Scalability    | Limited     | High            |
+      | Example        | REST, gRPC  | Kafka, RabbitMQ |
 
 3. Communication Patterns
   Service Discovery:
@@ -177,6 +264,53 @@ Inter-Service Communication in detail:
     Data Flow    Immediate result needed    Event-driven / Long-running
     Complexity   Simple                     Higher (Requires managing a broker)
     Example      Checking a user's password "Sending a ""Welcome"" email"
+
+how we identity the service in microservices are available in communication:
+  In a microservices architecture, you identify and track the availability of services using a mechanism called Service Discovery.
+  Since service instances in cloud environments (like Kubernetes or Azure) have dynamic IP addresses that change frequently, you cannot hardcode them.
+
+1. The Service Discovery Pattern
+There are two main components that allow services to "find" each other:
+Service Registry: A database (the "phone book") containing the network locations of all available service instances. 
+          Examples include Netflix Eureka, Consul, or the built-in Kubernetes Service registry.
+Health Checks: The registry doesn't just store names; it actively monitors services.
+          If a service stops sending a "heartbeat," the registry marks it as unavailable and removes it from the list so other services don't try to call it.
+
+2. Client-Side vs. Server-Side Discovery
+  How a service identifies its peer depends on where the "lookup" happens.
+  A. Client-Side Discovery
+      The calling service (Client) talks directly to the Service Registry to get a list of available IPs.
+      Service A asks the Registry: "Where is the Inventory Service?"
+      The Registry returns a list of 3 active IP addresses.
+      Service A uses a Load Balancer (like Spring Cloud LoadBalancer) to pick one and calls it.
+  
+  B. Server-Side Discovery (The Kubernetes Way)
+      The caller doesn't care about IPs. It talks to a "Virtual IP" or DNS name.
+      Service A calls http://inventory-service/api.
+      The Platform (Kubernetes/AWS) receives the request.
+      The Platform looks at its internal registry and routes the traffic to a healthy instance.
+
+3. How "Availability" is Verified
+    To ensure you only communicate with services that are truly "available," the following checks are performed:
+    Check Type        Mechanism            Description
+    Liveness Probe    JVM/Container check  """Is the process running?"" If not, restart the container."
+    Readiness Probe   Application logic     """Is the service ready to handle traffic?"" (e.g., has it finished loading the cache?)"
+    Heartbeat          TTL (Time to Live)      "The service sends a signal to the Registry every 30s. 
+                                                If the signal stops, the service is removed from the ""Available"" list."
+
+4. Implementation in Java (Spring Cloud)
+  If you are using Spring Cloud Netflix Eureka, the identification happens via the @EnableEurekaClient (or simply by adding the starter dependency).
+  The Flow:
+      Self-Registration: When your microservice starts, it automatically sends its IP and Port to the Eureka server.
+      Discovery: When you want to call another service, you use its Service ID (defined in spring.application.name) instead of an IP:
+      // Spring will automatically look up the IP for "inventory-service" 
+      // and check if it is healthy before making the call.
+      @Autowired
+      private RestTemplate restTemplate;
+      
+      public void callInventory() {
+          String result = restTemplate.getForObject("http://inventory-service/items", String.class);
+      }
 
 Service Versioning:
   In a microservices ecosystem, service versioning is the strategy used to manage changes to an API without breaking the clients (consumers) that rely on it. 
@@ -465,7 +599,87 @@ If the third service fails, the first two have already committed their data. The
               2. Payment Service hears OrderCreated, charges the user, and emits PaymentSuccessful.
               3. Inventory Service hears PaymentSuccessful, reserves items, and emits InventoryReserved.
         Best for: Simple workflows with few services.
-              
+
+    CHOREOGRAPHY (Event-Driven)
+      👉 No central controller
+      👉 Services communicate via events
+            🔹 Event Model
+            class Event {
+                String type;
+                Object data;
+            
+                Event(String type, Object data) {
+                    this.type = type;
+                    this.data = data;
+                }
+            }
+            🔹 Simple Event Bus (In-Memory)
+            import java.util.*;
+            import java.util.function.Consumer;
+            class EventBus {
+                private Map<String, List<Consumer<Event>>> listeners = new HashMap<>();
+                public void subscribe(String eventType, Consumer<Event> handler) {
+                    listeners.computeIfAbsent(eventType, k -> new ArrayList<>()).add(handler);
+                }
+                public void publish(Event event) {
+                    List<Consumer<Event>> handlers = listeners.get(event.type);
+                    if (handlers != null) {
+                        handlers.forEach(h -> h.accept(event));
+                    }
+                }
+            }
+            🔹 Services Reacting to Events
+                class OrderService {
+                    public OrderService(EventBus bus) {
+                        bus.subscribe("ORDER_CREATED", event -> {
+                            System.out.println("OrderService received ORDER_CREATED");
+                        });
+                    }
+                }
+                class InventoryService {
+                    public InventoryService(EventBus bus) {
+                
+                        bus.subscribe("ORDER_CREATED", event -> {
+                            System.out.println("Inventory Reserved");
+                            bus.publish(new Event("INVENTORY_RESERVED", null));
+                        });
+                
+                        bus.subscribe("PAYMENT_FAILED", event -> {
+                            System.out.println("Inventory Released");
+                        });
+                    }
+                }
+                class PaymentService {
+                    public PaymentService(EventBus bus) {
+                
+                        bus.subscribe("INVENTORY_RESERVED", event -> {
+                            System.out.println("Processing Payment...");
+                
+                            boolean fail = true;
+                
+                            if (fail) {
+                                bus.publish(new Event("PAYMENT_FAILED", null));
+                            } else {
+                                bus.publish(new Event("PAYMENT_SUCCESS", null));
+                            }
+                        });
+                    }
+                }
+            🔹 Start Flow
+                  public class Main {
+                      public static void main(String[] args) {
+                  
+                          EventBus bus = new EventBus();
+                  
+                          new OrderService(bus);
+                          new InventoryService(bus);
+                          new PaymentService(bus);
+                  
+                          // Start Saga
+                          bus.publish(new Event("ORDER_CREATED", null));
+                      }
+                  }
+                          
     B. Orchestration (Command-Based):
         In Orchestration, a central Saga Orchestrator (a dedicated class or service) tells the participants what local transactions to execute.
         How it works:
@@ -475,6 +689,86 @@ If the third service fails, the first two have already committed their data. The
             4. If Inventory replies "Failed," the Orchestrator sends a "Refund Payment" command to the Payment Service.
         Best for: Complex workflows with many steps or cyclic dependencies.
 
+      👉 One service controls everything (easy to debug, more control)
+      🔹 Step 1: Saga Step Interface
+            public interface SagaStep {
+                void execute();
+                void compensate();
+            }
+      🔹 Step 2: Individual Services (simulated)
+            class OrderService {
+                void createOrder() { System.out.println("Order Created"); }
+                void cancelOrder() { System.out.println("Order Cancelled"); }
+            }
+            
+            class InventoryService {
+                void reserve() { System.out.println("Inventory Reserved"); }
+                void release() { System.out.println("Inventory Released"); }
+            }
+            
+            class PaymentService {
+                void pay() {
+                    System.out.println("Payment Processing...");
+                    throw new RuntimeException("Payment Failed"); // simulate failure
+                }
+                void refund() { System.out.println("Payment Refunded"); }
+            }
+      🔹 Step 3: Saga Steps
+          class OrderStep implements SagaStep {
+              private OrderService service = new OrderService();
+          
+              public void execute() { service.createOrder(); }
+              public void compensate() { service.cancelOrder(); }
+          }
+      
+            class InventoryStep implements SagaStep {
+                private InventoryService service = new InventoryService();
+            
+                public void execute() { service.reserve(); }
+                public void compensate() { service.release(); }
+            }
+            
+            class PaymentStep implements SagaStep {
+                private PaymentService service = new PaymentService();
+            
+                public void execute() { service.pay(); }
+                public void compensate() { service.refund(); }
+            }
+      🔹 Step 4: Orchestrator
+              import java.util.*;
+              class SagaOrchestrator {
+                  private List<SagaStep> steps = new ArrayList<>();
+                  public void addStep(SagaStep step) {
+                      steps.add(step);
+                  }
+                  public void execute() {
+                      List<SagaStep> completed = new ArrayList<>();
+                      try {
+                          for (SagaStep step : steps) {
+                              step.execute();
+                              completed.add(step);
+                          }
+                          System.out.println("SUCCESS");
+              
+                      } catch (Exception e) {
+                          System.out.println("FAILED: " + e.getMessage());
+                          Collections.reverse(completed);
+                          for (SagaStep step : completed) {
+                              step.compensate();
+                          }
+                      }
+                  }
+              }
+              🔹 Run
+              public class Main {
+                  public static void main(String[] args) {
+                      SagaOrchestrator saga = new SagaOrchestrator();
+                      saga.addStep(new OrderStep());
+                      saga.addStep(new InventoryStep());
+                      saga.addStep(new PaymentStep());
+                      saga.execute();
+                  }
+              }
 4. Implementation in Java (Spring Boot)
   When implementing Sagas in a Spring environment, you typically combine CompletableFuture (for async handling) with a message broker like Azure Service Bus or Kafka.
     State Management: The "Order" should have statuses like PENDING, APPROVED, and REJECTED.
@@ -881,7 +1175,21 @@ Just like an electrical circuit breaker in a house, it "trips" to stop the flow 
     In modern cloud-native environments, you typically implement this using libraries or service meshes:
     With the deprecation of Netflix Hystrix, Resilience4j is the industry standard for Spring Boot and Java 17+ applications.
     It is lightweight and designed for functional programming.
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-circuitbreaker-resilience4j</artifactId>
+    </dependency>
     
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+    
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
     // Example configuration snippet
     CircuitBreakerConfig config = CircuitBreakerConfig.custom()
       .failureRateThreshold(50) // Trip if 50% of requests fail
