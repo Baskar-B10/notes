@@ -44,7 +44,46 @@ Modern Garbage Collectors:
                 Can lead to memory leaks
                 Slows down GC
         ✔ Modern Alternative - Use:  try-with-resources for AutoCloseable.
-    
+
+| Feature    | G1 GC   | ZGC              | Shenandoah       |
+| ---------- | ------- | ---------------- | ---------------- |
+| Default    | ✅ Yes   | ❌                | ❌                |
+| Pause Time | Medium  | Very Low         | Very Low         |
+| Throughput | Good    | Moderate         | Moderate         |
+| Heap Size  | Large   | Very Large       | Large            |
+| Use Case   | General | Low latency apps | Low latency apps |
+
+When to Choose What?
+    G1 → Default, general apps
+    ZGC → Real-time / low latency (fintech, trading)
+    Shenandoah → Similar to ZGC (RedHat ecosystem)
+    Parallel GC → Batch processing
+
+Migrating from Java 11 to Java 17 brings significant shifts in how the JVM manages memory.
+The most notable change is the retirement of older, non-deterministic collectors in favor of modern, low-latency options
+
+1. The Big Removal: CMS is GoneThe Concurrent Mark Sweep (CMS) collector, which was already deprecated in Java 11, has been completely removed in Java 17.
+  The Impact: If your Java 11 application used -XX:+UseConcMarkSweepGC, it will fail to start in Java 17. You must switch to G1, ZGC, or Shenandoah
+
+2. G1GC: Still the Default, but Faster
+    The Garbage-First (G1) collector remains the default for both versions, but the Java 17 version is significantly more optimized.
+    Full GC Parallelism: Java 11's G1 had some single-threaded phases during Full GC.
+          By Java 17, G1 is much better at cleaning up memory concurrently, leading to shorter "Stop-the-World" pauses.
+    NUMA Awareness: Java 17 includes enhancements for Non-Uniform Memory Access (NUMA), allowing G1 to allocate memory more efficiently on modern multi-socket servers.
+3.
+Feature        Java 11                                            Java 17
+ZGC            Experimental (-XX:+UnlockExperimentalVMOptions)    Production Ready
+Shenandoah      Only in some builds (like RedHat)                 Production Ready in most OpenJDK builds
+Pause Times    ~10ms (ZGC)                                        Sub-millisecond (ZGC in Java 17)
+Max Heap Size   4 TB                                              16 TB
+
+4.Memory Footprint and Efficiency
+Java 17 is generally more "polite" with memory:
+Prompt Memory Return: Modern collectors in Java 17 are much better at returning unused heap memory back to the Operating System.
+Deduplication: String deduplication (reducing the memory taken by identical strings) was enhanced and made available for more collectors in Java 17.
+
+
+
 main method:
 public - access from all places
 static - no object needed
