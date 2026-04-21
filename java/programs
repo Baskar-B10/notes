@@ -441,3 +441,82 @@ public class CursorPath {
         // Logic: L(-2) + R(+2) = 0, T(+1) + D(-1) = 0. Output: 0
     }
 }
+Filter the age by 51 , group by department with second highest salary using java stream for employee list:
+  Map<String, Optional<Employee>> result =
+      employees.stream()
+          // Step 1: Filter age = 51
+          .filter(e -> e.getAge() == 51)
+          // Step 2: Group by department
+          .collect(Collectors.groupingBy(
+              Employee::getDepartment,
+              // Step 3: For each department
+              Collectors.collectingAndThen(
+                  Collectors.toList(),
+                  list -> list.stream()
+                      // Sort descending by salary
+                      .sorted(Comparator.comparing(Employee::getSalary).reversed())
+                      // Skip top (highest) → get 2nd highest
+                      .skip(1)
+                      // Get second highest
+                      .findFirst()
+              )
+          ));
+
+map list of string based on first character as map
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class GroupingExample {
+    public static void main(String[] args) {
+        List<String> fruits = Arrays.asList("Apple", "Banana", "Apricot", "Blueberry", "Cherry");
+
+        // Grouping by the first character
+        Map<Character, List<String>> groupedByFirstChar = fruits.stream()
+            .collect(Collectors.groupingBy(
+                s -> s.charAt(0) // Lambda to extract the key
+            ));
+
+        System.out.println(groupedByFirstChar);
+        // Output: {A=[Apple, Apricot], B=[Banana, Blueberry], C=[Cherry]}
+    }
+}
+
+singletonclass name playlist to add songs:
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+public class Playlist {
+
+    // 1. Private constructor prevents instantiation from other classes
+    private final List<String> songs;
+
+    private Playlist() {
+        // Using a synchronized list if you plan to use multithreading
+        this.songs = Collections.synchronizedList(new ArrayList<>());
+    }
+
+    // 2. Static inner helper class holds the Singleton instance
+    // It is only loaded when getInstance() is called (Lazy Initialization)
+    private static class Holder {
+        private static final Playlist INSTANCE = new Playlist();
+    }
+
+    // 3. Public method to provide the global point of access
+    public static Playlist getInstance() {
+        return Holder.INSTANCE;
+    }
+
+    // Method to add songs
+    public void addSong(String song) {
+        if (song != null && !song.isEmpty()) {
+            songs.add(song);
+            System.out.println("Added: " + song);
+        }
+    }
+
+    // Method to get the current list
+    public List<String> getSongs() {
+        return new ArrayList<>(songs); // Return a copy to preserve encapsulation
+    }
+}
