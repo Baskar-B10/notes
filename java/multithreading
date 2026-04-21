@@ -872,6 +872,32 @@ When to Avoid It:
                                 In high-load microservices, it's often better to create your own dedicated ForkJoinPool for specific heavy computations.
 
 
+In modern Java development, choosing between ExecutorService and CompletableFuture depends on whether you need simple task execution or a complex,
+non-blocking pipeline.
+
+1. ExecutorService
+This is the "low-level" foundation for multithreading in Java. It manages a pool of threads and a task queue.
+  Advantages:
+    Fine-grained Control: You can precisely define core pool size, max pool size, and keep-alive times.
+    Resource Management: Prevents the system from crashing by limiting the number of active threads (unlike creating new Thread() manually).
+    Task Queuing: If threads are busy, tasks are safely held in a queue (e.g., LinkedBlockingQueue).
+  Pitfalls:
+    Blocking Results: To get a result, you must call .get() on a Future, which blocks the calling thread until the task is done.
+    Complex Coordination: It is difficult to chain multiple tasks together (e.g., "Do A, then B, then C").
+    Thread Leaks: If not shut down properly (shutdown()), the JVM may continue running even after the main task is finished.
+
+2. CompletableFuture (Asynchronous Programming)
+    Introduced in Java 8, this is a functional wrapper around Future that allows for non-blocking "callback" styles.
+    Advantages:
+      Non-Blocking Pipelines: You can chain operations using .thenApply(), .thenAccept(), or .thenCompose() without blocking the main thread.
+      Exception Handling: Provides clean ways to handle errors in async flows using .exceptionally() or .handle().
+      Combination: You can wait for multiple independent tasks to finish using CompletableFuture.allOf().
+    Pitfalls:
+      Hidden Thread Pool: By default, it uses the ForkJoinPool.commonPool().
+            In a high-traffic production environment, this pool can be exhausted, slowing down the entire JVM.
+      Complexity (Callback Hell): If overused, the code can become hard to read and debug, similar to "callback hell" in JavaScript.
+      Silent Failures: If an exception occurs inside a CompletableFuture and you don't attach an exception handler, the error might be swallowed silently.
+
 Virtual Thread:
   A Virtual Thread is a lightweight implementation of a thread provided by the Java runtime (introduced as a stable feature in Java 21).
   Unlike traditional Platform Threads, which are wrappers around Operating System (OS) threads, virtual threads are managed entirely by the JVM.
