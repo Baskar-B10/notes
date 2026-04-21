@@ -758,7 +758,24 @@ Readability  Cleaner code at injection points.        Very explicit; you always 
   @Valid - triggers validation public void save(@Valid @RequestBody User user)
   @ModelAttribute - used in Form binding
 
-  
+Feature          @Component                                              @Configuration
+Primary Use    Class-level:                                              Method-level: 
+                Marks a class you wrote to be auto-detected as a bean.   Acts as a factory for beans (often for 3rd party libraries).
+Registration    Done via Component Scanning.                              Done via @Bean methods within the class.
+Proxying        "No proxying (""Lite"" mode)."                          "CGLIB Proxying (""Full"" mode)."
+Best For        "Internal services, repositories, controllers."          "3rd party beans, complex setup, environment-based configs."
+
+When to Use Which?
+Use @Component (or @Service, @Repository) when:
+    You own the source code of the class.
+    The class is a standard part of your application layers (Service, Repo, Controller).
+    You want Spring to automatically manage the lifecycle via @Autowired or Constructor Injection.
+
+Use @Configuration when:
+    You are registering a bean from an external library (like a Gson, RestTemplate, or DataSource object) where you cannot add @Component to the source code.
+    The bean requires complex initialization logic before it can be used.
+    You want to define multiple related beans in one place to maintain a clear "System Blueprint."
+
 Feature          POST                                              PUT
 Primary Intent  Create a new subordinate resource.                 Update an existing resource or Create at a specific URI.
 Idempotency     No. Calling it N times creates N resources.        Yes. Calling it N times has the same effect as calling it once.
