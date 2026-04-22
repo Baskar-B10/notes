@@ -21,6 +21,23 @@ Collection Interface:
     clear()
     iterator()
 
+How Iterator Works
+      An Iterator is an object that allows you to traverse a collection (like a List or Set) without needing to know the underlying structure.
+      It acts like a "pointer" that moves through the elements one by one.
+      It primarily uses three methods:
+            hasNext(): Returns true if there is another element in the collection.
+            next(): Returns the next element and moves the pointer forward.
+            remove(): Removes the last element returned by the iterator (safe to use while looping).
+Example:
+      ArrayList<String> tools = new ArrayList<>(Arrays.asList("Hammer", "Drill"));
+      Iterator<String> it = tools.iterator();
+      while (it.hasNext()) {
+          System.out.println(it.next());
+      }
+Why use it? 
+      Unlike a standard for loop, using an Iterator is the only safe way to remove elements from a list while you are currently looping through it. 
+      If you use a for loop to remove items, you'll likely trigger a ConcurrentModificationException.
+
 List Interface:
     List is a child of Collection.
     Key Characteristics:
