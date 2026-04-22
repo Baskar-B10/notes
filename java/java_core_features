@@ -45,6 +45,16 @@ Fixed Size:
       No parentheses
       arr.length   // ✅
       arr.length() // ❌
+     The property .length returns the total count of elements. 
+     But because Java arrays are 0-indexed, the last valid index is always length - 1.
+       If int[] arr = new int[5];
+       arr.length is 5.
+       The valid indices are 0, 1, 2, 3, 4.
+     This will crash:
+       int[] arr = {10, 20, 30};
+       int x = arr[arr.length]; // Throws ArrayIndexOutOfBoundsException
+       Because arr.length is 3, but the highest index is 2.
+
   Why fixed size?
       Stored in contiguous memory
       JVM allocates memory once → cannot resize
