@@ -1074,3 +1074,44 @@ Optimistic vs persimitic lock:
 | **Performance**  | Slower due to locking overhead    | Faster (unless many retries occur)                        |
 | **Deadlocks**    | Possible if not handled carefully | Not possible                                              |
 | **Typical Tool** | `SELECT ... FOR UPDATE`           | `@Version` annotation in Hibernate / Java Persistence API |
+
+
+rerouting mechism in apache camel between different service and shadow logic implemntation:
+
+1. Rerouting Mechanisms in Camel
+Rerouting is the process of dynamically deciding where a message should go based on content, headers, or external state.
+Content-Based Router (Choice): The most common mechanism. It acts like a switch statement, routing messages based on predicates.
+    from("direct:start")
+        .choice()
+            .when(header("serviceType").isEqualTo("inventory"))
+                .to("http://inventory-service/api")
+            .when(header("serviceType").isEqualTo("shipping"))
+                .to("http://shipping-service/api")
+            .otherwise()
+                .to("log:unknown-service")
+        .end();
+Dynamic Router: Unlike a static choice, a Dynamic Router evaluates a rule at runtime to determine the next destination. 
+                It keeps calling a bean until the bean returns null, indicating the route is finished.
+
+Recipient List: Used when a message needs to be sent to a list of endpoints calculated at runtime.
+Tip: In 2026, many teams use this to broadcast events to a list of subscribers stored in a Redis cache.
+
+Shadow Logic (Traffic Shadowing)
+Shadow Logic involves sending a copy of production traffic to a new "shadow" service to test its performance and accuracy without affecting the actual user response.
+To achieve this in Camel, you use the Wire Tap EIP.
+The Wire Tap is a fixed recipient list that sends a copy of the exchange to a secondary destination in a separate thread.
+
+Implementation Example:
+    from("direct:production-inbound")
+        // 1. Shadow Logic: Tap the traffic and send a copy to the experimental service
+        .wireTap("direct:shadow-service")
+            .copy(true) // Ensure a deep copy of the message is made
+            .executorService(myCustomThreadPool) // Run shadow logic in a background pool
+        .end()
+        
+        // 2. Real Logic: Continue the main production flow immediately
+        .to("http://production-service/api");
+    
+    from("direct:shadow-service")
+        .log("Processing shadow traffic for testing...")
+        .to("http://beta-service/api");
