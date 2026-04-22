@@ -677,6 +677,40 @@ Where we use it:
     Hardware Access: If your code interacts with a specific piece of hardware (like a printer or a sensor), 
             a Singleton prevents multiple parts of the app from sending conflicting commands at the same time.
 
+How to prevent clonable and serilizable in singleton class
+  1. Preventing Cloning
+  Even if your Singleton doesn't implement Cloneable, a subclass might, or someone could use reflection. 
+  To strictly prevent this, override the clone() method from the Object class and explicitly throw an exception.
+    @Override
+    protected Object clone() throws CloneNotSupportedException {
+        // Prevent cloning by throwing an exception
+        throw new CloneNotSupportedException("Cloning of this class is prohibited");
+    }
+  2. Preventing Serialization Issues
+  When a Singleton is serialized and then deserialized, the JVM creates a new instance of the object by default. 
+  To prevent this, you must implement the readResolve() method.
+  The JVM calls readResolve() after the object is deserialized; by returning your existing instance, you ensure the newly created "garbage" instance is discarded.
+  
+    protected Object readResolve() {
+        // Return the existing instance instead of the new one
+        return INSTANCE;
+    }
+
+The "Pro-Tip": Use an Enum
+  If you want to avoid all this boilerplate, the most "witty" and effective solution is to use an Enum.
+  In Java, Enums are specialized classes that the JVM guarantees will be singletons.
+  They handle serialization automatically and strictly prohibit cloning and reflection-based instantiation.
+  
+  public enum EnumSingleton {
+      INSTANCE;
+  
+      public void doSomething() {
+          // Your logic here
+      }
+  }
+  Note: Using an Enum is widely considered the best way to implement a Singleton in Java because it provides all the protections mentioned above for free, 
+  with zero extra code.
+
 Immutable class:
   Object whose state cannot be changed after creation
   used in String class, Cache keys and DTOs
