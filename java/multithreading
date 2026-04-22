@@ -1210,3 +1210,12 @@ Summary
   Does the Task stop? Yes, immediately.
   Do other threads stop? No, they are isolated.
   Does the thread die? Usually, it is returned to the pool (if using submit) or replaced (if using execute).
+
+Java Profiling
+Profiling is used to monitor your application's performance (CPU usage, Memory leaks, Thread health).
+Tools: VisualVM, JProfiler, or YourKit.
+How it works: You attach a "Profiler Agent" to your JVM. 
+        It tracks which methods are taking the most time and which objects are filling up the Heap memory.
+Connection Pool Profiling: Most profilers can specifically track your HikariCP or Apache DBCP pools 
+        to see if you are "leaking" connections (opening them but never closing them).
+
