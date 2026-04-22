@@ -344,6 +344,16 @@ StatelessSession — Session Without the Magic
 7. Can we use JPA without Hibernate? ✔ Yes (EclipseLink, etc.)
 8. Does Hibernate use JDBC? ✔ Yes internally
 
+Connection Pools:
+    A Connection Pool is a cache of database connections. 
+    Instead of creating a new connection for every URL request (which is very slow), the app "borrows" one from the pool.
+    Invocation: When your dynamic URL logic needs data, it calls dataSource.getConnection().
+    Lifecycle:
+        Request arrives.
+        Borrow connection from pool.
+        Execute Query.
+        Return connection to pool (crucial!).
+
   Important Concepts in Hibernate & JPA
 `       1. Entity Mapping Annotations:
               Class-level:
