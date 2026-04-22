@@ -116,6 +116,21 @@ Access static varaibles:
 Loops:
 for , while, do while for each 
 
+Here are the breakdowns for your three Java-related queries.
+
+The For Loop
+  Best when you know exactly how many times to run (e.g., iterating through an array).
+      // Syntax: (Initialization; Condition; Increment)
+      for (int i = 0; i < 5; i++) {
+          System.out.println("Iteration: " + i);
+      }
+The While Loop
+  Best when you don't know the count, but you have a condition that must remain true.
+    int count = 0;
+    while (count < 5) {
+        System.out.println("Count is: " + count);
+        count++; // Don't forget to increment, or you'll get an infinite loop!
+
 statement /condition:
 if, else if, else , if else
 
