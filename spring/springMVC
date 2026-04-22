@@ -596,3 +596,33 @@ Instance Variables  Heap Memory    "Dangerous. If you have a variable defined at
     As soon as one thread finishes a request, it immediately grabs the next one from the queue.
     Key Rule: Always keep your Controllers stateless. Never store user-specific data in a class-level variable,
     or Request A's data will "leak" into Request B's response!
+
+url like api/user/{id} where id as data vs api/user/data:
+
+1. The Rule of "Most Specific Match"
+Web frameworks use a "Best Match" algorithm. Here is the priority order:
+  Static/Literal Matches: These are "hardcoded" paths like /data. They have the highest priority because they are exact.
+  Parameterized/Variable Matches: These are dynamic paths like /{id}. They are "catch-alls" and have lower priority.
+  Wildcard Matches: Patterns like /** have the lowest priority.
+
+The Logic Flow
+  When the server receives a request for api/user/data:
+  It looks at the Static route: "Does a specific /data mapping exist?" Yes. * It invokes the method associated with /data and stops looking.
+
+URL Requested    Pattern A: api/user/data    Pattern B: api/user/{id},Which one executes?
+api/user/data    Exact Match                    "Matches (id = ""data"")",Pattern A (Static wins)
+api/user/123      No Match                       "Matches (id = ""123"")",Pattern B (Dynamic wins)
+api/user/profile  No Match                        "Matches (id = ""profile"")",Pattern B
+
+3. Potential Pitfalls
+    While the framework handles the "Static vs. Dynamic" conflict for you, there are two things to watch out for:
+    Type Mismatch:
+    If your {id} is defined as an Integer in your code, but someone calls api/user/something-random,
+    the code will invoke the dynamic method first, and then throw a 400 Bad Request or MethodArgumentTypeMismatchException 
+    because it can't turn "something-random" into a number.
+    Ambiguous Mapping:
+    If you have two dynamic patterns that look identical to the server, the application will fail to start.
+      api/user/{id}
+      api/user/{name}
+    Result: The server will crash on startup with an IllegalStateException (Ambiguous mapping), 
+        because it doesn't know if the string "John" is an ID or a Name.
