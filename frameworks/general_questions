@@ -1115,3 +1115,19 @@ Implementation Example:
     from("direct:shadow-service")
         .log("Processing shadow traffic for testing...")
         .to("http://beta-service/api");
+
+Class-Level Logging:
+    Logging allows you to see what is happening inside your code at runtime. Class-level logging is the most common approach.
+    Implementation: Usually done via SLF4J with Logback or Log4j2.
+    Hierarchy: You can set different "Log Levels" for different packages.
+        com.myapp.service -> Set to DEBUG (very verbose).
+        com.myapp.security -> Set to INFO (only major events).
+            
+            public class UserService {
+                // This is class-level logging
+                private static final Logger logger = LoggerFactory.getLogger(UserService.class);
+            
+                public void processRequest(String dynamicId) {
+                    logger.info("Processing request for ID: {}", dynamicId);
+                }
+            }
